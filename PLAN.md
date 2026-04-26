@@ -66,7 +66,7 @@ Do not introduce new dependencies without asking.
 
 ## 5. Data model
 
-Seven tables. Field names finalized here so no drift later.
+Seven tables. Field names and FK ON DELETE behavior finalized here so no drift later.
 
 ### `users`
 - `id` (text, PK, from Clerk userId)
@@ -79,22 +79,22 @@ Seven tables. Field names finalized here so no drift later.
 - `id` (uuid, PK)
 - `slug` (text, unique — used in URLs like `/c/[slug]`)
 - `name` (text — e.g. "Hyderabad Crew")
-- `created_by` (text, FK users.id)
+- `created_by` (text, FK users.id, **ON DELETE SET NULL** — circle survives if creator deletes account; remaining admins keep ownership)
 - `created_at` (timestamp)
 
 ### `memberships`
 - `id` (uuid, PK)
-- `user_id` (text, FK users.id)
-- `circle_id` (uuid, FK circles.id)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
+- `circle_id` (uuid, FK circles.id, **ON DELETE CASCADE**)
 - `role` (enum: `admin` | `member`)
 - `joined_at` (timestamp)
 - Unique constraint: (user_id, circle_id)
 
 ### `invites`
 - `id` (uuid, PK)
-- `circle_id` (uuid, FK circles.id)
+- `circle_id` (uuid, FK circles.id, **ON DELETE CASCADE**)
 - `code` (text, unique — short opaque string for URL)
-- `created_by` (text, FK users.id)
+- `created_by` (text, FK users.id, **ON DELETE CASCADE** — privacy: deleting a user wipes the invites they generated)
 - `expires_at` (timestamp, nullable)
 - `max_uses` (int, nullable)
 - `uses` (int, default 0)
@@ -102,32 +102,40 @@ Seven tables. Field names finalized here so no drift later.
 
 ### `plans`
 - `id` (uuid, PK)
-- `circle_id` (uuid, FK circles.id)
+- `circle_id` (uuid, FK circles.id, **ON DELETE CASCADE**)
 - `title` (text — e.g. "Dinner at Karan's")
 - `type` (enum: `eat` | `play` | `chai` | `stay-in` | `other`)
 - `starts_at` (timestamp — exact time)
 - `is_approximate` (boolean — if true, render as "this weekend" / "Sat evening" instead of exact time)
 - `location` (text, nullable — free text, no DB of places)
 - `max_people` (int, nullable)
-- `created_by` (text, FK users.id)
+- `created_by` (text, FK users.id, **ON DELETE SET NULL** — historical plans persist even after the creator deletes their account; per §12 privacy)
 - `status` (enum: `active` | `done` | `cancelled`, default `active`)
 - `created_at` (timestamp)
 
 ### `votes`
 - `id` (uuid, PK)
-- `plan_id` (uuid, FK plans.id)
-- `user_id` (text, FK users.id)
+- `plan_id` (uuid, FK plans.id, **ON DELETE CASCADE**)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
 - `status` (enum: `in` | `out` | `maybe`)
 - `voted_at` (timestamp)
 - Unique constraint: (plan_id, user_id) — one vote per user per plan, latest wins
 
 ### `comments`
 - `id` (uuid, PK)
-- `plan_id` (uuid, FK plans.id)
-- `user_id` (text, FK users.id)
+- `plan_id` (uuid, FK plans.id, **ON DELETE CASCADE**)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
 - `body` (text)
 - `created_at` (timestamp)
 - No editing or deletion in v1 — keeps the thread honest
+
+### Cascade summary
+
+Deleting a **user** cascades to: `memberships`, `votes`, `comments`, `invites` (created by them). It nullifies `created_by` on `circles` and `plans` they created — those records persist as orphans.
+
+Deleting a **circle** cascades to: `memberships`, `invites`, `plans` → and through plans to `votes` and `comments`.
+
+Deleting a **plan** cascades to: `votes`, `comments`.
 
 ## 6. v1 user flows
 
