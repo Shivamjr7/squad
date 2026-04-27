@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlanType } from "@/lib/validation/plan";
 import { PlanMeta } from "./plan-meta";
@@ -16,6 +17,7 @@ export type PlanCardData = {
     displayName: string;
     avatarUrl: string | null;
   } | null;
+  commentCount: number;
 };
 
 export function PlanCard({
@@ -83,6 +85,15 @@ export function PlanCard({
           ) : (
             <span>Unknown</span>
           )}
+          {plan.commentCount > 0 ? (
+            <span
+              className="inline-flex items-center gap-1 tabular-nums"
+              aria-label={`${plan.commentCount} comment${plan.commentCount === 1 ? "" : "s"}`}
+            >
+              <MessageSquare className="size-3.5" aria-hidden />
+              {plan.commentCount}
+            </span>
+          ) : null}
         </div>
       </Link>
 

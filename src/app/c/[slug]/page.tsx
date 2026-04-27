@@ -4,9 +4,9 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { and, asc, desc, eq, gte, inArray, lt, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt, ne, or } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, memberships, plans, votes } from "@/db/schema";
+import { circles, comments, memberships, plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { PlanCard } from "@/components/plan/plan-card";
@@ -83,15 +83,23 @@ export default async function CircleHomePage({
 
   const planIds = [...upcoming, ...past].map((p) => p.id);
   const initialVoters: VotersByPlan = {};
+  const commentCounts = new Map<string, number>();
   if (planIds.length > 0) {
-    const voteRows = await db.query.votes.findMany({
-      where: inArray(votes.planId, planIds),
-      with: {
-        user: {
-          columns: { id: true, displayName: true, avatarUrl: true },
+    const [voteRows, countRows] = await Promise.all([
+      db.query.votes.findMany({
+        where: inArray(votes.planId, planIds),
+        with: {
+          user: {
+            columns: { id: true, displayName: true, avatarUrl: true },
+          },
         },
-      },
-    });
+      }),
+      db
+        .select({ planId: comments.planId, n: count() })
+        .from(comments)
+        .where(inArray(comments.planId, planIds))
+        .groupBy(comments.planId),
+    ]);
     for (const v of voteRows) {
       if (!v.user) continue;
       const list = initialVoters[v.planId] ?? [];
@@ -102,6 +110,9 @@ export default async function CircleHomePage({
         status: v.status,
       });
       initialVoters[v.planId] = list;
+    }
+    for (const row of countRows) {
+      commentCounts.set(row.planId, Number(row.n));
     }
   }
 
@@ -163,7 +174,10 @@ export default async function CircleHomePage({
                 <ul className="flex flex-col gap-3">
                   {upcoming.map((p) => (
                     <li key={p.id}>
-                      <PlanCard plan={p} slug={circle.slug} />
+                      <PlanCard
+                        plan={{ ...p, commentCount: commentCounts.get(p.id) ?? 0 }}
+                        slug={circle.slug}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -178,7 +192,10 @@ export default async function CircleHomePage({
                 <ul className="flex flex-col gap-3">
                   {past.map((p) => (
                     <li key={p.id}>
-                      <PlanCard plan={p} slug={circle.slug} />
+                      <PlanCard
+                        plan={{ ...p, commentCount: commentCounts.get(p.id) ?? 0 }}
+                        slug={circle.slug}
+                      />
                     </li>
                   ))}
                 </ul>

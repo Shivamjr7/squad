@@ -2,18 +2,20 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { ArrowLeft, Users } from "lucide-react";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, memberships, plans, votes } from "@/db/schema";
+import { circles, comments, memberships, plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { PlanMeta, planTypeLabel } from "@/components/plan/plan-meta";
 import { PlanStatusActions } from "@/components/plan/plan-status-actions";
 import { PlanVotes } from "@/components/votes/plan-votes";
+import { PlanComments } from "@/components/comments/plan-comments";
 import {
   CircleVotesProvider,
   type Member,
   type VotersByPlan,
 } from "@/lib/realtime/use-circle-votes";
+import type { PlanComment } from "@/lib/realtime/use-plan-comments";
 
 export default async function PlanDetailPage({
   params,
@@ -90,10 +92,26 @@ export default async function PlanDetailPage({
     avatarUrl: me.user?.avatarUrl ?? null,
   };
 
+  const commentRows = await db.query.comments.findMany({
+    where: eq(comments.planId, planId),
+    orderBy: asc(comments.createdAt),
+    with: {
+      user: { columns: { id: true, displayName: true, avatarUrl: true } },
+    },
+  });
+  const initialComments: PlanComment[] = commentRows.map((c) => ({
+    id: c.id,
+    authorId: c.userId,
+    authorName: c.user?.displayName ?? "Member",
+    authorAvatarUrl: c.user?.avatarUrl ?? null,
+    body: c.body,
+    createdAt: c.createdAt.toISOString(),
+  }));
+
   const showVotes = plan.status === "active";
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 py-4 pb-24 sm:px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 py-4 sm:px-6">
       <header className="flex items-center justify-between">
         <Button asChild variant="ghost" size="sm" className="-ml-2">
           <Link href={`/c/${circle.slug}`}>
@@ -166,16 +184,21 @@ export default async function PlanDetailPage({
         </CircleVotesProvider>
       ) : null}
 
-      <section className="flex flex-col gap-2 rounded-lg border border-dashed p-4">
-        <h2 className="text-sm font-medium">Discussion</h2>
-        <p className="text-sm text-muted-foreground">Comments arrive in M6.</p>
-      </section>
-
       {canMutateStatus && plan.status === "active" ? (
         <section className="flex flex-col gap-2 pt-2">
           <PlanStatusActions />
         </section>
       ) : null}
+
+      <section className="flex flex-1 flex-col gap-3 pb-2">
+        <h2 className="text-sm font-medium">Discussion</h2>
+        <PlanComments
+          planId={plan.id}
+          members={members}
+          initialComments={initialComments}
+          currentUser={currentUser}
+        />
+      </section>
     </main>
   );
 }
