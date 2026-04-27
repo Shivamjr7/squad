@@ -1,0 +1,125 @@
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
+import { ArrowLeft, Users } from "lucide-react";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { circles, memberships, plans } from "@/db/schema";
+import { Button } from "@/components/ui/button";
+import { PlanMeta, planTypeLabel } from "@/components/plan/plan-meta";
+import { PlanStatusActions } from "@/components/plan/plan-status-actions";
+
+export default async function PlanDetailPage({
+  params,
+}: {
+  params: Promise<{ slug: string; planId: string }>;
+}) {
+  const { slug, planId } = await params;
+  const { userId } = await auth();
+  if (!userId) notFound();
+
+  const circle = await db.query.circles.findFirst({
+    columns: { id: true, name: true, slug: true },
+    where: eq(circles.slug, slug),
+  });
+  if (!circle) notFound();
+
+  const membership = await db.query.memberships.findFirst({
+    columns: { role: true },
+    where: and(
+      eq(memberships.userId, userId),
+      eq(memberships.circleId, circle.id),
+    ),
+  });
+  if (!membership) notFound();
+
+  const plan = await db.query.plans.findFirst({
+    where: eq(plans.id, planId),
+    with: {
+      creator: { columns: { id: true, displayName: true, avatarUrl: true } },
+    },
+  });
+  // Don't leak plan IDs across circles.
+  if (!plan || plan.circleId !== circle.id) notFound();
+
+  const canMutateStatus =
+    membership.role === "admin" || plan.creator?.id === userId;
+
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 py-4 pb-24 sm:px-6">
+      <header className="flex items-center justify-between">
+        <Button asChild variant="ghost" size="sm" className="-ml-2">
+          <Link href={`/c/${circle.slug}`}>
+            <ArrowLeft /> {circle.name}
+          </Link>
+        </Button>
+        {plan.status !== "active" ? (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {plan.status}
+          </span>
+        ) : null}
+      </header>
+
+      <section className="flex flex-col gap-3">
+        <h1
+          className={`text-2xl font-semibold leading-tight ${
+            plan.status === "cancelled" ? "line-through opacity-60" : ""
+          }`}
+        >
+          {plan.title}
+        </h1>
+        <PlanMeta
+          type={plan.type}
+          startsAt={plan.startsAt}
+          isApproximate={plan.isApproximate}
+          location={plan.location}
+          className="text-base"
+        />
+        <p className="text-sm text-muted-foreground">
+          {planTypeLabel(plan.type)}
+          {plan.maxPeople ? (
+            <>
+              {" · "}
+              <span className="inline-flex items-center gap-1">
+                <Users className="size-3.5" /> up to {plan.maxPeople}
+              </span>
+            </>
+          ) : null}
+        </p>
+        {plan.creator ? (
+          <div className="flex items-center gap-2 pt-1 text-sm text-muted-foreground">
+            {plan.creator.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={plan.creator.avatarUrl}
+                alt=""
+                className="size-6 rounded-full object-cover"
+              />
+            ) : (
+              <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-medium uppercase">
+                {plan.creator.displayName.slice(0, 1)}
+              </span>
+            )}
+            <span>Hosted by {plan.creator.displayName}</span>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="flex flex-col gap-2 rounded-lg border border-dashed p-4">
+        <h2 className="text-sm font-medium">Votes</h2>
+        <p className="text-sm text-muted-foreground">Voting opens in M5.</p>
+      </section>
+
+      <section className="flex flex-col gap-2 rounded-lg border border-dashed p-4">
+        <h2 className="text-sm font-medium">Discussion</h2>
+        <p className="text-sm text-muted-foreground">Comments arrive in M6.</p>
+      </section>
+
+      {canMutateStatus && plan.status === "active" ? (
+        <section className="flex flex-col gap-2 pt-2">
+          <PlanStatusActions />
+        </section>
+      ) : null}
+    </main>
+  );
+}
