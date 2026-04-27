@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
+// @ts-expect-error -- unstable_ViewTransition is provided by the experimental React channel that Next swaps in when experimental.viewTransition is enabled
+import { unstable_ViewTransition as ViewTransition } from "react";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,7 +33,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
         <body className="min-h-full flex flex-col" suppressHydrationWarning>
-          {children}
+          <ViewTransition>{children}</ViewTransition>
           <Toaster richColors closeButton />
         </body>
       </html>

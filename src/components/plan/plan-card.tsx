@@ -29,8 +29,9 @@ export function PlanCard({
   return (
     <Link
       href={`/c/${slug}/p/${plan.id}`}
+      prefetch
       className={cn(
-        "group flex flex-col gap-2 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "group flex touch-manipulation flex-col gap-2 rounded-lg border bg-card p-4 transition-colors duration-75 hover:bg-accent/50 active:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         isCancelled && "opacity-60",
       )}
     >
