@@ -2,12 +2,18 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { ArrowLeft, Users } from "lucide-react";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, memberships, plans } from "@/db/schema";
+import { circles, memberships, plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { PlanMeta, planTypeLabel } from "@/components/plan/plan-meta";
 import { PlanStatusActions } from "@/components/plan/plan-status-actions";
+import { PlanVotes } from "@/components/votes/plan-votes";
+import {
+  CircleVotesProvider,
+  type Member,
+  type VotersByPlan,
+} from "@/lib/realtime/use-circle-votes";
 
 export default async function PlanDetailPage({
   params,
@@ -24,14 +30,17 @@ export default async function PlanDetailPage({
   });
   if (!circle) notFound();
 
-  const membership = await db.query.memberships.findFirst({
-    columns: { role: true },
-    where: and(
-      eq(memberships.userId, userId),
-      eq(memberships.circleId, circle.id),
-    ),
+  const memberRows = await db.query.memberships.findMany({
+    where: eq(memberships.circleId, circle.id),
+    with: {
+      user: {
+        columns: { id: true, displayName: true, avatarUrl: true },
+      },
+    },
   });
-  if (!membership) notFound();
+
+  const me = memberRows.find((m) => m.userId === userId);
+  if (!me) notFound();
 
   const plan = await db.query.plans.findFirst({
     where: eq(plans.id, planId),
@@ -43,7 +52,45 @@ export default async function PlanDetailPage({
   if (!plan || plan.circleId !== circle.id) notFound();
 
   const canMutateStatus =
-    membership.role === "admin" || plan.creator?.id === userId;
+    me.role === "admin" || plan.creator?.id === userId;
+
+  const members: Record<string, Member> = {};
+  for (const m of memberRows) {
+    if (!m.user) continue;
+    members[m.user.id] = {
+      displayName: m.user.displayName,
+      avatarUrl: m.user.avatarUrl,
+    };
+  }
+
+  const initialVoters: VotersByPlan = {};
+  const voteRows = await db.query.votes.findMany({
+    where: eq(votes.planId, planId),
+    with: {
+      user: {
+        columns: { id: true, displayName: true, avatarUrl: true },
+      },
+    },
+  });
+  for (const v of voteRows) {
+    if (!v.user) continue;
+    const list = initialVoters[v.planId] ?? [];
+    list.push({
+      userId: v.user.id,
+      displayName: v.user.displayName,
+      avatarUrl: v.user.avatarUrl,
+      status: v.status,
+    });
+    initialVoters[v.planId] = list;
+  }
+
+  const currentUser = {
+    id: userId,
+    displayName: me.user?.displayName ?? "You",
+    avatarUrl: me.user?.avatarUrl ?? null,
+  };
+
+  const showVotes = plan.status === "active";
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 py-4 pb-24 sm:px-6">
@@ -105,10 +152,19 @@ export default async function PlanDetailPage({
         ) : null}
       </section>
 
-      <section className="flex flex-col gap-2 rounded-lg border border-dashed p-4">
-        <h2 className="text-sm font-medium">Votes</h2>
-        <p className="text-sm text-muted-foreground">Voting opens in M5.</p>
-      </section>
+      {showVotes ? (
+        <CircleVotesProvider
+          initialVoters={initialVoters}
+          members={members}
+          knownPlanIds={[plan.id]}
+          currentUser={currentUser}
+        >
+          <section className="flex flex-col gap-3 rounded-lg border p-4">
+            <h2 className="text-sm font-medium">Votes</h2>
+            <PlanVotes planId={plan.id} />
+          </section>
+        </CircleVotesProvider>
+      ) : null}
 
       <section className="flex flex-col gap-2 rounded-lg border border-dashed p-4">
         <h2 className="text-sm font-medium">Discussion</h2>
