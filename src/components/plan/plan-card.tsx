@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { PlanType } from "@/lib/validation/plan";
 import { PlanMeta } from "./plan-meta";
 import { PlanVotes } from "@/components/votes/plan-votes";
+import { StatusPill } from "./status-pill";
 
 export type PlanCardData = {
   id: string;
@@ -23,9 +24,11 @@ export type PlanCardData = {
 export function PlanCard({
   plan,
   slug,
+  now,
 }: {
   plan: PlanCardData;
   slug: string;
+  now: Date;
 }) {
   const isCancelled = plan.status === "cancelled";
   const showVotes = plan.status === "active";
@@ -51,11 +54,7 @@ export function PlanCard({
           >
             {plan.title}
           </h3>
-          {plan.status !== "active" ? (
-            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {plan.status}
-            </span>
-          ) : null}
+          <StatusPill status={plan.status} startsAt={plan.startsAt} now={now} />
         </div>
 
         <PlanMeta

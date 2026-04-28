@@ -6,11 +6,12 @@ import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
 import { and, asc, count, desc, eq, gte, inArray, lt, or } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, comments, memberships, plans, votes } from "@/db/schema";
+import { circles, comments, invites, memberships, plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { PlanCard } from "@/components/plan/plan-card";
 import { InviteButton } from "@/components/circle/invite-button";
+import { MembersStrip, type StripMember } from "@/components/circle/members-strip";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import {
   CircleVotesProvider,
@@ -47,14 +48,22 @@ export default async function CircleHomePage({
   });
   if (!circle) notFound();
 
-  const memberRows = await db.query.memberships.findMany({
-    where: eq(memberships.circleId, circle.id),
-    with: {
-      user: {
-        columns: { id: true, displayName: true, avatarUrl: true },
+  const [memberRows, activeInvites] = await Promise.all([
+    db.query.memberships.findMany({
+      where: eq(memberships.circleId, circle.id),
+      orderBy: asc(memberships.joinedAt),
+      with: {
+        user: {
+          columns: { id: true, displayName: true, avatarUrl: true },
+        },
       },
-    },
-  });
+    }),
+    db.query.invites.findMany({
+      columns: { code: true },
+      where: eq(invites.circleId, circle.id),
+      orderBy: desc(invites.createdAt),
+    }),
+  ]);
 
   const me = memberRows.find((m) => m.userId === userId);
   if (!me) notFound();
@@ -62,13 +71,26 @@ export default async function CircleHomePage({
   const isAdmin = me.role === "admin";
 
   const members: Record<string, Member> = {};
+  const stripMembers: StripMember[] = [];
   for (const m of memberRows) {
     if (!m.user) continue;
     members[m.user.id] = {
       displayName: m.user.displayName,
       avatarUrl: m.user.avatarUrl,
     };
+    stripMembers.push({
+      userId: m.user.id,
+      displayName: m.user.displayName,
+      avatarUrl: m.user.avatarUrl,
+      role: m.role,
+    });
   }
+  // Show admins first in the sheet (small a11y nicety so role is obvious),
+  // then members alphabetically for stable order.
+  stripMembers.sort((a, b) => {
+    if (a.role !== b.role) return a.role === "admin" ? -1 : 1;
+    return a.displayName.localeCompare(b.displayName);
+  });
 
   const now = new Date();
   const cancelledCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -166,6 +188,15 @@ export default async function CircleHomePage({
         </div>
       </header>
 
+      <div className="flex items-center justify-between gap-2 border-b px-2 py-2 sm:px-4">
+        <MembersStrip members={stripMembers} />
+        <InviteButton
+          circleId={circle.id}
+          isAdmin={isAdmin}
+          activeInvites={activeInvites}
+        />
+      </div>
+
       <CircleVotesProvider
         initialVoters={initialVoters}
         members={members}
@@ -178,11 +209,6 @@ export default async function CircleHomePage({
             <p className="max-w-xs text-sm text-muted-foreground">
               Tap + to propose tonight&apos;s plan.
             </p>
-            {isAdmin ? (
-              <div className="mt-6">
-                <InviteButton circleId={circle.id} />
-              </div>
-            ) : null}
           </section>
         ) : (
           <div className="flex flex-col gap-8 px-4 py-6 sm:px-6">
@@ -197,7 +223,12 @@ export default async function CircleHomePage({
                     <span className="font-medium text-foreground">
                       {past[0]?.title}
                     </span>
-                    , {formatPastAgo(past[0]!.startsAt, now)}.
+                    ,{" "}
+                    {formatPastAgo(
+                      past[0]!.startsAt > now ? now : past[0]!.startsAt,
+                      now,
+                    )}
+                    .
                   </p>
                   <p className="mt-1">Want to start something? Tap +.</p>
                 </div>
