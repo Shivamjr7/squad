@@ -121,6 +121,10 @@ export const plans = pgTable("plans", {
     onDelete: "set null",
   }),
   status: planStatus("status").notNull().default("active"),
+  cancelledAt: timestamp("cancelled_at", {
+    withTimezone: true,
+    mode: "date",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),

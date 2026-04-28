@@ -179,14 +179,14 @@ export default async function PlanDetailPage({
         >
           <section className="flex flex-col gap-3 rounded-lg border p-4">
             <h2 className="text-sm font-medium">Votes</h2>
-            <PlanVotes planId={plan.id} />
+            <PlanVotes planId={plan.id} showFirstVoteHint />
           </section>
         </CircleVotesProvider>
       ) : null}
 
-      {canMutateStatus && plan.status === "active" ? (
+      {canMutateStatus && plan.status !== "done" ? (
         <section className="flex flex-col gap-2 pt-2">
-          <PlanStatusActions />
+          <PlanStatusActions planId={plan.id} status={plan.status} />
         </section>
       ) : null}
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { and, asc, count, desc, eq, gte, inArray, lt, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt, or } from "drizzle-orm";
 import { db } from "@/db/client";
 import { circles, comments, memberships, plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,20 @@ import {
   type Member,
   type VotersByPlan,
 } from "@/lib/realtime/use-circle-votes";
+
+const RTF = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+function formatPastAgo(d: Date, now: Date): string {
+  const diffSec = Math.round((d.getTime() - now.getTime()) / 1000);
+  const min = Math.round(diffSec / 60);
+  const hr = Math.round(min / 60);
+  const day = Math.round(hr / 24);
+  if (Math.abs(diffSec) < 60) return "moments ago";
+  if (Math.abs(min) < 60) return RTF.format(min, "minute");
+  if (Math.abs(hr) < 24) return RTF.format(hr, "hour");
+  if (Math.abs(day) < 30) return RTF.format(day, "day");
+  return RTF.format(Math.round(day / 30), "month");
+}
 
 export default async function CircleHomePage({
   params,
@@ -57,6 +71,7 @@ export default async function CircleHomePage({
   }
 
   const now = new Date();
+  const cancelledCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const [upcoming, past] = await Promise.all([
     db.query.plans.findMany({
       where: and(
@@ -69,10 +84,19 @@ export default async function CircleHomePage({
         creator: { columns: { displayName: true, avatarUrl: true } },
       },
     }),
+    // Past = done OR auto-past-active OR recently-cancelled. Cancelled plans
+    // older than 24h are hidden entirely (PLAN.md §6 Flow F step 3).
     db.query.plans.findMany({
       where: and(
         eq(plans.circleId, circle.id),
-        or(ne(plans.status, "active"), lt(plans.startsAt, now)),
+        or(
+          eq(plans.status, "done"),
+          and(eq(plans.status, "active"), lt(plans.startsAt, now)),
+          and(
+            eq(plans.status, "cancelled"),
+            gte(plans.cancelledAt, cancelledCutoff),
+          ),
+        ),
       ),
       orderBy: desc(plans.startsAt),
       with: {
@@ -150,9 +174,9 @@ export default async function CircleHomePage({
       >
         {isEmpty ? (
           <section className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-            <p className="text-base font-medium">No plans yet.</p>
+            <p className="text-base font-medium">Quiet so far.</p>
             <p className="max-w-xs text-sm text-muted-foreground">
-              Tap + to propose one.
+              Tap + to propose tonight&apos;s plan.
             </p>
             {isAdmin ? (
               <div className="mt-6">
@@ -167,9 +191,16 @@ export default async function CircleHomePage({
                 Upcoming
               </h2>
               {upcoming.length === 0 ? (
-                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  No upcoming plans yet. Tap + to propose one.
-                </p>
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  <p>
+                    Nothing on the schedule. The last plan was{" "}
+                    <span className="font-medium text-foreground">
+                      {past[0]?.title}
+                    </span>
+                    , {formatPastAgo(past[0]!.startsAt, now)}.
+                  </p>
+                  <p className="mt-1">Want to start something? Tap +.</p>
+                </div>
               ) : (
                 <ul className="flex flex-col gap-3">
                   {upcoming.map((p) => (

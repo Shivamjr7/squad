@@ -47,3 +47,8 @@ export const createPlanSchema = z.object({
 });
 
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;
+
+export const planIdSchema = z.object({
+  planId: z.string().uuid(),
+});
+export type PlanIdInput = z.infer<typeof planIdSchema>;

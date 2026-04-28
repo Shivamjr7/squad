@@ -71,7 +71,9 @@ export default async function SettingsPage({
         <h2 className="text-sm font-medium text-muted-foreground">Invite links</h2>
         <GenerateInviteForm circleId={circle.id} />
         {activeInvites.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No invite links yet.</p>
+          <p className="text-sm text-muted-foreground">
+            No invites yet. Generate one to share via WhatsApp.
+          </p>
         ) : (
           <ul className="flex flex-col gap-2">
             {activeInvites.map((inv) => (
@@ -93,6 +95,11 @@ export default async function SettingsPage({
         <h2 className="text-sm font-medium text-muted-foreground">
           Members ({memberRows.length})
         </h2>
+        {memberRows.length === 1 ? (
+          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            Just you so far. Generate an invite to bring the squad in.
+          </p>
+        ) : (
         <ul className="flex flex-col gap-2">
           {memberRows.map((m) => (
             <li
@@ -118,6 +125,7 @@ export default async function SettingsPage({
             </li>
           ))}
         </ul>
+        )}
       </section>
     </main>
   );

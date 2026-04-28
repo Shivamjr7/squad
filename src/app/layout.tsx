@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
@@ -19,6 +19,18 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Squad",
   description: "Plan a thing. Vote. Show up.",
+};
+
+// viewportFit:cover unlocks env(safe-area-inset-*) on iOS — without it the
+// FAB and comment composer's safe-area padding both collapse to 0 and sit
+// behind the home indicator. colorScheme pins light mode (next-themes is
+// installed but unwired); revisit if real dark-mode lands in v2.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  colorScheme: "light",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({

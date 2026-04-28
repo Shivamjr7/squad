@@ -9,6 +9,8 @@ import {
   addCommentSchema,
   type AddCommentInput,
 } from "@/lib/validation/comment";
+import { getAppUrl } from "@/lib/url";
+import { sendNewCommentEmail } from "@/lib/email";
 
 export type AddedComment = {
   id: string;
@@ -47,6 +49,11 @@ export async function addComment(
   if (!row) {
     throw new ActionError("INVALID", "Couldn't save comment.");
   }
+
+  const appUrl = await getAppUrl();
+  void sendNewCommentEmail(row.id, appUrl).catch((err) => {
+    console.error("[comments.addComment] email fanout failed", err);
+  });
 
   return {
     id: row.id,

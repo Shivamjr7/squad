@@ -21,7 +21,13 @@ const COMMIT_DEBOUNCE_MS = 200;
 // VoteStatus = user wants to cast that status.
 type PendingVote = VoteStatus | null | undefined;
 
-export function PlanVotes({ planId }: { planId: string }) {
+export function PlanVotes({
+  planId,
+  showFirstVoteHint: showHint = false,
+}: {
+  planId: string;
+  showFirstVoteHint?: boolean;
+}) {
   const { voters, currentUser } = useCircleVotes();
   const planVoters: Voter[] = useMemo(
     () => voters[planId] ?? [],
@@ -91,8 +97,20 @@ export function PlanVotes({ planId }: { planId: string }) {
     }, COMMIT_DEBOUNCE_MS);
   };
 
+  // Hint only on the plan detail page (caller opts in). Covers both "no
+  // votes at all" and "creator auto-in is the only vote, you're a viewer".
+  const showFirstVoteHint =
+    showHint &&
+    displayVoters.length <= 1 &&
+    !displayVoters.some((v) => v.userId === currentUser.id);
+
   return (
     <div className="flex flex-col gap-3">
+      {showFirstVoteHint ? (
+        <p className="text-xs text-muted-foreground">
+          First vote sets the energy. Tap In, Out, or Maybe.
+        </p>
+      ) : null}
       <VoteButtons selected={ownVote} onChange={onChange} />
       <VoteTally voters={displayVoters} />
     </div>

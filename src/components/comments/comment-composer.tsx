@@ -64,7 +64,7 @@ export function CommentComposer({ onSend }: Props) {
         rows={1}
         maxLength={COMMENT_BODY_MAX * 2}
         placeholder="Say something…"
-        className="min-h-10 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="min-h-10 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-base shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:text-sm"
       />
       <Button
         type="submit"

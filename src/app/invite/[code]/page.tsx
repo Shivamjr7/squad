@@ -8,10 +8,15 @@ import { Button } from "@/components/ui/button";
 
 function InvalidInvitePage({ reason }: { reason: string }) {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-4 p-6 text-center">
-      <h1 className="text-xl font-semibold">This invite isn&apos;t valid</h1>
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-3 p-6 text-center">
+      <h1 className="text-xl font-semibold">
+        This invite isn&apos;t valid anymore.
+      </h1>
       <p className="text-sm text-muted-foreground">{reason}</p>
-      <Button asChild variant="outline">
+      <p className="text-sm text-muted-foreground">
+        Ask whoever sent it for a new one.
+      </p>
+      <Button asChild variant="outline" className="mt-2">
         <Link href="/">Back home</Link>
       </Button>
     </main>
