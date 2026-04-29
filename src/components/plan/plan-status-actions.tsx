@@ -60,7 +60,7 @@ export function PlanStatusActions({ planId, status }: Props) {
         onClick={() => run(() => uncancelPlan({ planId }))}
         className="w-full sm:w-auto"
       >
-        <RotateCcw /> Uncancel plan
+        <RotateCcw /> {pending ? "Uncancelling…" : "Uncancel plan"}
       </Button>
     );
   }
@@ -96,7 +96,7 @@ export function PlanStatusActions({ planId, status }: Props) {
                 run(() => markPlanDone({ planId }), () => setDoneOpen(false))
               }
             >
-              Mark done
+              {pending ? "Marking…" : "Mark done"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -132,7 +132,7 @@ export function PlanStatusActions({ planId, status }: Props) {
                 run(() => cancelPlan({ planId }), () => setCancelOpen(false))
               }
             >
-              Cancel plan
+              {pending ? "Cancelling…" : "Yes, cancel plan"}
             </Button>
           </DialogFooter>
         </DialogContent>

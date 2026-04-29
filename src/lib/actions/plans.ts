@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { circles, plans, votes } from "@/db/schema";
-import { requireMembership } from "@/lib/auth";
+import { canModifyPlan, requireMembership } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
   createPlanSchema,
@@ -111,9 +111,7 @@ async function loadPlanForStatusChange(input: PlanIdInput) {
     throw new ActionError("NOT_FOUND", "Plan not found.");
   }
   const { userId, role } = await requireMembership(plan.circleId);
-  const isCreator = plan.createdBy === userId;
-  const isAdmin = role === "admin";
-  if (!isCreator && !isAdmin) {
+  if (!canModifyPlan(plan, userId, { role })) {
     throw new ActionError(
       "FORBIDDEN",
       "Only the plan's creator or a circle admin can change its status.",

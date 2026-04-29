@@ -78,7 +78,7 @@ export function RenameCircleForm({
           )}
         />
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Save"}
+          {pending ? "Saving…" : "Done"}
         </Button>
       </form>
     </Form>

@@ -42,3 +42,16 @@ export async function requireMembership(
   }
   return { userId, role: m.role };
 }
+
+// Plan creator OR circle admin can mark done / cancel / uncancel
+// (PLAN.md §6 Flow F). If the creator deleted their account, plans.created_by
+// becomes NULL (§5 ON DELETE SET NULL) — only admins qualify in that case.
+export function canModifyPlan(
+  plan: { createdBy: string | null },
+  userId: string,
+  membership: { role: MembershipRole } | null,
+): boolean {
+  if (!membership) return false;
+  if (membership.role === "admin") return true;
+  return plan.createdBy !== null && plan.createdBy === userId;
+}

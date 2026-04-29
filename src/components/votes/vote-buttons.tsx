@@ -52,10 +52,10 @@ export function VoteButtons({ selected, onChange, disabled }: Props) {
               onChange(isSelected ? null : status);
             }}
             className={cn(
-              "flex-1 touch-manipulation rounded-md border px-3 py-2 text-sm font-medium transition-colors duration-75 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2",
+              "flex-1 touch-manipulation rounded-md border px-3 py-2 text-sm font-medium transition-all duration-100 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2",
               isSelected
                 ? STYLE[status].selected
-                : "border-input bg-background text-foreground hover:bg-accent",
+                : "border-input bg-background text-foreground hover:bg-accent active:bg-accent/80",
               STYLE[status].ring,
               disabled && "opacity-60",
             )}

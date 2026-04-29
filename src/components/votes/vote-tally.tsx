@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -11,8 +10,12 @@ import {
 } from "@/components/ui/sheet";
 import type { Voter } from "@/lib/realtime/use-circle-votes";
 import type { VoteStatus } from "@/lib/validation/vote";
+import { VoterStrip } from "./voter-strip";
 
-type Props = { voters: Voter[] };
+type Props = {
+  voters: Voter[];
+  density?: "card" | "detail";
+};
 
 const SECTIONS: { status: VoteStatus; label: string; emoji: string }[] = [
   { status: "in", label: "In", emoji: "🟢" },
@@ -20,7 +23,7 @@ const SECTIONS: { status: VoteStatus; label: string; emoji: string }[] = [
   { status: "out", label: "Out", emoji: "🔴" },
 ];
 
-export function VoteTally({ voters }: Props) {
+export function VoteTally({ voters, density = "card" }: Props) {
   const [open, setOpen] = useState(false);
   const [focusStatus, setFocusStatus] = useState<VoteStatus | null>(null);
   const sectionRefs = useRef<Partial<Record<VoteStatus, HTMLElement | null>>>(
@@ -30,9 +33,6 @@ export function VoteTally({ voters }: Props) {
   const grouped = useMemo(() => {
     const out: Record<VoteStatus, Voter[]> = { in: [], maybe: [], out: [] };
     for (const v of voters) out[v.status].push(v);
-    for (const status of Object.keys(out) as VoteStatus[]) {
-      out[status].sort((a, b) => a.displayName.localeCompare(b.displayName));
-    }
     return out;
   }, [voters]);
 
@@ -56,47 +56,27 @@ export function VoteTally({ voters }: Props) {
     setOpen(true);
   }
 
+  if (totalVoters === 0) {
+    return (
+      <p className="px-2 text-xs text-muted-foreground">No votes yet.</p>
+    );
+  }
+
   return (
     <>
-      <button
-        type="button"
-        onClick={(e) => {
-          // PlanCard wraps the upper card in a <Link>; the tally lives below
-          // it, but stop propagation defensively in case future layouts nest.
-          e.stopPropagation();
-          openWith(null);
-        }}
-        aria-label={
-          totalVoters > 0
-            ? `View who voted (${totalVoters})`
-            : "No votes yet"
-        }
-        className="-mx-1 flex w-full touch-manipulation items-center gap-1 rounded-md px-2 py-2 text-xs font-medium text-muted-foreground transition-colors duration-75 hover:bg-accent active:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <span className="flex flex-1 items-center">
-          {SECTIONS.map((s, i) => (
-            <span key={s.status} className="inline-flex items-center">
-              {i > 0 ? <span className="px-1 opacity-50">·</span> : null}
-              <span
-                role="button"
-                tabIndex={-1}
-                aria-label={`View ${s.label} voters (${grouped[s.status].length})`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openWith(s.status);
-                }}
-                className="inline-flex cursor-pointer items-center rounded px-1 py-0.5 active:bg-accent-foreground/10"
-              >
-                <span aria-hidden>{s.emoji}</span>
-                <span className="ml-1 tabular-nums">
-                  {grouped[s.status].length}
-                </span>
-              </span>
-            </span>
-          ))}
-        </span>
-        <ChevronRight className="size-4 shrink-0 opacity-50" aria-hidden />
-      </button>
+      <div className="-mx-1 flex flex-col gap-0.5">
+        {SECTIONS.map((s) =>
+          grouped[s.status].length > 0 ? (
+            <VoterStrip
+              key={s.status}
+              status={s.status}
+              voters={grouped[s.status]}
+              density={density}
+              onOpen={() => openWith(s.status)}
+            />
+          ) : null,
+        )}
+      </div>
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="bottom" className="max-h-[80vh]">
@@ -110,7 +90,9 @@ export function VoteTally({ voters }: Props) {
           </SheetHeader>
           <div className="flex flex-col gap-5 overflow-y-auto px-4 pb-6">
             {SECTIONS.map((section) => {
-              const list = grouped[section.status];
+              const list = [...grouped[section.status]].sort((a, b) =>
+                a.displayName.localeCompare(b.displayName),
+              );
               const isFocused = focusStatus === section.status;
               return (
                 <section

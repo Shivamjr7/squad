@@ -125,8 +125,8 @@ export function InviteButton({ circleId, isAdmin, activeInvites }: Props) {
         {list.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {isAdmin
-              ? "No active invite links yet. Generate one to share via WhatsApp."
-              : "No active invite links. Ask an admin to generate one."}
+              ? "No active invite links. Grab one below and drop it in WhatsApp."
+              : "No invite links yet. Ask an admin to make one."}
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -165,10 +165,10 @@ export function InviteButton({ circleId, isAdmin, activeInvites }: Props) {
           <DialogFooter>
             <Button onClick={onGenerate} disabled={pending}>
               {pending
-                ? "Generating…"
+                ? "Getting link…"
                 : list.length > 0
-                  ? "Generate new link"
-                  : "Generate invite link"}
+                  ? "Get a new link"
+                  : "Get invite link"}
             </Button>
           </DialogFooter>
         ) : null}

@@ -48,7 +48,7 @@ export function CommentThread({ comments, currentUserId, onRetry }: Props) {
   if (comments.length === 0) {
     return (
       <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-        No discussion yet. The first comment kicks things off.
+        Quiet so far. First comment sets the vibe.
       </p>
     );
   }

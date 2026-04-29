@@ -72,7 +72,7 @@ export default async function SettingsPage({
         <GenerateInviteForm circleId={circle.id} />
         {activeInvites.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No invites yet. Generate one to share via WhatsApp.
+            No invite links yet. Grab one above and drop it in WhatsApp.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">

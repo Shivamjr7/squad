@@ -43,7 +43,7 @@ export function GenerateInviteForm({ circleId }: { circleId: string }) {
   return (
     <div className="flex flex-col gap-2">
       <Button onClick={onGenerate} disabled={pending} variant="outline">
-        {pending ? "Generating…" : "Generate new invite"}
+        {pending ? "Getting link…" : "Get a new invite link"}
       </Button>
       {url ? (
         <div className="flex items-center gap-2">

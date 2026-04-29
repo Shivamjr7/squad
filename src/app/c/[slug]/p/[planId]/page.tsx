@@ -5,6 +5,7 @@ import { ArrowLeft, Users } from "lucide-react";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { circles, comments, memberships, plans, votes } from "@/db/schema";
+import { canModifyPlan } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { PlanMeta, planTypeLabel } from "@/components/plan/plan-meta";
 import { PlanStatusActions } from "@/components/plan/plan-status-actions";
@@ -54,8 +55,11 @@ export default async function PlanDetailPage({
   // Don't leak plan IDs across circles.
   if (!plan || plan.circleId !== circle.id) notFound();
 
-  const canMutateStatus =
-    me.role === "admin" || plan.creator?.id === userId;
+  const canMutateStatus = canModifyPlan(
+    { createdBy: plan.createdBy },
+    userId,
+    { role: me.role },
+  );
 
   const members: Record<string, Member> = {};
   for (const m of memberRows) {
@@ -179,8 +183,8 @@ export default async function PlanDetailPage({
           currentUser={currentUser}
         >
           <section className="flex flex-col gap-3 rounded-lg border p-4">
-            <h2 className="text-sm font-medium">Votes</h2>
-            <PlanVotes planId={plan.id} showFirstVoteHint />
+            <h2 className="text-sm font-medium text-muted-foreground">Votes</h2>
+            <PlanVotes planId={plan.id} showFirstVoteHint density="detail" />
           </section>
         </CircleVotesProvider>
       ) : null}
@@ -192,7 +196,7 @@ export default async function PlanDetailPage({
       ) : null}
 
       <section className="flex flex-1 flex-col gap-3 pb-2">
-        <h2 className="text-sm font-medium">Discussion</h2>
+        <h2 className="text-sm font-medium text-muted-foreground">Discussion</h2>
         <PlanComments
           planId={plan.id}
           members={members}

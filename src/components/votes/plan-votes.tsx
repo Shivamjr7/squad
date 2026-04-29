@@ -24,9 +24,11 @@ type PendingVote = VoteStatus | null | undefined;
 export function PlanVotes({
   planId,
   showFirstVoteHint: showHint = false,
+  density = "card",
 }: {
   planId: string;
   showFirstVoteHint?: boolean;
+  density?: "card" | "detail";
 }) {
   const { voters, currentUser } = useCircleVotes();
   const planVoters: Voter[] = useMemo(
@@ -112,7 +114,7 @@ export function PlanVotes({
         </p>
       ) : null}
       <VoteButtons selected={ownVote} onChange={onChange} />
-      <VoteTally voters={displayVoters} />
+      <VoteTally voters={displayVoters} density={density} />
     </div>
   );
 }

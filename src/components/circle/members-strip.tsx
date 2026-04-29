@@ -56,7 +56,7 @@ export function MembersStrip({ members }: { members: StripMember[] }) {
               {total} {total === 1 ? "person is" : "people are"} in this circle.
             </SheetDescription>
           </SheetHeader>
-          <ul className="flex flex-col gap-1 overflow-y-auto px-4 pb-6">
+          <ul className="flex flex-col gap-2 overflow-y-auto px-4 pb-6">
             {members.map((m) => (
               <li
                 key={m.userId}
