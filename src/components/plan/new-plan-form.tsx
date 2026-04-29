@@ -110,10 +110,10 @@ export function NewPlanForm({
 
     startTransition(async () => {
       try {
-        const { planId } = await createPlan(parsed.data);
+        await createPlan(parsed.data);
         toast.success("Plan created");
         onDone?.();
-        router.push(`/c/${slug}/p/${planId}`);
+        router.push(`/c/${slug}`);
         router.refresh();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Could not create plan.";

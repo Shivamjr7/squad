@@ -25,9 +25,10 @@ type Status = "active" | "done" | "cancelled";
 type Props = {
   planId: string;
   status: Status;
+  circleSlug: string;
 };
 
-export function PlanStatusActions({ planId, status }: Props) {
+export function PlanStatusActions({ planId, status, circleSlug }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [doneOpen, setDoneOpen] = useState(false);
@@ -35,13 +36,23 @@ export function PlanStatusActions({ planId, status }: Props) {
 
   const run = (
     fn: () => Promise<void>,
-    onDone?: () => void,
-    fallbackError = "Couldn't update plan.",
+    {
+      onDone,
+      redirectHome = false,
+      fallbackError = "Couldn't update plan.",
+    }: {
+      onDone?: () => void;
+      redirectHome?: boolean;
+      fallbackError?: string;
+    } = {},
   ) => {
     startTransition(async () => {
       try {
         await fn();
         onDone?.();
+        if (redirectHome) {
+          router.push(`/c/${circleSlug}`);
+        }
         router.refresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : fallbackError;
@@ -93,7 +104,10 @@ export function PlanStatusActions({ planId, status }: Props) {
             <Button
               disabled={pending}
               onClick={() =>
-                run(() => markPlanDone({ planId }), () => setDoneOpen(false))
+                run(() => markPlanDone({ planId }), {
+                  onDone: () => setDoneOpen(false),
+                  redirectHome: true,
+                })
               }
             >
               {pending ? "Marking…" : "Mark done"}
@@ -129,7 +143,10 @@ export function PlanStatusActions({ planId, status }: Props) {
               variant="destructive"
               disabled={pending}
               onClick={() =>
-                run(() => cancelPlan({ planId }), () => setCancelOpen(false))
+                run(() => cancelPlan({ planId }), {
+                  onDone: () => setCancelOpen(false),
+                  redirectHome: true,
+                })
               }
             >
               {pending ? "Cancelling…" : "Yes, cancel plan"}

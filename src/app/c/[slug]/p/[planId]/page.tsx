@@ -191,7 +191,11 @@ export default async function PlanDetailPage({
 
       {canMutateStatus && plan.status !== "done" ? (
         <section className="flex flex-col gap-2 pt-2">
-          <PlanStatusActions planId={plan.id} status={plan.status} />
+          <PlanStatusActions
+            planId={plan.id}
+            status={plan.status}
+            circleSlug={circle.slug}
+          />
         </section>
       ) : null}
 
