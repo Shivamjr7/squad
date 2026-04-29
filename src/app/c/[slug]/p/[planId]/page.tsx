@@ -8,6 +8,7 @@ import { circles, comments, memberships, plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { PlanMeta, planTypeLabel } from "@/components/plan/plan-meta";
 import { PlanStatusActions } from "@/components/plan/plan-status-actions";
+import { StatusPill } from "@/components/plan/status-pill";
 import { PlanVotes } from "@/components/votes/plan-votes";
 import { PlanComments } from "@/components/comments/plan-comments";
 import {
@@ -118,11 +119,11 @@ export default async function PlanDetailPage({
             <ArrowLeft /> {circle.name}
           </Link>
         </Button>
-        {plan.status !== "active" ? (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {plan.status}
-          </span>
-        ) : null}
+        <StatusPill
+          status={plan.status}
+          startsAt={plan.startsAt}
+          now={new Date()}
+        />
       </header>
 
       <section className="flex flex-col gap-3">

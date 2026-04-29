@@ -239,6 +239,7 @@ export default async function CircleHomePage({
                       <PlanCard
                         plan={{ ...p, commentCount: commentCounts.get(p.id) ?? 0 }}
                         slug={circle.slug}
+                        now={now}
                       />
                     </li>
                   ))}
@@ -257,6 +258,7 @@ export default async function CircleHomePage({
                       <PlanCard
                         plan={{ ...p, commentCount: commentCounts.get(p.id) ?? 0 }}
                         slug={circle.slug}
+                        now={now}
                       />
                     </li>
                   ))}
