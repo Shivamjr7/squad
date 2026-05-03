@@ -29,6 +29,13 @@
       "when": 1777444403019,
       "tag": "0003_faithful_eddie_brock",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777811615829,
+      "tag": "0004_rich_tarot",
+      "breakpoints": true
     }
   ]
 }

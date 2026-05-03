@@ -13,6 +13,7 @@ import {
   newPlanTemplate,
   planCancelledTemplate,
   planConfirmedTemplate,
+  planReminderTemplate,
   type EmailContent,
 } from "@/lib/email-templates";
 
@@ -42,6 +43,21 @@ function notificationsUrl(appUrl: string): string {
 
 function planUrl(appUrl: string, slug: string, planId: string): string {
   return `${appUrl.replace(/\/$/, "")}/c/${slug}/p/${planId}`;
+}
+
+function formatPlanTimeShort(d: Date): string {
+  // Compact "7:30 PM" form for reminder subject lines. Uses EMAIL_TIMEZONE
+  // for consistency with formatPlanTimeForEmail.
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: TIME_ZONE,
+    }).format(d);
+  } catch {
+    return d.toUTCString();
+  }
 }
 
 function formatPlanTimeForEmail(d: Date): string {
@@ -251,6 +267,53 @@ export async function sendPlanConfirmedEmail(
     console.error("[email] sendPlanConfirmedEmail failed", {
       planId,
       confirmerId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+export async function sendPlanReminderEmail(
+  planId: string,
+  appUrl: string,
+): Promise<void> {
+  try {
+    const plan = await db.query.plans.findFirst({
+      where: eq(plans.id, planId),
+      with: { circle: { columns: { slug: true, name: true } } },
+    });
+    if (!plan || !plan.circle) return;
+
+    // IN voters only — both the recipient list and the "who's in" body line.
+    const inVoterRows = await db.query.votes.findMany({
+      where: and(eq(votes.planId, planId), eq(votes.status, "in")),
+      with: {
+        user: { columns: { displayName: true, email: true } },
+      },
+    });
+    const recipients = inVoterRows
+      .map((v) => v.user?.email)
+      .filter((e): e is string => Boolean(e));
+    if (recipients.length === 0) return;
+
+    const whosIn = inVoterRows
+      .map((v) => v.user?.displayName)
+      .filter((n): n is string => Boolean(n));
+
+    const content = planReminderTemplate({
+      planTitle: plan.title,
+      circleName: plan.circle.name,
+      planTimeShort: formatPlanTimeShort(plan.startsAt),
+      planTimeFormatted: formatPlanTimeForEmail(plan.startsAt),
+      location: plan.location,
+      whosIn,
+      planUrl: planUrl(appUrl, plan.circle.slug, plan.id),
+      manageUrl: notificationsUrl(appUrl),
+    });
+
+    await sendFanout(recipients, content);
+  } catch (err) {
+    console.error("[email] sendPlanReminderEmail failed", {
+      planId,
       error: err instanceof Error ? err.message : String(err),
     });
   }

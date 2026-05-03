@@ -111,6 +111,8 @@ Seven tables. Field names and FK ON DELETE behavior finalized here so no drift l
 - `max_people` (int, nullable)
 - `created_by` (text, FK users.id, **ON DELETE SET NULL** — historical plans persist even after the creator deletes their account; per §12 privacy)
 - `status` (enum: `active` | `confirmed` | `done` | `cancelled`, default `active`)
+- `cancelled_at` (timestamp, nullable — set when status flips to `cancelled`; used to hide cancelled plans older than 24h)
+- `reminder_sent_at` (timestamp, nullable — set after the 1-hour-before reminder cron sends an email; prevents re-sending on later cron ticks)
 - `created_at` (timestamp)
 
 ### `votes`
@@ -271,6 +273,7 @@ Park ideas here when tempted. Revisit after M10 observations. Order is not a pri
 - "Quiet hours" — pause notifications 11pm-8am
 - Per-user "auto-vote" defaults ("auto-Maybe for plans I don't respond to in 24h")
 - Plan templates ("birthday dinner" auto-fills location, type, max-people from past instances)
+- Smarter reminder copy — "Tonight at" is hardcoded in the M15 reminder subject; brunch plans read "Tonight at 11:00 AM." Pick "Today" / "Tonight" / "Tomorrow" based on local time of the plan vs. the recipient.
 
 ## 14. File layout (proposed, finalize in M1)
 

@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/expire-plans", "schedule": "0 * * * *" },
+    { "path": "/api/cron/remind-plans", "schedule": "0 * * * *" }
+  ]
+}
