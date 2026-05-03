@@ -8,6 +8,8 @@ import { circles, invites, memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { RenameCircleForm } from "@/components/settings/rename-circle-form";
 import { GenerateInviteForm } from "@/components/settings/generate-invite-form";
+import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { getUserCircles } from "@/lib/circles";
 
 export default async function SettingsPage({
   params,
@@ -34,7 +36,7 @@ export default async function SettingsPage({
   if (!membership) notFound();
   if (membership.role !== "admin") redirect(`/c/${circle.slug}`);
 
-  const [activeInvites, memberRows] = await Promise.all([
+  const [activeInvites, memberRows, userCircles] = await Promise.all([
     db.query.invites.findMany({
       columns: { id: true, code: true, uses: true, createdAt: true },
       where: eq(invites.circleId, circle.id),
@@ -48,18 +50,33 @@ export default async function SettingsPage({
         user: { columns: { displayName: true, avatarUrl: true } },
       },
     }),
+    getUserCircles(userId),
   ]);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-8 px-4 py-6 sm:px-6">
-      <header className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href={`/c/${circle.slug}`}>
-            <ArrowLeft /> Back
-          </Link>
-        </Button>
-        <h1 className="text-lg font-semibold tracking-tight">Settings</h1>
-        <span className="w-12" aria-hidden />
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1">
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="-ml-2 shrink-0"
+            aria-label="Back to circle"
+          >
+            <Link href={`/c/${circle.slug}`}>
+              <ArrowLeft />
+            </Link>
+          </Button>
+          <CircleSwitcher
+            currentSlug={circle.slug}
+            circles={userCircles}
+            size="sm"
+          />
+        </div>
+        <span className="shrink-0 text-sm font-medium text-muted-foreground">
+          Settings
+        </span>
       </header>
 
       <section className="flex flex-col gap-3">
@@ -81,7 +98,7 @@ export default async function SettingsPage({
                 key={inv.id}
                 className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
               >
-                <code className="truncate font-mono text-xs">{inv.code}</code>
+                <code className="min-w-0 flex-1 truncate font-mono text-xs">{inv.code}</code>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   used {inv.uses}×
                 </span>

@@ -7,11 +7,14 @@ import { db } from "@/db/client";
 import { circles, comments, memberships, plans, votes } from "@/db/schema";
 import { canModifyPlan } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { formatPlanTime } from "@/lib/format-plan-time";
 import { PlanMeta, planTypeLabel } from "@/components/plan/plan-meta";
 import { PlanStatusActions } from "@/components/plan/plan-status-actions";
 import { StatusPill } from "@/components/plan/status-pill";
 import { PlanVotes } from "@/components/votes/plan-votes";
 import { PlanComments } from "@/components/comments/plan-comments";
+import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { getUserCircles } from "@/lib/circles";
 import {
   CircleVotesProvider,
   type Member,
@@ -34,14 +37,17 @@ export default async function PlanDetailPage({
   });
   if (!circle) notFound();
 
-  const memberRows = await db.query.memberships.findMany({
-    where: eq(memberships.circleId, circle.id),
-    with: {
-      user: {
-        columns: { id: true, displayName: true, avatarUrl: true },
+  const [memberRows, userCircles] = await Promise.all([
+    db.query.memberships.findMany({
+      where: eq(memberships.circleId, circle.id),
+      with: {
+        user: {
+          columns: { id: true, displayName: true, avatarUrl: true },
+        },
       },
-    },
-  });
+    }),
+    getUserCircles(userId),
+  ]);
 
   const me = memberRows.find((m) => m.userId === userId);
   if (!me) notFound();
@@ -117,12 +123,25 @@ export default async function PlanDetailPage({
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 py-4 sm:px-6">
-      <header className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href={`/c/${circle.slug}`}>
-            <ArrowLeft /> {circle.name}
-          </Link>
-        </Button>
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1">
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="-ml-2 shrink-0"
+            aria-label="Back to circle"
+          >
+            <Link href={`/c/${circle.slug}`}>
+              <ArrowLeft />
+            </Link>
+          </Button>
+          <CircleSwitcher
+            currentSlug={circle.slug}
+            circles={userCircles}
+            size="sm"
+          />
+        </div>
         <StatusPill
           status={plan.status}
           startsAt={plan.startsAt}
@@ -195,6 +214,12 @@ export default async function PlanDetailPage({
             planId={plan.id}
             status={plan.status}
             circleSlug={circle.slug}
+            planTitle={plan.title}
+            planTimeLabel={formatPlanTime(
+              plan.startsAt,
+              plan.isApproximate,
+              new Date(),
+            )}
           />
         </section>
       ) : null}

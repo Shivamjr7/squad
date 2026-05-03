@@ -53,6 +53,10 @@ function metaLine(label: string, value: string): string {
   return `<p style="margin:4px 0;font-size:14px;color:#475569"><span style="color:#94a3b8">${esc(label)}</span> ${esc(value)}</p>`;
 }
 
+function circleContext(circleName: string): string {
+  return `<p style="margin:0 0 8px;font-size:13px;color:#94a3b8">in ${esc(circleName)}</p>`;
+}
+
 const TYPE_LABEL: Record<string, string> = {
   eat: "Eat",
   play: "Play",
@@ -71,10 +75,11 @@ export function newPlanTemplate(args: {
   planUrl: string;
   manageUrl: string;
 }): EmailContent {
-  const subject = `New plan in ${args.circleName}: ${args.planTitle}`;
+  const subject = `[${args.circleName}] New plan: ${args.planTitle}`;
   const body = `
-    <h1 style="margin:0 0 12px;font-size:20px;font-weight:600;line-height:1.3">${esc(args.planTitle)}</h1>
-    <p style="margin:0 0 16px;color:#475569;font-size:14px">${esc(args.creatorName)} added a new plan to ${esc(args.circleName)}.</p>
+    <h1 style="margin:0 0 4px;font-size:20px;font-weight:600;line-height:1.3">${esc(args.planTitle)}</h1>
+    ${circleContext(args.circleName)}
+    <p style="margin:0 0 16px;color:#475569;font-size:14px">${esc(args.creatorName)} added a new plan.</p>
     ${metaLine("When", args.planTimeFormatted)}
     ${metaLine("Type", TYPE_LABEL[args.planType] ?? args.planType)}
     ${args.location ? metaLine("Where", args.location) : ""}
@@ -94,15 +99,16 @@ export function newCommentTemplate(args: {
   commenterName: string;
   commentBody: string;
   planTitle: string;
+  circleName: string;
   planUrl: string;
   manageUrl: string;
 }): EmailContent {
   const snippet = args.commentBody.length > 60
     ? `${args.commentBody.slice(0, 60).trimEnd()}…`
     : args.commentBody;
-  const subject = `${args.commenterName}: "${snippet}"`;
+  const subject = `[${args.circleName}] ${args.commenterName}: "${snippet}"`;
   const body = `
-    <p style="margin:0 0 4px;font-size:13px;color:#94a3b8">On ${esc(args.planTitle)}</p>
+    <p style="margin:0 0 4px;font-size:13px;color:#94a3b8">in ${esc(args.circleName)} · On ${esc(args.planTitle)}</p>
     <p style="margin:0 0 16px;font-size:15px;font-weight:600">${esc(args.commenterName)} said:</p>
     <blockquote style="margin:0 0 20px;padding:12px 16px;background:#f1f5f9;border-radius:8px;border-left:3px solid #0f172a;white-space:pre-wrap;word-break:break-word">${esc(args.commentBody)}</blockquote>
     <p style="margin:0">${ctaButton(args.planUrl, "Open the discussion →")}</p>
@@ -117,16 +123,46 @@ export function newCommentTemplate(args: {
   };
 }
 
+export function planConfirmedTemplate(args: {
+  planTitle: string;
+  circleName: string;
+  planTimeFormatted: string;
+  location: string | null;
+  confirmerName: string;
+  planUrl: string;
+  manageUrl: string;
+}): EmailContent {
+  const subject = `[${args.circleName}] It's on: ${args.planTitle}`;
+  const body = `
+    <h1 style="margin:0 0 4px;font-size:20px;font-weight:600;line-height:1.3">${esc(args.planTitle)}</h1>
+    ${circleContext(args.circleName)}
+    <p style="margin:0 0 16px;color:#0f172a;font-size:15px">${esc(args.confirmerName)} locked it in. <strong>It's happening.</strong></p>
+    ${metaLine("When", args.planTimeFormatted)}
+    ${args.location ? metaLine("Where", args.location) : ""}
+    <p style="margin:20px 0 4px">${ctaButton(args.planUrl, "Tap to see who's in →")}</p>
+  `;
+  return {
+    subject,
+    html: shell({
+      preheader: `${args.confirmerName} confirmed ${args.planTitle}`,
+      bodyHtml: body,
+      manageUrl: args.manageUrl,
+    }),
+  };
+}
+
 export function planCancelledTemplate(args: {
   cancellerName: string;
   planTitle: string;
+  circleName: string;
   planTimeFormatted: string;
   planUrl: string;
   manageUrl: string;
 }): EmailContent {
-  const subject = `Cancelled: ${args.planTitle}`;
+  const subject = `[${args.circleName}] Cancelled: ${args.planTitle}`;
   const body = `
-    <h1 style="margin:0 0 12px;font-size:20px;font-weight:600;line-height:1.3;text-decoration:line-through;color:#64748b">${esc(args.planTitle)}</h1>
+    <h1 style="margin:0 0 4px;font-size:20px;font-weight:600;line-height:1.3;text-decoration:line-through;color:#64748b">${esc(args.planTitle)}</h1>
+    ${circleContext(args.circleName)}
     <p style="margin:0 0 16px;color:#0f172a;font-size:15px">${esc(args.cancellerName)} cancelled <strong>${esc(args.planTitle)}</strong>, scheduled for ${esc(args.planTimeFormatted)}.</p>
     <p style="margin:20px 0 4px">${ctaButton(args.planUrl, "See what happened →")}</p>
   `;

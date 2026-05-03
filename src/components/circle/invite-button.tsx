@@ -129,13 +129,13 @@ export function InviteButton({ circleId, isAdmin, activeInvites }: Props) {
               : "No invite links yet. Ask an admin to make one."}
           </p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="flex min-w-0 flex-col gap-2">
             {list.map((invite) => (
               <li
                 key={invite.code}
-                className="flex items-center gap-2 rounded-md border px-3 py-2"
+                className="flex min-w-0 items-center gap-2 rounded-md border px-3 py-2"
               >
-                <code className="flex-1 truncate font-mono text-xs">
+                <code className="min-w-0 flex-1 truncate font-mono text-xs">
                   {invite.url}
                 </code>
                 <Button

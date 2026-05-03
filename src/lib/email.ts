@@ -12,6 +12,7 @@ import {
   newCommentTemplate,
   newPlanTemplate,
   planCancelledTemplate,
+  planConfirmedTemplate,
   type EmailContent,
 } from "@/lib/email-templates";
 
@@ -172,7 +173,7 @@ export async function sendNewCommentEmail(
         user: { columns: { id: true, displayName: true, email: true } },
         plan: {
           columns: { id: true, title: true },
-          with: { circle: { columns: { slug: true } } },
+          with: { circle: { columns: { slug: true, name: true } } },
         },
       },
     });
@@ -193,6 +194,7 @@ export async function sendNewCommentEmail(
       commenterName: comment.user?.displayName ?? "Someone",
       commentBody: comment.body,
       planTitle: comment.plan.title,
+      circleName: comment.plan.circle.name,
       planUrl: planUrl(appUrl, comment.plan.circle.slug, comment.plan.id),
       manageUrl: notificationsUrl(appUrl),
     });
@@ -206,6 +208,54 @@ export async function sendNewCommentEmail(
   }
 }
 
+export async function sendPlanConfirmedEmail(
+  planId: string,
+  confirmerId: string,
+  appUrl: string,
+): Promise<void> {
+  try {
+    const plan = await db.query.plans.findFirst({
+      where: eq(plans.id, planId),
+      with: { circle: { columns: { slug: true, id: true, name: true } } },
+    });
+    if (!plan || !plan.circle) return;
+
+    const confirmer = await db.query.users.findFirst({
+      columns: { displayName: true, email: true },
+      where: eq(users.id, confirmerId),
+    });
+
+    const memberRows = await db.query.memberships.findMany({
+      where: and(
+        eq(memberships.circleId, plan.circle.id),
+        ne(memberships.userId, confirmerId),
+      ),
+      with: { user: { columns: { email: true } } },
+    });
+    const recipients = memberRows
+      .map((m) => m.user?.email)
+      .filter((e): e is string => Boolean(e));
+
+    const content = planConfirmedTemplate({
+      planTitle: plan.title,
+      circleName: plan.circle.name,
+      planTimeFormatted: formatPlanTimeForEmail(plan.startsAt),
+      location: plan.location,
+      confirmerName: confirmer?.displayName ?? "Someone",
+      planUrl: planUrl(appUrl, plan.circle.slug, plan.id),
+      manageUrl: notificationsUrl(appUrl),
+    });
+
+    await sendFanout(recipients, content, confirmer?.email);
+  } catch (err) {
+    console.error("[email] sendPlanConfirmedEmail failed", {
+      planId,
+      confirmerId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export async function sendPlanCancelledEmail(
   planId: string,
   cancellerId: string,
@@ -214,7 +264,7 @@ export async function sendPlanCancelledEmail(
   try {
     const plan = await db.query.plans.findFirst({
       where: eq(plans.id, planId),
-      with: { circle: { columns: { slug: true } } },
+      with: { circle: { columns: { slug: true, name: true } } },
     });
     if (!plan || !plan.circle) return;
 
@@ -238,6 +288,7 @@ export async function sendPlanCancelledEmail(
     const content = planCancelledTemplate({
       cancellerName: canceller?.displayName ?? "Someone",
       planTitle: plan.title,
+      circleName: plan.circle.name,
       planTimeFormatted: formatPlanTimeForEmail(plan.startsAt),
       planUrl: planUrl(appUrl, plan.circle.slug, plan.id),
       manageUrl: notificationsUrl(appUrl),

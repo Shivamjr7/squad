@@ -13,7 +13,7 @@ export type PlanCardData = {
   startsAt: Date;
   isApproximate: boolean;
   location: string | null;
-  status: "active" | "done" | "cancelled";
+  status: "active" | "confirmed" | "done" | "cancelled";
   creator: {
     displayName: string;
     avatarUrl: string | null;
@@ -31,12 +31,17 @@ export function PlanCard({
   now: Date;
 }) {
   const isCancelled = plan.status === "cancelled";
-  const showVotes = plan.status === "active";
+  const isConfirmed = plan.status === "confirmed";
+  const showVotes = plan.status === "active" || plan.status === "confirmed";
 
   return (
     <article
       className={cn(
         "flex flex-col overflow-hidden rounded-lg border bg-card",
+        // Subtle "locked in" emphasis: a green left border that scans without
+        // shouting. Border on the article wrapper, not the inner Link, so it
+        // stays visible regardless of hover state.
+        isConfirmed && "border-l-2 border-l-green-500",
         isCancelled && "opacity-60",
       )}
     >

@@ -110,7 +110,7 @@ Seven tables. Field names and FK ON DELETE behavior finalized here so no drift l
 - `location` (text, nullable — free text, no DB of places)
 - `max_people` (int, nullable)
 - `created_by` (text, FK users.id, **ON DELETE SET NULL** — historical plans persist even after the creator deletes their account; per §12 privacy)
-- `status` (enum: `active` | `done` | `cancelled`, default `active`)
+- `status` (enum: `active` | `confirmed` | `done` | `cancelled`, default `active`)
 - `created_at` (timestamp)
 
 ### `votes`

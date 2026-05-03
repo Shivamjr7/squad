@@ -24,6 +24,7 @@ export const planType = pgEnum("plan_type", [
 
 export const planStatus = pgEnum("plan_status", [
   "active",
+  "confirmed",
   "done",
   "cancelled",
 ]);

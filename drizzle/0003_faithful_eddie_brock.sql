@@ -1,0 +1,1 @@
+ALTER TYPE "public"."plan_status" ADD VALUE 'confirmed' BEFORE 'done';

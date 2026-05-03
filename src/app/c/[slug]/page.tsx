@@ -4,7 +4,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { and, asc, count, desc, eq, gte, inArray, lt, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { circles, comments, invites, memberships, plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ import { PlanCard } from "@/components/plan/plan-card";
 import { InviteButton } from "@/components/circle/invite-button";
 import { MembersStrip, type StripMember } from "@/components/circle/members-strip";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
+import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { getUserCircles } from "@/lib/circles";
 import {
   CircleVotesProvider,
   type Member,
@@ -48,7 +50,7 @@ export default async function CircleHomePage({
   });
   if (!circle) notFound();
 
-  const [memberRows, activeInvites] = await Promise.all([
+  const [memberRows, activeInvites, userCircles] = await Promise.all([
     db.query.memberships.findMany({
       where: eq(memberships.circleId, circle.id),
       orderBy: asc(memberships.joinedAt),
@@ -63,6 +65,7 @@ export default async function CircleHomePage({
       where: eq(invites.circleId, circle.id),
       orderBy: desc(invites.createdAt),
     }),
+    getUserCircles(userId),
   ]);
 
   const me = memberRows.find((m) => m.userId === userId);
@@ -98,22 +101,32 @@ export default async function CircleHomePage({
     db.query.plans.findMany({
       where: and(
         eq(plans.circleId, circle.id),
-        eq(plans.status, "active"),
+        inArray(plans.status, ["active", "confirmed"]),
         gte(plans.startsAt, now),
       ),
-      orderBy: asc(plans.startsAt),
+      // Confirmed plans rise to the top — they're more "real" than active
+      // ones still being voted on. Within each group, ascending by start time.
+      orderBy: [
+        sql`(${plans.status} = 'confirmed') desc`,
+        asc(plans.startsAt),
+      ],
       with: {
         creator: { columns: { displayName: true, avatarUrl: true } },
       },
     }),
-    // Past = done OR auto-past-active OR recently-cancelled. Cancelled plans
-    // older than 24h are hidden entirely (PLAN.md §6 Flow F step 3).
+    // Past = done OR auto-past-active/confirmed OR recently-cancelled.
+    // Cancelled plans older than 24h are hidden entirely (PLAN.md §6 Flow F
+    // step 3). Confirmed plans whose time has passed without being marked
+    // done auto-fall into Past, same as active.
     db.query.plans.findMany({
       where: and(
         eq(plans.circleId, circle.id),
         or(
           eq(plans.status, "done"),
-          and(eq(plans.status, "active"), lt(plans.startsAt, now)),
+          and(
+            inArray(plans.status, ["active", "confirmed"]),
+            lt(plans.startsAt, now),
+          ),
           and(
             eq(plans.status, "cancelled"),
             gte(plans.cancelledAt, cancelledCutoff),
@@ -173,9 +186,7 @@ export default async function CircleHomePage({
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col pb-32">
       <header className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
-        <h1 className="truncate text-xl font-semibold tracking-tight">
-          {circle.name}
-        </h1>
+        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} />
         <div className="flex items-center gap-1">
           {isAdmin ? (
             <Button asChild variant="ghost" size="icon" aria-label="Settings">

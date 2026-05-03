@@ -16,6 +16,7 @@ import { getAppUrl } from "@/lib/url";
 import {
   sendNewPlanEmail,
   sendPlanCancelledEmail,
+  sendPlanConfirmedEmail,
 } from "@/lib/email";
 
 export async function createPlan(
@@ -122,10 +123,10 @@ async function loadPlanForStatusChange(input: PlanIdInput) {
 
 export async function markPlanDone(input: PlanIdInput): Promise<void> {
   const { plan } = await loadPlanForStatusChange(input);
-  if (plan.status !== "active") {
+  if (plan.status !== "active" && plan.status !== "confirmed") {
     throw new ActionError(
       "INVALID",
-      "Only active plans can be marked done.",
+      "Only active or confirmed plans can be marked done.",
     );
   }
   await db
@@ -136,10 +137,10 @@ export async function markPlanDone(input: PlanIdInput): Promise<void> {
 
 export async function cancelPlan(input: PlanIdInput): Promise<void> {
   const { plan, userId } = await loadPlanForStatusChange(input);
-  if (plan.status !== "active") {
+  if (plan.status !== "active" && plan.status !== "confirmed") {
     throw new ActionError(
       "INVALID",
-      "Only active plans can be cancelled.",
+      "Only active or confirmed plans can be cancelled.",
     );
   }
   await db
@@ -161,8 +162,46 @@ export async function uncancelPlan(input: PlanIdInput): Promise<void> {
       "This plan isn't cancelled.",
     );
   }
+  // Per M13 spec: uncancel always returns to `active`, not `confirmed`.
+  // We don't track the pre-cancel status, and the spec excludes "remember
+  // was-confirmed through cancel cycle" as out-of-scope.
   await db
     .update(plans)
     .set({ status: "active", cancelledAt: null })
+    .where(eq(plans.id, plan.id));
+}
+
+export async function confirmPlan(input: PlanIdInput): Promise<void> {
+  const { plan, userId } = await loadPlanForStatusChange(input);
+  if (plan.status !== "active") {
+    throw new ActionError(
+      "INVALID",
+      plan.status === "confirmed"
+        ? "This plan is already confirmed."
+        : "Only active plans can be confirmed.",
+    );
+  }
+  await db
+    .update(plans)
+    .set({ status: "confirmed" })
+    .where(eq(plans.id, plan.id));
+
+  const appUrl = await getAppUrl();
+  void sendPlanConfirmedEmail(plan.id, userId, appUrl).catch((err) => {
+    console.error("[plans.confirmPlan] email fanout failed", err);
+  });
+}
+
+export async function unconfirmPlan(input: PlanIdInput): Promise<void> {
+  const { plan } = await loadPlanForStatusChange(input);
+  if (plan.status !== "confirmed") {
+    throw new ActionError(
+      "INVALID",
+      "This plan isn't confirmed.",
+    );
+  }
+  await db
+    .update(plans)
+    .set({ status: "active" })
     .where(eq(plans.id, plan.id));
 }

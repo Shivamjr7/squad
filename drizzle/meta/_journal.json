@@ -22,6 +22,13 @@
       "when": 1777310650497,
       "tag": "0002_yummy_pretty_boy",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777444403019,
+      "tag": "0003_faithful_eddie_brock",
+      "breakpoints": true
     }
   ]
 }
