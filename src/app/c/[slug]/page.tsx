@@ -10,8 +10,9 @@ import { circles, comments, invites, memberships, plans, votes } from "@/db/sche
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { PlanCard } from "@/components/plan/plan-card";
+import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
+import { UpcomingRow } from "@/components/plan/upcoming-row";
 import { InviteButton } from "@/components/circle/invite-button";
-import { MembersStrip, type StripMember } from "@/components/circle/members-strip";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { getUserCircles } from "@/lib/circles";
@@ -21,19 +22,49 @@ import {
   type VotersByPlan,
 } from "@/lib/realtime/use-circle-votes";
 
-const RTF = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+const DATE_ROW_FMT = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});
 
-function formatPastAgo(d: Date, now: Date): string {
-  const diffSec = Math.round((d.getTime() - now.getTime()) / 1000);
-  const min = Math.round(diffSec / 60);
-  const hr = Math.round(min / 60);
-  const day = Math.round(hr / 24);
-  if (Math.abs(diffSec) < 60) return "moments ago";
-  if (Math.abs(min) < 60) return RTF.format(min, "minute");
-  if (Math.abs(hr) < 24) return RTF.format(hr, "hour");
-  if (Math.abs(day) < 30) return RTF.format(day, "day");
-  return RTF.format(Math.round(day / 30), "month");
+function formatDateHeader(now: Date): string {
+  // "SAT · APR 27" — short weekday + month/day, dot-separated, uppercased.
+  const parts = DATE_ROW_FMT.formatToParts(now);
+  const wd = parts.find((p) => p.type === "weekday")?.value ?? "";
+  const month = parts.find((p) => p.type === "month")?.value ?? "";
+  const day = parts.find((p) => p.type === "day")?.value ?? "";
+  return `${wd.toUpperCase()} · ${month.toUpperCase()} ${day}`;
 }
+
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function isWeekend(d: Date): boolean {
+  const dow = d.getDay();
+  return dow === 0 || dow === 6;
+}
+
+function pickHeroPrefix(
+  nextPlan: { startsAt: Date } | undefined,
+  now: Date,
+): string {
+  if (!nextPlan) return "What's the plan,";
+  if (isSameLocalDay(nextPlan.startsAt, now)) return "Tonight,";
+  const dayMs = 86_400_000;
+  const diffMs = nextPlan.startsAt.getTime() - now.getTime();
+  if (diffMs >= 0 && diffMs < 7 * dayMs && isWeekend(nextPlan.startsAt)) {
+    return "This weekend,";
+  }
+  return "What's the plan,";
+}
+
+const PAST_COLLAPSE_THRESHOLD = 5;
 
 export default async function CircleHomePage({
   params,
@@ -74,26 +105,13 @@ export default async function CircleHomePage({
   const isAdmin = me.role === "admin";
 
   const members: Record<string, Member> = {};
-  const stripMembers: StripMember[] = [];
   for (const m of memberRows) {
     if (!m.user) continue;
     members[m.user.id] = {
       displayName: m.user.displayName,
       avatarUrl: m.user.avatarUrl,
     };
-    stripMembers.push({
-      userId: m.user.id,
-      displayName: m.user.displayName,
-      avatarUrl: m.user.avatarUrl,
-      role: m.role,
-    });
   }
-  // Show admins first in the sheet (small a11y nicety so role is obvious),
-  // then members alphabetically for stable order.
-  stripMembers.sort((a, b) => {
-    if (a.role !== b.role) return a.role === "admin" ? -1 : 1;
-    return a.displayName.localeCompare(b.displayName);
-  });
 
   const now = new Date();
   const cancelledCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -104,8 +122,6 @@ export default async function CircleHomePage({
         inArray(plans.status, ["active", "confirmed"]),
         gte(plans.startsAt, now),
       ),
-      // Confirmed plans rise to the top — they're more "real" than active
-      // ones still being voted on. Within each group, ascending by start time.
       orderBy: [
         sql`(${plans.status} = 'confirmed') desc`,
         asc(plans.startsAt),
@@ -114,10 +130,6 @@ export default async function CircleHomePage({
         creator: { columns: { displayName: true, avatarUrl: true } },
       },
     }),
-    // Past = done OR auto-past-active/confirmed OR recently-cancelled.
-    // Cancelled plans older than 24h are hidden entirely (PLAN.md §6 Flow F
-    // step 3). Confirmed plans whose time has passed without being marked
-    // done auto-fall into Past, same as active.
     db.query.plans.findMany({
       where: and(
         eq(plans.circleId, circle.id),
@@ -167,6 +179,7 @@ export default async function CircleHomePage({
         displayName: v.user.displayName,
         avatarUrl: v.user.avatarUrl,
         status: v.status,
+        votedAt: v.votedAt.toISOString(),
       });
       initialVoters[v.planId] = list;
     }
@@ -181,12 +194,16 @@ export default async function CircleHomePage({
     avatarUrl: me.user?.avatarUrl ?? null,
   };
 
+  const featured = upcoming[0];
+  const restUpcoming = upcoming.slice(1);
+  const heroPrefix = pickHeroPrefix(featured, now);
+  const dateLabel = formatDateHeader(now);
   const isEmpty = upcoming.length === 0 && past.length === 0;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col pb-32">
-      <header className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
-        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} />
+      <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
+        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
         <div className="flex items-center gap-1">
           {isAdmin ? (
             <Button asChild variant="ghost" size="icon" aria-label="Settings">
@@ -199,14 +216,29 @@ export default async function CircleHomePage({
         </div>
       </header>
 
-      <div className="flex items-center justify-between gap-2 border-b px-2 py-2 sm:px-4">
-        <MembersStrip members={stripMembers} />
+      <div className="px-4 pt-3 sm:px-6">
         <InviteButton
           circleId={circle.id}
           isAdmin={isAdmin}
           activeInvites={activeInvites}
+          variant="row"
         />
       </div>
+
+      <div className="flex items-center justify-between gap-3 px-4 pt-6 sm:px-6">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          {dateLabel}
+        </span>
+        <NewPlanTrigger circleId={circle.id} slug={circle.slug} mode="header" />
+      </div>
+
+      <h1 className="px-4 pt-3 pb-2 font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:px-6 sm:text-[40px]">
+        {heroPrefix}{" "}
+        <em className="font-serif italic font-normal text-coral">
+          {circle.name}
+        </em>
+        ?
+      </h1>
 
       <CircleVotesProvider
         initialVoters={initialVoters}
@@ -214,41 +246,95 @@ export default async function CircleHomePage({
         knownPlanIds={planIds}
         currentUser={currentUser}
       >
-        {isEmpty ? (
-          <section className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-            <p className="text-base font-medium">Quiet so far.</p>
-            <p className="max-w-xs text-sm text-muted-foreground">
-              Tap + to propose tonight&apos;s plan.
-            </p>
-          </section>
-        ) : (
-          <div className="flex flex-col gap-8 px-4 py-6 sm:px-6">
+        <div className="flex flex-col gap-8 px-4 pt-4 sm:px-6">
+          {featured ? (
+            <FeaturedPlanCard
+              plan={{
+                id: featured.id,
+                title: featured.title,
+                startsAt: featured.startsAt,
+                isApproximate: featured.isApproximate,
+                location: featured.location,
+                status: featured.status,
+                decideBy: featured.decideBy,
+              }}
+              slug={circle.slug}
+              now={now}
+            />
+          ) : isEmpty ? (
+            <EmptyState />
+          ) : (
+            <NoUpcomingState />
+          )}
+
+          {restUpcoming.length > 0 ? (
             <section className="flex flex-col gap-3">
-              <h2 className="text-sm font-medium text-muted-foreground">
-                Upcoming
-              </h2>
-              {upcoming.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  <p>
-                    Nothing on the schedule. The last plan was{" "}
-                    <span className="font-medium text-foreground">
-                      {past[0]?.title}
+              <SectionHeader
+                label="Upcoming"
+                hint={`${upcoming.length} plan${upcoming.length === 1 ? "" : "s"}`}
+              />
+              <ul className="flex flex-col gap-1">
+                {restUpcoming.map((p) => (
+                  <li key={p.id}>
+                    <UpcomingRow
+                      plan={{
+                        id: p.id,
+                        title: p.title,
+                        type: p.type,
+                        startsAt: p.startsAt,
+                        isApproximate: p.isApproximate,
+                        location: p.location,
+                        status: p.status,
+                      }}
+                      slug={circle.slug}
+                      now={now}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {past.length > 0 ? (
+            <section className="flex flex-col gap-3">
+              <SectionHeader label="Past" />
+              {past.length > PAST_COLLAPSE_THRESHOLD ? (
+                <details className="group rounded-lg">
+                  <summary className="cursor-pointer list-none rounded-md px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper-card/60">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="transition-transform group-open:rotate-90">▸</span>
+                      <span className="group-open:hidden">
+                        Show {past.length} past plans
+                      </span>
+                      <span className="hidden group-open:inline">Hide past plans</span>
                     </span>
-                    ,{" "}
-                    {formatPastAgo(
-                      past[0]!.startsAt > now ? now : past[0]!.startsAt,
-                      now,
-                    )}
-                    .
-                  </p>
-                  <p className="mt-1">Want to start something? Tap +.</p>
-                </div>
+                  </summary>
+                  <ul className="flex flex-col gap-3 pt-3">
+                    {past.map((p) => (
+                      <li key={p.id}>
+                        <PlanCard
+                          plan={{
+                            ...p,
+                            creator: p.creator ?? null,
+                            commentCount: commentCounts.get(p.id) ?? 0,
+                          }}
+                          slug={circle.slug}
+                          now={now}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               ) : (
                 <ul className="flex flex-col gap-3">
-                  {upcoming.map((p) => (
+                  {past.map((p) => (
                     <li key={p.id}>
                       <PlanCard
-                        plan={{ ...p, commentCount: commentCounts.get(p.id) ?? 0 }}
+                        plan={{
+                          ...p,
+                          creator: p.creator ?? null,
+                          commentCount: commentCounts.get(p.id) ?? 0,
+                        }}
                         slug={circle.slug}
                         now={now}
                       />
@@ -257,33 +343,49 @@ export default async function CircleHomePage({
                 </ul>
               )}
             </section>
-
-            {past.length > 0 ? (
-              <section className="flex flex-col gap-3">
-                <h2 className="text-sm font-medium text-muted-foreground">
-                  Past
-                </h2>
-                <ul className="flex flex-col gap-3">
-                  {past.map((p) => (
-                    <li key={p.id}>
-                      <PlanCard
-                        plan={{ ...p, commentCount: commentCounts.get(p.id) ?? 0 }}
-                        slug={circle.slug}
-                        now={now}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-          </div>
-        )}
+          ) : null}
+        </div>
       </CircleVotesProvider>
 
-      <NewPlanTrigger circleId={circle.id} slug={circle.slug} />
+      <NewPlanTrigger circleId={circle.id} slug={circle.slug} mode="fab" />
       <Suspense fallback={null}>
         <PostJoinToast />
       </Suspense>
     </main>
   );
 }
+
+function SectionHeader({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 px-1">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+        {label}
+      </span>
+      {hint ? (
+        <span className="text-xs text-ink-muted">{hint}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function NoUpcomingState() {
+  return (
+    <div className="rounded-xl border border-dashed border-ink/15 bg-paper-card/40 px-6 py-8 text-center">
+      <p className="text-sm text-ink-muted">
+        Nothing scheduled. Tap + to propose tonight.
+      </p>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-2xl bg-paper-card px-6 py-12 text-center shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.10)]">
+      <p className="font-serif text-xl font-semibold text-ink">No plan yet.</p>
+      <p className="mt-2 text-sm text-ink-muted">
+        Quiet weekend. Tap + to propose something.
+      </p>
+    </div>
+  );
+}
+

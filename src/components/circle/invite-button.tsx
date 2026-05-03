@@ -22,11 +22,17 @@ type Props = {
   circleId: string;
   isAdmin: boolean;
   activeInvites: ActiveInvite[];
+  variant?: "compact" | "row";
 };
 
 type DisplayInvite = { code: string; url: string };
 
-export function InviteButton({ circleId, isAdmin, activeInvites }: Props) {
+export function InviteButton({
+  circleId,
+  isAdmin,
+  activeInvites,
+  variant = "compact",
+}: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -108,9 +114,18 @@ export function InviteButton({ circleId, isAdmin, activeInvites }: Props) {
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <LinkIcon /> Invite
-        </Button>
+        {variant === "row" ? (
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-ink/10 bg-paper-card/60 px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+          >
+            <Share2 className="size-4" aria-hidden /> Invite friends
+          </button>
+        ) : (
+          <Button variant="outline" size="sm">
+            <LinkIcon /> Invite
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

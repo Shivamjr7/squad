@@ -130,6 +130,10 @@ export const plans = pgTable("plans", {
     withTimezone: true,
     mode: "date",
   }),
+  decideBy: timestamp("decide_by", {
+    withTimezone: true,
+    mode: "date",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),

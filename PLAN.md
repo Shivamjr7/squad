@@ -113,6 +113,7 @@ Seven tables. Field names and FK ON DELETE behavior finalized here so no drift l
 - `status` (enum: `active` | `confirmed` | `done` | `cancelled`, default `active`)
 - `cancelled_at` (timestamp, nullable — set when status flips to `cancelled`; used to hide cancelled plans older than 24h)
 - `reminder_sent_at` (timestamp, nullable — set after the 1-hour-before reminder cron sends an email; prevents re-sending on later cron ticks)
+- `decide_by` (timestamp, nullable — optional "have an answer by" deadline; powers the countdown on the featured plan card)
 - `created_at` (timestamp)
 
 ### `votes`
@@ -205,7 +206,7 @@ This is NOT the blog. Different priorities:
 
 Color palette: slate base + three semantic accents — green for "in", red for "out", yellow for "maybe". No editorial seriousness needed.
 
-Typography: system font stack. Don't self-host fonts for v1. Inter via next/font is the only acceptable upgrade.
+Typography: Geist (sans, already loaded) for body, meta, and lists. Source Serif 4 via next/font/google for headlines and large display numerals — added in M16 to support the editorial home and plan-detail aesthetic.
 
 ## 9. Performance + UX targets
 

@@ -44,6 +44,21 @@ export async function createPlan(
     throw new ActionError("INVALID", "Pick a valid date and time.");
   }
 
+  let decideBy: Date | null = null;
+  if (data.decideByLocal) {
+    try {
+      decideBy = zonedWallClockToUtc(data.decideByLocal, data.timeZone);
+    } catch {
+      throw new ActionError("INVALID", "Pick a valid deadline.");
+    }
+    if (decideBy.getTime() >= startsAt.getTime()) {
+      throw new ActionError(
+        "INVALID",
+        "Decide-by must be before the plan's start time.",
+      );
+    }
+  }
+
   const circle = await db.query.circles.findFirst({
     columns: { slug: true },
     where: eq(circles.id, data.circleId),
@@ -63,6 +78,7 @@ export async function createPlan(
         isApproximate: data.isApproximate,
         location: data.location,
         maxPeople: data.maxPeople,
+        decideBy,
         createdBy: userId,
         status: "active",
       })

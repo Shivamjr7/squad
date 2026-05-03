@@ -4,23 +4,48 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.129 0.042 264.695);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.129 0.042 264.695);
+  /* Paper-and-ink base — warm cream page, white cards, warm-tinted text */
+  --paper: oklch(0.957 0.013 80);
+  --paper-card: oklch(1 0 0);
+  --ink: oklch(0.20 0.02 60);
+  --ink-muted: oklch(0.55 0.02 60);
+
+  /* Coral accent — italic "squad?" + DECIDING pill */
+  --coral: oklch(0.70 0.15 25);
+  --coral-soft: oklch(0.93 0.05 25);
+
+  /* Vote / status semantic */
+  --in: oklch(0.66 0.16 145);
+  --in-soft: oklch(0.94 0.06 145);
+  --maybe: oklch(0.83 0.15 85);
+  --maybe-soft: oklch(0.95 0.06 85);
+  --out: oklch(0.65 0.18 25);
+  --out-soft: oklch(0.94 0.06 25);
+
+  /* Plan-type bars (compact upcoming list) */
+  --type-eat: #4CAF50;
+  --type-play: #2196F3;
+  --type-chai: #FF9800;
+  --type-stay-in: #9E9E9E;
+  --type-other: #9E9E9E;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper-card);
+  --card-foreground: var(--ink);
+  --popover: var(--paper-card);
+  --popover-foreground: var(--ink);
   --primary: oklch(0.208 0.042 265.755);
   --primary-foreground: oklch(0.984 0.003 247.858);
   --secondary: oklch(0.968 0.007 247.896);
   --secondary-foreground: oklch(0.208 0.042 265.755);
   --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--coral-soft);
+  --accent-foreground: var(--coral);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.929 0.013 255.508);
+  --border: oklch(0.92 0.01 80);
   --input: oklch(0.929 0.013 255.508);
   --ring: oklch(0.704 0.04 256.788);
   --radius: 0.625rem;
@@ -46,6 +71,19 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-paper: var(--paper);
+  --color-paper-card: var(--paper-card);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-coral: var(--coral);
+  --color-coral-soft: var(--coral-soft);
+  --color-in: var(--in);
+  --color-in-soft: var(--in-soft);
+  --color-maybe: var(--maybe);
+  --color-maybe-soft: var(--maybe-soft);
+  --color-out: var(--out);
+  --color-out-soft: var(--out-soft);
+  --font-serif: var(--font-serif);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

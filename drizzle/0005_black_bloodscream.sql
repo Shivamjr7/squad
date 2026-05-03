@@ -1,0 +1,1 @@
+ALTER TABLE "plans" ADD COLUMN "decide_by" timestamp with time zone;

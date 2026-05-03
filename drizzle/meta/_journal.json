@@ -36,6 +36,13 @@
       "when": 1777811615829,
       "tag": "0004_rich_tarot",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777813535303,
+      "tag": "0005_black_bloodscream",
+      "breakpoints": true
     }
   ]
 }

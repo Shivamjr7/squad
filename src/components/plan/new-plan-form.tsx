@@ -54,6 +54,7 @@ type FormValues = {
   type: PlanType;
   startsAtLocal: string;
   isApproximate: boolean;
+  decideByLocal: string;
   location: string;
   maxPeople: string; // string for input; coerced to number on submit
 };
@@ -76,6 +77,7 @@ export function NewPlanForm({
       type: "eat",
       startsAtLocal: nextSaturday8pm(new Date()),
       isApproximate: false,
+      decideByLocal: "",
       location: "",
       maxPeople: "",
     },
@@ -97,6 +99,7 @@ export function NewPlanForm({
       startsAtLocal: values.startsAtLocal,
       timeZone: getBrowserTimeZone(),
       isApproximate: values.isApproximate,
+      decideByLocal: values.decideByLocal || null,
       location: values.location.trim() || null,
       maxPeople: Number.isFinite(maxPeopleNum) ? maxPeopleNum : null,
     };
@@ -218,6 +221,30 @@ export function NewPlanForm({
                     : "Friends will see the exact time you picked."}
                 </FormDescription>
               </div>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="decideByLocal"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                Decide by{" "}
+                <span className="text-xs text-muted-foreground">(optional)</span>
+              </FormLabel>
+              <FormControl>
+                <Input
+                  {...field}
+                  type="datetime-local"
+                  className="appearance-none"
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                When do you need an answer by?
+              </FormDescription>
+              <FormMessage />
             </FormItem>
           )}
         />

@@ -22,9 +22,11 @@ const DESKTOP_QUERY = "(min-width: 640px)";
 export function NewPlanTrigger({
   circleId,
   slug,
+  mode = "fab",
 }: {
   circleId: string;
   slug: string;
+  mode?: "fab" | "header";
 }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -41,14 +43,29 @@ export function NewPlanTrigger({
 
   return (
     <>
-      <Button
-        size="lg"
-        onClick={() => setOpen(true)}
-        className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full px-6 shadow-lg sm:bottom-8 sm:right-8"
-      >
-        <Plus className="size-5" />
-        New plan
-      </Button>
+      {mode === "fab" ? (
+        // Mobile-only: the editorial home redesign uses an in-header trigger
+        // on desktop. FAB stays on small screens because thumbs reach the
+        // bottom-right faster than the top-right header.
+        <Button
+          size="lg"
+          onClick={() => setOpen(true)}
+          className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full px-6 shadow-lg sm:hidden"
+        >
+          <Plus className="size-5" />
+          New plan
+        </Button>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setOpen(true)}
+          aria-label="New plan"
+          className="size-9 rounded-full bg-ink text-paper-card hover:bg-ink/90"
+        >
+          <Plus className="size-5" />
+        </Button>
+      )}
 
       {mounted &&
         (isDesktop ? (

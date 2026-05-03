@@ -17,6 +17,11 @@ export type Voter = {
   displayName: string;
   avatarUrl: string | null;
   status: VoteStatus;
+  // Optional ISO timestamp of when the vote was cast. Used by the plan-detail
+  // voter list ("in · 2:18pm"). Optional so older callers and the optimistic
+  // override path don't have to fabricate a value — when missing, callers
+  // simply don't render the timestamp.
+  votedAt?: string;
 };
 
 export type Member = { displayName: string; avatarUrl: string | null };
@@ -99,7 +104,12 @@ export function CircleVotesProvider({
         { event: "*", schema: "public", table: "votes" },
         (payload) => {
           const newRow = payload.new as
-            | { plan_id?: string; user_id?: string; status?: VoteStatus }
+            | {
+                plan_id?: string;
+                user_id?: string;
+                status?: VoteStatus;
+                voted_at?: string;
+              }
             | null;
           const oldRow = payload.old as
             | { plan_id?: string; user_id?: string }
@@ -132,6 +142,7 @@ export function CircleVotesProvider({
                   displayName: member.displayName,
                   avatarUrl: member.avatarUrl,
                   status: newRow.status,
+                  votedAt: newRow.voted_at,
                 },
               ],
             };

@@ -29,6 +29,15 @@ export const createPlanSchema = z.object({
     ),
   timeZone: z.string().min(1, "Missing time zone."),
   isApproximate: z.boolean(),
+  decideByLocal: z
+    .string()
+    .regex(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/,
+      "Pick a valid deadline.",
+    )
+    .nullable()
+    .optional()
+    .transform((v) => (v ? v : null)),
   location: z
     .string()
     .trim()

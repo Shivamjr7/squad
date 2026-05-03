@@ -25,10 +25,14 @@ export function PlanVotes({
   planId,
   showFirstVoteHint: showHint = false,
   density = "card",
+  buttonSize = "default",
+  showTally = true,
 }: {
   planId: string;
   showFirstVoteHint?: boolean;
   density?: "card" | "detail";
+  buttonSize?: "default" | "lg";
+  showTally?: boolean;
 }) {
   const { voters, currentUser } = useCircleVotes();
   const planVoters: Voter[] = useMemo(
@@ -113,8 +117,10 @@ export function PlanVotes({
           First vote sets the energy. Tap In, Out, or Maybe.
         </p>
       ) : null}
-      <VoteButtons selected={ownVote} onChange={onChange} />
-      <VoteTally voters={displayVoters} density={density} />
+      <VoteButtons selected={ownVote} onChange={onChange} size={buttonSize} />
+      {showTally ? (
+        <VoteTally voters={displayVoters} density={density} />
+      ) : null}
     </div>
   );
 }

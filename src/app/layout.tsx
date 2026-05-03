@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 // @ts-expect-error -- unstable_ViewTransition is provided by the experimental React channel that Next swaps in when experimental.viewTransition is enabled
@@ -16,6 +16,13 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const sourceSerif = Source_Serif_4({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  weight: ["400", "600"],
+  style: ["normal", "italic"],
+});
+
 export const metadata: Metadata = {
   title: "Squad",
   description: "Plan a thing. Vote. Show up.",
@@ -30,7 +37,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   colorScheme: "light",
-  themeColor: "#ffffff",
+  themeColor: "#F5F0EA",
 };
 
 export default function RootLayout({
@@ -42,7 +49,7 @@ export default function RootLayout({
     <ClerkProvider>
       <html
         lang="en"
-        className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
       >
         <body className="min-h-full flex flex-col" suppressHydrationWarning>
           <ViewTransition>{children}</ViewTransition>
