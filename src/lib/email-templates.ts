@@ -151,38 +151,6 @@ export function planConfirmedTemplate(args: {
   };
 }
 
-export function planReminderTemplate(args: {
-  planTitle: string;
-  circleName: string;
-  planTimeShort: string;
-  planTimeFormatted: string;
-  location: string | null;
-  whosIn: string[];
-  planUrl: string;
-  manageUrl: string;
-}): EmailContent {
-  const subject = `[${args.circleName}] Tonight at ${args.planTimeShort} — ${args.planTitle}`;
-  // Names are passed raw; metaLine() escapes the joined string.
-  const whosInLine = args.whosIn.length > 0 ? args.whosIn.join(", ") : "You";
-  const body = `
-    <h1 style="margin:0 0 4px;font-size:20px;font-weight:600;line-height:1.3">${esc(args.planTitle)}</h1>
-    ${circleContext(args.circleName)}
-    <p style="margin:0 0 16px;color:#0f172a;font-size:15px">Starting in about an hour. See you there.</p>
-    ${metaLine("When", args.planTimeFormatted)}
-    ${args.location ? metaLine("Where", args.location) : ""}
-    ${metaLine("Who's in", whosInLine)}
-    <p style="margin:20px 0 4px">${ctaButton(args.planUrl, "Open plan →")}</p>
-  `;
-  return {
-    subject,
-    html: shell({
-      preheader: `${args.planTitle} starts at ${args.planTimeShort}`,
-      bodyHtml: body,
-      manageUrl: args.manageUrl,
-    }),
-  };
-}
-
 export function planCancelledTemplate(args: {
   cancellerName: string;
   planTitle: string;

@@ -235,6 +235,13 @@ Each milestone ends with a working deploy and a git commit/push. Do not start th
 - **M9** — Ship to friends. Send invite link to WhatsApp group with one sentence. (15 minutes)
 - **M10** — Watch and learn. Build NOTHING for 2 weeks. Take notes on usage, complaints, what's ignored. (2 weeks of patience)
 
+**Post-launch additions (after M10 observations):**
+
+- **M11–M13** — Stabilization. Post-signin redirect to most-recent circle, mobile nav polish, plan confirmation flow (`confirmed` status + email).
+- **M14** — Multi-circle UI. Circle switcher in every page header (sheet on mobile, popover on desktop). `/onboarding` reopened as "Add another circle" for existing users. Email subjects + bodies include circle context.
+- **M15** — Auto-expiry + plan reminders. Originally specced as Vercel Cron; migrated mid-build because the Hobby tier limits crons to once daily. Final shape: Supabase `pg_cron` for the pure-SQL expire job (flips `status=done` 4h past `starts_at`), Supabase Edge Function (`supabase/functions/remind-plans/`) for the reminder email job (1-2h-out window, fans out to IN voters via Resend, stamps `reminder_sent_at` to prevent re-sends). Authed with a custom `CRON_SECRET` Bearer header — anon key is public.
+- **M16** — Visual redesign of home + plan detail. Paper-and-ink palette (`--paper`, `--ink`, `--coral`, semantic `--in/--maybe/--out`), Source Serif 4 headlines added (PLAN.md §8 amended). Home: date row, hero "Tonight, *circle*?" headline, single featured plan card, compact upcoming rows with type-color bars, collapsible past. Plan detail: status + countdown line, "Current plan" card with big serif time + progress bar, equal-weight vote buttons, voter list with vote pills + timestamps, admin actions moved to a `···` overflow menu. Schema added `decide_by` (optional deadline → countdown).
+
 Total active build time: ~8-10 evenings. Calendar time: 3-4 weekends if life cooperates.
 
 ## 11. What gets built in M11+ depends entirely on M10 observations
@@ -275,6 +282,7 @@ Park ideas here when tempted. Revisit after M10 observations. Order is not a pri
 - Per-user "auto-vote" defaults ("auto-Maybe for plans I don't respond to in 24h")
 - Plan templates ("birthday dinner" auto-fills location, type, max-people from past instances)
 - Smarter reminder copy — "Tonight at" is hardcoded in the M15 reminder subject; brunch plans read "Tonight at 11:00 AM." Pick "Today" / "Tonight" / "Tomorrow" based on local time of the plan vs. the recipient.
+- Approximate-plan auto-expiry — M15's pg_cron flips `status=done` when `starts_at + 4h < now()`. For `is_approximate = true` plans, `starts_at` is a fuzzy stand-in ("this weekend" / "next week"), so a plan whose author picked Saturday 9am can auto-expire by Saturday 1pm even if friends actually plan to meet Saturday night. Fix in v2 by either using a longer grace when `is_approximate`, or treating `starts_at` as a day-bucket and expiring at end-of-day.
 
 ## 14. File layout (proposed, finalize in M1)
 
@@ -322,7 +330,10 @@ Park ideas here when tempted. Revisit after M10 observations. Order is not a pri
 │   │   └── utils.ts
 │   └── styles/
 │       └── globals.css
-└── drizzle/                   # migrations
+├── drizzle/                   # migrations
+└── supabase/
+    └── functions/
+        └── remind-plans/      # Edge Function (Deno) for the M15 reminder cron
 ```
 
 ## 15. Working agreement with Claude Code
