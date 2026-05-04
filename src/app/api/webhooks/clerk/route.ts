@@ -3,6 +3,7 @@ import { Webhook } from "svix";
 import { db } from "@/db/client";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { normalizeAvatarUrl } from "@/lib/avatar";
 
 // Clerk webhook payload shapes. Only the fields we touch are typed.
 type ClerkEmailAddress = {
@@ -38,11 +39,18 @@ function pickPrimaryEmail(data: ClerkUserData): string | null {
   return primary?.email_address ?? null;
 }
 
-function deriveDisplayName(data: ClerkUserData, email: string): string {
+type DerivedName = { displayName: string; isReal: boolean };
+
+// "Real" = came from Google's profile (first/last name) or a chosen username.
+// Email-prefix and the raw email are fallbacks — we treat them as not real
+// so the user is prompted to set a name they actually want their friends to see.
+function deriveDisplayName(data: ClerkUserData, email: string): DerivedName {
   const full = [data.first_name, data.last_name].filter(Boolean).join(" ").trim();
-  if (full) return full;
-  if (data.username) return data.username;
-  return email.split("@")[0] ?? email;
+  if (full) return { displayName: full, isReal: true };
+  if (data.username) return { displayName: data.username, isReal: true };
+  const prefix = email.split("@")[0];
+  if (prefix) return { displayName: prefix, isReal: false };
+  return { displayName: email, isReal: false };
 }
 
 export async function POST(req: Request) {
@@ -81,9 +89,15 @@ export async function POST(req: Request) {
       if (!email) {
         return new Response("User has no email", { status: 400 });
       }
-      const displayName = deriveDisplayName(data, email);
-      const avatarUrl = data.image_url ?? null;
+      const { displayName, isReal } = deriveDisplayName(data, email);
+      // Filter Clerk's hosted default avatar (purple/indigo blob) — store
+      // null instead so the paper-styled initials fallback renders.
+      const avatarUrl = normalizeAvatarUrl(data.image_url ?? null);
 
+      // On insert: stamp has_set_display_name from whether Clerk gave us a real
+      // name. On update: only overwrite display_name when Clerk now has a real
+      // name — otherwise we'd clobber a user who already chose one via
+      // /set-name with an email-prefix fallback.
       await db
         .insert(users)
         .values({
@@ -91,10 +105,15 @@ export async function POST(req: Request) {
           email,
           displayName,
           avatarUrl,
+          hasSetDisplayName: isReal,
         })
         .onConflictDoUpdate({
           target: users.id,
-          set: { email, displayName, avatarUrl },
+          set: {
+            email,
+            avatarUrl,
+            ...(isReal ? { displayName, hasSetDisplayName: true } : {}),
+          },
         });
       break;
     }

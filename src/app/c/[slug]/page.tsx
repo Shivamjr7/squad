@@ -13,9 +13,11 @@ import { PlanCard } from "@/components/plan/plan-card";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
 import { UpcomingRow } from "@/components/plan/upcoming-row";
 import { InviteButton } from "@/components/circle/invite-button";
+import { MembersStrip, type StripMember } from "@/components/circle/members-strip";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
-import { getUserCircles } from "@/lib/circles";
+import { getKnownSquadUsers, getUserCircles } from "@/lib/circles";
+import { requireDisplayNameSet } from "@/lib/auth";
 import {
   CircleVotesProvider,
   type Member,
@@ -74,6 +76,7 @@ export default async function CircleHomePage({
   const { slug } = await params;
   const { userId } = await auth();
   if (!userId) notFound();
+  await requireDisplayNameSet(userId);
 
   const circle = await db.query.circles.findFirst({
     columns: { id: true, name: true, slug: true },
@@ -104,13 +107,26 @@ export default async function CircleHomePage({
 
   const isAdmin = me.role === "admin";
 
+  // Admins get the "Add directly" list — friends already on Squad. Skip the
+  // query for non-admins; they can't direct-add anyone.
+  const knownUsers = isAdmin
+    ? await getKnownSquadUsers(userId, circle.id)
+    : [];
+
   const members: Record<string, Member> = {};
+  const stripMembers: StripMember[] = [];
   for (const m of memberRows) {
     if (!m.user) continue;
     members[m.user.id] = {
       displayName: m.user.displayName,
       avatarUrl: m.user.avatarUrl,
     };
+    stripMembers.push({
+      userId: m.user.id,
+      displayName: m.user.displayName,
+      avatarUrl: m.user.avatarUrl,
+      role: m.role,
+    });
   }
 
   const now = new Date();
@@ -216,13 +232,15 @@ export default async function CircleHomePage({
         </div>
       </header>
 
-      <div className="px-4 pt-3 sm:px-6">
+      <div className="flex flex-col gap-1.5 px-4 pt-3 sm:px-6">
         <InviteButton
           circleId={circle.id}
           isAdmin={isAdmin}
           activeInvites={activeInvites}
+          knownUsers={knownUsers}
           variant="row"
         />
+        <MembersStrip members={stripMembers} />
       </div>
 
       <div className="flex items-center justify-between gap-3 px-4 pt-6 sm:px-6">

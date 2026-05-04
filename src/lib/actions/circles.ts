@@ -1,8 +1,9 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { db } from "@/db/client";
-import { circles, memberships } from "@/db/schema";
+import { circles, memberships, users } from "@/db/schema";
 import { requireMembership, requireUserId } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
@@ -71,6 +72,49 @@ export async function renameCircle(input: {
     .update(circles)
     .set({ name: parsed.data.name })
     .where(eq(circles.id, input.circleId));
+}
+
+// Direct-add a known Squad user to a circle. Admin-only. Idempotent: a no-op
+// if the target is already a member. Used by the "Add directly" list in the
+// invite dialog (M17 Fix 3).
+export async function addMemberDirectly(input: {
+  circleId: string;
+  userId: string;
+}): Promise<void> {
+  await requireMembership(input.circleId, "admin");
+
+  const target = await db.query.users.findFirst({
+    columns: { id: true },
+    where: eq(users.id, input.userId),
+  });
+  if (!target) {
+    throw new ActionError("NOT_FOUND", "That user isn't on Squad.");
+  }
+
+  const existing = await db.query.memberships.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(memberships.userId, input.userId),
+      eq(memberships.circleId, input.circleId),
+    ),
+  });
+  if (existing) return;
+
+  await db.insert(memberships).values({
+    userId: input.userId,
+    circleId: input.circleId,
+    role: "member",
+  });
+
+  // Refresh the circle's pages so the new member shows up in the strip + lists.
+  const circle = await db.query.circles.findFirst({
+    columns: { slug: true },
+    where: eq(circles.id, input.circleId),
+  });
+  if (circle?.slug) {
+    revalidatePath(`/c/${circle.slug}`);
+    revalidatePath(`/c/${circle.slug}/settings`);
+  }
 }
 
 export type { CreateCircleInput, RenameCircleInput };

@@ -7,12 +7,14 @@ import { db } from "@/db/client";
 import { memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleChooser } from "@/components/onboarding/circle-chooser";
+import { requireDisplayNameSet } from "@/lib/auth";
 
 export default async function OnboardingPage() {
   const { userId } = await auth();
   if (!userId) {
     redirect("/sign-in");
   }
+  await requireDisplayNameSet(userId);
 
   // Reachable both for first-time users (no memberships) and existing users
   // adding another circle. Copy adjusts based on whether they already belong

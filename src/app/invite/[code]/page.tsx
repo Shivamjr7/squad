@@ -5,6 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { invites, memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
+import { requireDisplayNameSet } from "@/lib/auth";
 
 function InvalidInvitePage({ reason }: { reason: string }) {
   return (
@@ -61,6 +62,7 @@ export default async function InvitePage({
     const target = `/invite/${encodeURIComponent(code)}`;
     redirect(`/sign-in?redirect_url=${encodeURIComponent(target)}`);
   }
+  await requireDisplayNameSet(userId);
 
   // Idempotent: if already a member, just bounce them in (no uses++).
   const existing = await db.query.memberships.findFirst({

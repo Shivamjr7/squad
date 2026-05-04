@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Check, Link as LinkIcon, Share2 } from "lucide-react";
+import { Copy, Check, Link as LinkIcon, Share2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { generateInvite } from "@/lib/actions/invites";
+import { addMemberDirectly } from "@/lib/actions/circles";
+import type { KnownSquadUser } from "@/lib/circles";
 
 export type ActiveInvite = { code: string };
 
@@ -22,6 +24,7 @@ type Props = {
   circleId: string;
   isAdmin: boolean;
   activeInvites: ActiveInvite[];
+  knownUsers?: KnownSquadUser[];
   variant?: "compact" | "row";
 };
 
@@ -31,6 +34,7 @@ export function InviteButton({
   circleId,
   isAdmin,
   activeInvites,
+  knownUsers = [],
   variant = "compact",
 }: Props) {
   const router = useRouter();
@@ -43,6 +47,8 @@ export function InviteButton({
   const [generated, setGenerated] = useState<DisplayInvite[]>([]);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [canShare, setCanShare] = useState(false);
+  const [addedIds, setAddedIds] = useState<Set<string>>(() => new Set());
+  const [addingId, setAddingId] = useState<string | null>(null);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -85,6 +91,25 @@ export function InviteButton({
       setTimeout(() => setCopiedCode((c) => (c === invite.code ? null : c)), 2000);
     } catch {
       toast.error("Couldn't copy — long-press the link to copy manually.");
+    }
+  }
+
+  async function onAddDirectly(user: KnownSquadUser) {
+    setAddingId(user.id);
+    try {
+      await addMemberDirectly({ circleId, userId: user.id });
+      setAddedIds((prev) => {
+        const next = new Set(prev);
+        next.add(user.id);
+        return next;
+      });
+      toast.success(`Added ${user.displayName}`);
+      router.refresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Couldn't add that user.";
+      toast.error(msg);
+    } finally {
+      setAddingId(null);
     }
   }
 
@@ -136,6 +161,68 @@ export function InviteButton({
               : "Share an existing link with friends. Anyone with the link can join."}
           </DialogDescription>
         </DialogHeader>
+
+        {isAdmin && knownUsers.length > 0 ? (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Add directly
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              People already on Squad you share another circle with.
+            </p>
+            <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto">
+              {knownUsers.map((u) => {
+                const isAdded = addedIds.has(u.id);
+                const isBusy = addingId === u.id;
+                return (
+                  <li
+                    key={u.id}
+                    className="flex items-center gap-3 rounded-md px-2 py-1.5"
+                  >
+                    {u.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={u.avatarUrl}
+                        alt=""
+                        className="size-8 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium uppercase">
+                        {u.displayName.slice(0, 1)}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {u.displayName}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant={isAdded ? "ghost" : "outline"}
+                      onClick={() => onAddDirectly(u)}
+                      disabled={isAdded || isBusy}
+                      className="shrink-0"
+                    >
+                      {isAdded ? (
+                        <>
+                          <Check /> Added
+                        </>
+                      ) : isBusy ? (
+                        "Adding…"
+                      ) : (
+                        <>
+                          <UserPlus /> Add
+                        </>
+                      )}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="my-1 border-t border-ink/10" />
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Or share a link
+            </h3>
+          </section>
+        ) : null}
 
         {list.length === 0 ? (
           <p className="text-sm text-muted-foreground">

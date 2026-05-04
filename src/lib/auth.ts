@@ -1,7 +1,8 @@
+import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { memberships } from "@/db/schema";
+import { circles, memberships, users } from "@/db/schema";
 import { ActionError } from "@/lib/actions/errors";
 
 export type MembershipRole = "admin" | "member";
@@ -41,6 +42,33 @@ export async function requireMembership(
     throw new ActionError("FORBIDDEN", "Only admins can do this.");
   }
   return { userId, role: m.role };
+}
+
+// Call from any signed-in server page. Redirects to /set-name if the user
+// hasn't picked a real display name yet (Fix 2 / M17). Cheap one-row lookup.
+export async function requireDisplayNameSet(userId: string): Promise<void> {
+  const row = await db.query.users.findFirst({
+    columns: { hasSetDisplayName: true },
+    where: eq(users.id, userId),
+  });
+  // If the row doesn't exist yet (Clerk webhook in flight), don't block —
+  // the user can still browse; the prompt will catch them next page load.
+  if (row && !row.hasSetDisplayName) {
+    redirect("/set-name");
+  }
+}
+
+export async function getMostRecentCircleSlug(
+  userId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ slug: circles.slug })
+    .from(memberships)
+    .innerJoin(circles, eq(memberships.circleId, circles.id))
+    .where(eq(memberships.userId, userId))
+    .orderBy(desc(memberships.joinedAt))
+    .limit(1);
+  return rows[0]?.slug ?? null;
 }
 
 // Plan creator OR circle admin can mark done / cancel / uncancel

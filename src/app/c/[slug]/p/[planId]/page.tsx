@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { circles, comments, memberships, plans, votes } from "@/db/schema";
-import { canModifyPlan } from "@/lib/auth";
+import { canModifyPlan, requireDisplayNameSet } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { PlanVotes } from "@/components/votes/plan-votes";
@@ -110,6 +110,7 @@ export default async function PlanDetailPage({
   const { slug, planId } = await params;
   const { userId } = await auth();
   if (!userId) notFound();
+  await requireDisplayNameSet(userId);
 
   const circle = await db.query.circles.findFirst({
     columns: { id: true, name: true, slug: true },

@@ -1,22 +1,17 @@
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { SignInButton, SignUpButton } from "@clerk/nextjs";
-import { desc, eq } from "drizzle-orm";
-import { db } from "@/db/client";
-import { memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
+import { getMostRecentCircleSlug, requireDisplayNameSet } from "@/lib/auth";
 
 export default async function Home() {
   const { userId } = await auth();
 
   if (userId) {
-    const recent = await db.query.memberships.findFirst({
-      where: eq(memberships.userId, userId),
-      orderBy: desc(memberships.joinedAt),
-      with: { circle: { columns: { slug: true } } },
-    });
-    if (recent?.circle?.slug) {
-      redirect(`/c/${recent.circle.slug}`);
+    await requireDisplayNameSet(userId);
+    const slug = await getMostRecentCircleSlug(userId);
+    if (slug) {
+      redirect(`/c/${slug}`);
     }
     redirect("/onboarding");
   }

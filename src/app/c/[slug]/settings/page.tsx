@@ -10,6 +10,7 @@ import { RenameCircleForm } from "@/components/settings/rename-circle-form";
 import { GenerateInviteForm } from "@/components/settings/generate-invite-form";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { getUserCircles } from "@/lib/circles";
+import { requireDisplayNameSet } from "@/lib/auth";
 
 export default async function SettingsPage({
   params,
@@ -19,6 +20,7 @@ export default async function SettingsPage({
   const { slug } = await params;
   const { userId } = await auth();
   if (!userId) notFound();
+  await requireDisplayNameSet(userId);
 
   const circle = await db.query.circles.findFirst({
     columns: { id: true, name: true, slug: true },
