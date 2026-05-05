@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { RenameCircleForm } from "@/components/settings/rename-circle-form";
 import { GenerateInviteForm } from "@/components/settings/generate-invite-form";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 
@@ -56,7 +57,7 @@ export default async function SettingsPage({
   ]);
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-8 px-4 py-6 sm:px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-8 px-4 py-6 pb-32 sm:px-6">
       <header className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
           <Button
@@ -146,6 +147,8 @@ export default async function SettingsPage({
         </ul>
         )}
       </section>
+
+      <BottomTabs slug={circle.slug} />
     </main>
   );
 }

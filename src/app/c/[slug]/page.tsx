@@ -6,17 +6,16 @@ import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
 import { and, asc, count, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, comments, invites, memberships, plans, votes } from "@/db/schema";
+import { circles, comments, memberships, plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { PlanCard } from "@/components/plan/plan-card";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
 import { UpcomingRow } from "@/components/plan/upcoming-row";
-import { InviteButton } from "@/components/circle/invite-button";
-import { MembersStrip, type StripMember } from "@/components/circle/members-strip";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
-import { getKnownSquadUsers, getUserCircles } from "@/lib/circles";
+import { BottomTabs } from "@/components/circle/bottom-tabs";
+import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 import {
   CircleVotesProvider,
@@ -84,7 +83,7 @@ export default async function CircleHomePage({
   });
   if (!circle) notFound();
 
-  const [memberRows, activeInvites, userCircles] = await Promise.all([
+  const [memberRows, userCircles] = await Promise.all([
     db.query.memberships.findMany({
       where: eq(memberships.circleId, circle.id),
       orderBy: asc(memberships.joinedAt),
@@ -94,11 +93,6 @@ export default async function CircleHomePage({
         },
       },
     }),
-    db.query.invites.findMany({
-      columns: { code: true },
-      where: eq(invites.circleId, circle.id),
-      orderBy: desc(invites.createdAt),
-    }),
     getUserCircles(userId),
   ]);
 
@@ -107,26 +101,13 @@ export default async function CircleHomePage({
 
   const isAdmin = me.role === "admin";
 
-  // Admins get the "Add directly" list — friends already on Squad. Skip the
-  // query for non-admins; they can't direct-add anyone.
-  const knownUsers = isAdmin
-    ? await getKnownSquadUsers(userId, circle.id)
-    : [];
-
   const members: Record<string, Member> = {};
-  const stripMembers: StripMember[] = [];
   for (const m of memberRows) {
     if (!m.user) continue;
     members[m.user.id] = {
       displayName: m.user.displayName,
       avatarUrl: m.user.avatarUrl,
     };
-    stripMembers.push({
-      userId: m.user.id,
-      displayName: m.user.displayName,
-      avatarUrl: m.user.avatarUrl,
-      role: m.role,
-    });
   }
 
   const now = new Date();
@@ -231,17 +212,6 @@ export default async function CircleHomePage({
           <UserButton />
         </div>
       </header>
-
-      <div className="flex flex-col gap-1.5 px-4 pt-3 sm:px-6">
-        <InviteButton
-          circleId={circle.id}
-          isAdmin={isAdmin}
-          activeInvites={activeInvites}
-          knownUsers={knownUsers}
-          variant="row"
-        />
-        <MembersStrip members={stripMembers} />
-      </div>
 
       <div className="flex items-center justify-between gap-3 px-4 pt-6 sm:px-6">
         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
@@ -366,6 +336,7 @@ export default async function CircleHomePage({
       </CircleVotesProvider>
 
       <NewPlanTrigger circleId={circle.id} slug={circle.slug} mode="fab" />
+      <BottomTabs slug={circle.slug} />
       <Suspense fallback={null}>
         <PostJoinToast />
       </Suspense>

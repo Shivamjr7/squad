@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db/client";
 import { circles, memberships, users } from "@/db/schema";
@@ -114,6 +114,82 @@ export async function addMemberDirectly(input: {
   if (circle?.slug) {
     revalidatePath(`/c/${circle.slug}`);
     revalidatePath(`/c/${circle.slug}/settings`);
+  }
+}
+
+export async function removeMember(input: {
+  circleId: string;
+  userId: string;
+}): Promise<void> {
+  const { userId: callerId } = await requireMembership(input.circleId, "admin");
+
+  if (callerId === input.userId) {
+    throw new ActionError(
+      "INVALID",
+      "Use 'Leave circle' to remove yourself.",
+    );
+  }
+
+  const target = await db.query.memberships.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(memberships.userId, input.userId),
+      eq(memberships.circleId, input.circleId),
+    ),
+  });
+  if (!target) return;
+
+  await db.delete(memberships).where(eq(memberships.id, target.id));
+
+  const circle = await db.query.circles.findFirst({
+    columns: { slug: true },
+    where: eq(circles.id, input.circleId),
+  });
+  if (circle?.slug) {
+    revalidatePath(`/c/${circle.slug}`);
+    revalidatePath(`/c/${circle.slug}/squad`);
+    revalidatePath(`/c/${circle.slug}/settings`);
+  }
+}
+
+export async function leaveCircle(input: {
+  circleId: string;
+}): Promise<void> {
+  const { userId, role } = await requireMembership(input.circleId);
+
+  if (role === "admin") {
+    const otherAdmins = await db.query.memberships.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(memberships.circleId, input.circleId),
+        eq(memberships.role, "admin"),
+        ne(memberships.userId, userId),
+      ),
+    });
+    if (!otherAdmins) {
+      throw new ActionError(
+        "INVALID",
+        "You're the last admin — promote someone else first.",
+      );
+    }
+  }
+
+  await db
+    .delete(memberships)
+    .where(
+      and(
+        eq(memberships.userId, userId),
+        eq(memberships.circleId, input.circleId),
+      ),
+    );
+
+  const circle = await db.query.circles.findFirst({
+    columns: { slug: true },
+    where: eq(circles.id, input.circleId),
+  });
+  if (circle?.slug) {
+    revalidatePath(`/c/${circle.slug}`);
+    revalidatePath(`/c/${circle.slug}/squad`);
   }
 }
 

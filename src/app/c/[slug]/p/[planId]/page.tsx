@@ -14,6 +14,7 @@ import { VoterListDetail } from "@/components/votes/voter-list-detail";
 import { PlanComments } from "@/components/comments/plan-comments";
 import { PlanOverflowMenu } from "@/components/plan/plan-overflow-menu";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { getUserCircles } from "@/lib/circles";
 import {
   CircleVotesProvider,
@@ -351,6 +352,7 @@ export default async function PlanDetailPage({
             currentUser={currentUser}
           />
         </section>
+        <BottomTabs slug={circle.slug} />
       </main>
     </CircleVotesProvider>
   );

@@ -50,7 +50,7 @@ export function NewPlanTrigger({
         <Button
           size="lg"
           onClick={() => setOpen(true)}
-          className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full px-6 shadow-lg sm:hidden"
+          className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full px-6 shadow-lg sm:hidden"
         >
           <Plus className="size-5" />
           New plan
