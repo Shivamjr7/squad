@@ -57,6 +57,13 @@
       "when": 1777954606092,
       "tag": "0007_zippy_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777955883575,
+      "tag": "0008_known_red_ghost",
+      "breakpoints": true
     }
   ]
 }

@@ -151,6 +151,35 @@ export function planConfirmedTemplate(args: {
   };
 }
 
+export function planLockedTemplate(args: {
+  planTitle: string;
+  circleName: string;
+  planTimeShort: string; // "8:30 PM"
+  planTimeFormatted: string; // long form for the meta row
+  location: string | null;
+  planUrl: string;
+  manageUrl: string;
+}): EmailContent {
+  const where = args.location ? ` at ${args.location}` : "";
+  const subject = `[${args.circleName}] It's happening — ${args.planTimeShort}${where}`;
+  const body = `
+    <h1 style="margin:0 0 4px;font-size:20px;font-weight:600;line-height:1.3">${esc(args.planTitle)}</h1>
+    ${circleContext(args.circleName)}
+    <p style="margin:0 0 16px;color:#0f172a;font-size:15px">The squad converged. <strong>It's happening.</strong></p>
+    ${metaLine("When", args.planTimeFormatted)}
+    ${args.location ? metaLine("Where", args.location) : ""}
+    <p style="margin:20px 0 4px">${ctaButton(args.planUrl, "Open plan →")}</p>
+  `;
+  return {
+    subject,
+    html: shell({
+      preheader: `Locked: ${args.planTimeShort}${where}`,
+      bodyHtml: body,
+      manageUrl: args.manageUrl,
+    }),
+  };
+}
+
 export function planCancelledTemplate(args: {
   cancellerName: string;
   planTitle: string;

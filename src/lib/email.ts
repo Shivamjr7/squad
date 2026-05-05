@@ -13,6 +13,7 @@ import {
   newPlanTemplate,
   planCancelledTemplate,
   planConfirmedTemplate,
+  planLockedTemplate,
   type EmailContent,
 } from "@/lib/email-templates";
 
@@ -251,6 +252,62 @@ export async function sendPlanConfirmedEmail(
     console.error("[email] sendPlanConfirmedEmail failed", {
       planId,
       confirmerId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function formatPlanTimeShortForEmail(d: Date): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: TIME_ZONE,
+    }).format(d);
+  } catch {
+    return d.toUTCString();
+  }
+}
+
+// "It's happening" email sent when an open-time plan locks. Recipients are
+// everyone in the circle who voted in/maybe on the plan, plus the creator
+// (so they don't miss the lock event for their own plan).
+export async function sendPlanLockedEmail(
+  planId: string,
+  appUrl: string,
+): Promise<void> {
+  try {
+    const plan = await db.query.plans.findFirst({
+      where: eq(plans.id, planId),
+      with: { circle: { columns: { slug: true, id: true, name: true } } },
+    });
+    if (!plan || !plan.circle) return;
+
+    // Recipients: all circle members. Open-mode lock is the moment of truth;
+    // every member should hear about it, not just the slot voters.
+    const memberRows = await db.query.memberships.findMany({
+      where: eq(memberships.circleId, plan.circle.id),
+      with: { user: { columns: { email: true } } },
+    });
+    const recipients = memberRows
+      .map((m) => m.user?.email)
+      .filter((e): e is string => Boolean(e));
+
+    const content = planLockedTemplate({
+      planTitle: plan.title,
+      circleName: plan.circle.name,
+      planTimeShort: formatPlanTimeShortForEmail(plan.startsAt),
+      planTimeFormatted: formatPlanTimeForEmail(plan.startsAt),
+      location: plan.location,
+      planUrl: planUrl(appUrl, plan.circle.slug, plan.id),
+      manageUrl: notificationsUrl(appUrl),
+    });
+
+    await sendFanout(recipients, content);
+  } catch (err) {
+    console.error("[email] sendPlanLockedEmail failed", {
+      planId,
       error: err instanceof Error ? err.message : String(err),
     });
   }

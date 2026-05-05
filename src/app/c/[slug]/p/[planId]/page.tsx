@@ -2,9 +2,17 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { ArrowLeft } from "lucide-react";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, comments, memberships, plans, votes } from "@/db/schema";
+import {
+  circles,
+  comments,
+  memberships,
+  plans,
+  timeSlotVotes,
+  timeSlots,
+  votes,
+} from "@/db/schema";
 import { canModifyPlan, requireDisplayNameSet } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { formatPlanTime } from "@/lib/format-plan-time";
@@ -13,6 +21,14 @@ import { VoteProgressBar } from "@/components/votes/vote-progress-bar";
 import { VoterListDetail } from "@/components/votes/voter-list-detail";
 import { PlanComments } from "@/components/comments/plan-comments";
 import { PlanOverflowMenu } from "@/components/plan/plan-overflow-menu";
+import {
+  TimeHeatmap,
+  type HeatmapSlot,
+} from "@/components/plan/time-heatmap";
+import type {
+  InitialSlotVoter,
+  SlotMember,
+} from "@/lib/realtime/use-slot-votes";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { getUserCircles } from "@/lib/circles";
@@ -201,6 +217,53 @@ export default async function PlanDetailPage({
     createdAt: c.createdAt.toISOString(),
   }));
 
+  const isOpenTime = plan.timeMode === "open" && plan.status === "active";
+
+  let openSlots: HeatmapSlot[] = [];
+  const openInitialVoters: InitialSlotVoter[] = [];
+  const openMembers: Record<string, SlotMember> = {};
+  if (isOpenTime) {
+    const slotRows = await db.query.timeSlots.findMany({
+      where: eq(timeSlots.planId, planId),
+      orderBy: asc(timeSlots.startsAt),
+      columns: { id: true, startsAt: true },
+    });
+    openSlots = slotRows.map((s) => ({
+      id: s.id,
+      startsAt: s.startsAt.toISOString(),
+    }));
+    if (slotRows.length > 0) {
+      const slotVoteRows = await db.query.timeSlotVotes.findMany({
+        where: inArray(
+          timeSlotVotes.slotId,
+          slotRows.map((s) => s.id),
+        ),
+        with: {
+          user: { columns: { id: true, displayName: true, avatarUrl: true } },
+        },
+      });
+      for (const sv of slotVoteRows) {
+        openInitialVoters.push({ slotId: sv.slotId, userId: sv.userId });
+        if (sv.user) {
+          openMembers[sv.user.id] = {
+            userId: sv.user.id,
+            displayName: sv.user.displayName,
+            avatarUrl: sv.user.avatarUrl,
+          };
+        }
+      }
+    }
+    // Ensure the current user is in members so they can optimistically vote
+    // even if they haven't yet.
+    if (me.user) {
+      openMembers[me.user.id] = {
+        userId: me.user.id,
+        displayName: me.user.displayName,
+        avatarUrl: me.user.avatarUrl,
+      };
+    }
+  }
+
   const now = new Date();
   const showVotes = plan.status === "active" || plan.status === "confirmed";
   const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
@@ -290,35 +353,45 @@ export default async function PlanDetailPage({
           </p>
         </section>
 
-        <section className="flex flex-col gap-4 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.10)]">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-            Current plan
-          </span>
-          <div className="flex items-baseline gap-2">
-            <span className="font-serif text-5xl font-semibold leading-none text-ink">
-              {bigTime}
+        {isOpenTime ? (
+          <TimeHeatmap
+            planId={plan.id}
+            slots={openSlots}
+            initialVoters={openInitialVoters}
+            members={openMembers}
+            currentUserId={userId}
+          />
+        ) : (
+          <section className="flex flex-col gap-4 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.10)]">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+              Current plan
             </span>
-            {smallTime ? (
-              <span className="text-sm text-ink-muted">{smallTime}</span>
-            ) : null}
-          </div>
-          {plan.location ? (
-            <p className="text-base text-ink">
-              {plan.location}{" "}
-              <a
-                href={`https://maps.google.com/?q=${encodeURIComponent(plan.location)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-coral underline-offset-2 hover:underline"
-              >
-                map
-              </a>
-            </p>
-          ) : (
-            <p className="text-base text-ink-muted">Location TBD</p>
-          )}
-          <VoteProgressBar planId={plan.id} />
-        </section>
+            <div className="flex items-baseline gap-2">
+              <span className="font-serif text-5xl font-semibold leading-none text-ink">
+                {bigTime}
+              </span>
+              {smallTime ? (
+                <span className="text-sm text-ink-muted">{smallTime}</span>
+              ) : null}
+            </div>
+            {plan.location ? (
+              <p className="text-base text-ink">
+                {plan.location}{" "}
+                <a
+                  href={`https://maps.google.com/?q=${encodeURIComponent(plan.location)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-coral underline-offset-2 hover:underline"
+                >
+                  map
+                </a>
+              </p>
+            ) : (
+              <p className="text-base text-ink-muted">Location TBD</p>
+            )}
+            <VoteProgressBar planId={plan.id} />
+          </section>
+        )}
 
         {showVotes ? (
           <section className="flex flex-col gap-4">

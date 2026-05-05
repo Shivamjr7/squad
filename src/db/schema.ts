@@ -166,6 +166,41 @@ export const votes = pgTable(
   }),
 );
 
+export const timeSlots = pgTable("time_slots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  planId: uuid("plan_id")
+    .notNull()
+    .references(() => plans.id, { onDelete: "cascade" }),
+  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" })
+    .notNull(),
+  durationMinutes: integer("duration_minutes").notNull().default(60),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+});
+
+export const timeSlotVotes = pgTable(
+  "time_slot_votes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slotId: uuid("slot_id")
+      .notNull()
+      .references(() => timeSlots.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    votedAt: timestamp("voted_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    slotUserUnique: uniqueIndex("time_slot_votes_slot_user_unique").on(
+      table.slotId,
+      table.userId,
+    ),
+  }),
+);
+
 export const comments = pgTable("comments", {
   id: uuid("id").primaryKey().defaultRandom(),
   planId: uuid("plan_id")
@@ -234,6 +269,26 @@ export const plansRelations = relations(plans, ({ one, many }) => ({
   }),
   votes: many(votes),
   comments: many(comments),
+  timeSlots: many(timeSlots),
+}));
+
+export const timeSlotsRelations = relations(timeSlots, ({ one, many }) => ({
+  plan: one(plans, {
+    fields: [timeSlots.planId],
+    references: [plans.id],
+  }),
+  votes: many(timeSlotVotes),
+}));
+
+export const timeSlotVotesRelations = relations(timeSlotVotes, ({ one }) => ({
+  slot: one(timeSlots, {
+    fields: [timeSlotVotes.slotId],
+    references: [timeSlots.id],
+  }),
+  user: one(users, {
+    fields: [timeSlotVotes.userId],
+    references: [users.id],
+  }),
 }));
 
 export const votesRelations = relations(votes, ({ one }) => ({

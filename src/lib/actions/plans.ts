@@ -2,7 +2,7 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, plans, votes } from "@/db/schema";
+import { circles, plans, timeSlots, votes } from "@/db/schema";
 import { canModifyPlan, requireMembership } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
@@ -95,6 +95,24 @@ export async function createPlan(
       userId,
       status: "in",
     });
+
+    // Open-time mode: seed 5 hourly slots anchored on the picked startsAt.
+    // Slots run from (startsAt - 2h) through (startsAt + 2h), one per hour.
+    // Anchored on a top-of-hour boundary so cells line up cleanly with
+    // wall-clock labels in the heatmap.
+    if (data.timeMode === "open") {
+      const anchorMs = startsAt.getTime();
+      const topOfHourMs = anchorMs - (anchorMs % (60 * 60_000));
+      const seedRows = [];
+      for (let i = -2; i <= 2; i++) {
+        seedRows.push({
+          planId: plan.id,
+          startsAt: new Date(topOfHourMs + i * 60 * 60_000),
+          durationMinutes: 60,
+        });
+      }
+      await tx.insert(timeSlots).values(seedRows);
+    }
 
     return plan.id;
   });
