@@ -15,6 +15,8 @@ import { UpcomingRow } from "@/components/plan/upcoming-row";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { BottomTabs } from "@/components/circle/bottom-tabs";
+import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
+import type { FormMember } from "@/components/plan/new-plan-form";
 import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 import {
@@ -102,12 +104,18 @@ export default async function CircleHomePage({
   const isAdmin = me.role === "admin";
 
   const members: Record<string, Member> = {};
+  const formMembers: FormMember[] = [];
   for (const m of memberRows) {
     if (!m.user) continue;
     members[m.user.id] = {
       displayName: m.user.displayName,
       avatarUrl: m.user.avatarUrl,
     };
+    formMembers.push({
+      userId: m.user.id,
+      displayName: m.user.displayName,
+      avatarUrl: m.user.avatarUrl,
+    });
   }
 
   const now = new Date();
@@ -217,7 +225,13 @@ export default async function CircleHomePage({
         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
           {dateLabel}
         </span>
-        <NewPlanTrigger circleId={circle.id} slug={circle.slug} mode="header" />
+        <NewPlanTrigger
+          circleId={circle.id}
+          slug={circle.slug}
+          members={formMembers}
+          currentUserId={userId}
+          mode="header"
+        />
       </div>
 
       <h1 className="px-4 pt-3 pb-2 font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:px-6 sm:text-[40px]">
@@ -250,7 +264,15 @@ export default async function CircleHomePage({
               now={now}
             />
           ) : isEmpty ? (
-            <EmptyState />
+            <OrbitalEmptyState>
+              <NewPlanTrigger
+                circleId={circle.id}
+                slug={circle.slug}
+                members={formMembers}
+                currentUserId={userId}
+                mode="cta"
+              />
+            </OrbitalEmptyState>
           ) : (
             <NoUpcomingState />
           )}
@@ -335,7 +357,13 @@ export default async function CircleHomePage({
         </div>
       </CircleVotesProvider>
 
-      <NewPlanTrigger circleId={circle.id} slug={circle.slug} mode="fab" />
+      <NewPlanTrigger
+        circleId={circle.id}
+        slug={circle.slug}
+        members={formMembers}
+        currentUserId={userId}
+        mode="fab"
+      />
       <BottomTabs slug={circle.slug} />
       <Suspense fallback={null}>
         <PostJoinToast />
@@ -362,17 +390,6 @@ function NoUpcomingState() {
     <div className="rounded-xl border border-dashed border-ink/15 bg-paper-card/40 px-6 py-8 text-center">
       <p className="text-sm text-ink-muted">
         Nothing scheduled. Tap + to propose tonight.
-      </p>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="rounded-2xl bg-paper-card px-6 py-12 text-center shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.10)]">
-      <p className="font-serif text-xl font-semibold text-ink">No plan yet.</p>
-      <p className="mt-2 text-sm text-ink-muted">
-        Quiet weekend. Tap + to propose something.
       </p>
     </div>
   );

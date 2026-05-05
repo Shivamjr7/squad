@@ -31,6 +31,8 @@ export const planStatus = pgEnum("plan_status", [
 
 export const voteStatus = pgEnum("vote_status", ["in", "out", "maybe"]);
 
+export const planTimeMode = pgEnum("plan_time_mode", ["exact", "open"]);
+
 // ─── Tables ─────────────────────────────────────────────────────────────
 
 export const users = pgTable("users", {
@@ -116,6 +118,7 @@ export const plans = pgTable("plans", {
   title: text("title").notNull(),
   type: planType("type").notNull(),
   startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+  timeMode: planTimeMode("time_mode").notNull().default("exact"),
   isApproximate: boolean("is_approximate").notNull().default(false),
   location: text("location"),
   maxPeople: integer("max_people"),

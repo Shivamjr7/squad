@@ -10,6 +10,9 @@ export const planTypeSchema = z.enum([
 
 export type PlanType = z.infer<typeof planTypeSchema>;
 
+export const planTimeModeSchema = z.enum(["exact", "open"]);
+export type PlanTimeMode = z.infer<typeof planTimeModeSchema>;
+
 // Submitted by the new-plan form. The wall-clock + timezone pair lets the
 // server reconstruct the correct UTC moment regardless of where Vercel runs.
 // See src/lib/tz.ts for the conversion.
@@ -21,6 +24,7 @@ export const createPlanSchema = z.object({
     .min(3, "Title must be at least 3 characters")
     .max(100, "Title must be 100 characters or fewer"),
   type: planTypeSchema,
+  timeMode: planTimeModeSchema.optional().default("exact"),
   startsAtLocal: z
     .string()
     .regex(

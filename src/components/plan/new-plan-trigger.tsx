@@ -3,31 +3,27 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { NewPlanForm } from "./new-plan-form";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { NewPlanForm, type FormMember } from "./new-plan-form";
 
 const DESKTOP_QUERY = "(min-width: 640px)";
+
+type Props = {
+  circleId: string;
+  slug: string;
+  members: FormMember[];
+  currentUserId: string;
+  mode?: "fab" | "header" | "cta";
+};
 
 export function NewPlanTrigger({
   circleId,
   slug,
+  members,
+  currentUserId,
   mode = "fab",
-}: {
-  circleId: string;
-  slug: string;
-  mode?: "fab" | "header";
-}) {
+}: Props) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
@@ -44,9 +40,6 @@ export function NewPlanTrigger({
   return (
     <>
       {mode === "fab" ? (
-        // Mobile-only: the editorial home redesign uses an in-header trigger
-        // on desktop. FAB stays on small screens because thumbs reach the
-        // bottom-right faster than the top-right header.
         <Button
           size="lg"
           onClick={() => setOpen(true)}
@@ -54,6 +47,15 @@ export function NewPlanTrigger({
         >
           <Plus className="size-5" />
           New plan
+        </Button>
+      ) : mode === "cta" ? (
+        <Button
+          size="lg"
+          onClick={() => setOpen(true)}
+          className="h-12 rounded-full bg-ink px-6 text-paper-card hover:bg-ink/90"
+        >
+          <Plus className="size-5" />
+          Start a plan
         </Button>
       ) : (
         <Button
@@ -70,13 +72,16 @@ export function NewPlanTrigger({
       {mounted &&
         (isDesktop ? (
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent className="max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>New plan</DialogTitle>
-              </DialogHeader>
+            <DialogContent
+              showCloseButton={false}
+              className="h-[min(720px,90vh)] max-w-lg gap-0 overflow-hidden p-0"
+            >
+              <DialogTitle className="sr-only">New plan</DialogTitle>
               <NewPlanForm
                 circleId={circleId}
                 slug={slug}
+                members={members}
+                currentUserId={currentUserId}
                 onDone={() => setOpen(false)}
               />
             </DialogContent>
@@ -85,14 +90,15 @@ export function NewPlanTrigger({
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetContent
               side="bottom"
-              className="h-[92vh] gap-0 overflow-y-auto rounded-t-xl p-0"
+              showCloseButton={false}
+              className="h-[100dvh] gap-0 p-0"
             >
-              <SheetHeader className="border-b">
-                <SheetTitle>New plan</SheetTitle>
-              </SheetHeader>
+              <SheetTitle className="sr-only">New plan</SheetTitle>
               <NewPlanForm
                 circleId={circleId}
                 slug={slug}
+                members={members}
+                currentUserId={currentUserId}
                 onDone={() => setOpen(false)}
               />
             </SheetContent>
