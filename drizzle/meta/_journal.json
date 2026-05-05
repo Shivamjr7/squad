@@ -64,6 +64,13 @@
       "when": 1777955883575,
       "tag": "0008_known_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777972030507,
+      "tag": "0009_massive_human_cannonball",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ import {
 } from "@/lib/validation/time-slot";
 import { sendPlanLockedEmail } from "@/lib/email";
 import { getAppUrl } from "@/lib/url";
+import { captureWinningVenue } from "@/lib/actions/plan-venues";
 
 // Lock threshold for auto-confirming an open-time plan when N voters
 // converge on the same slot. M22 will move this onto plans.lock_threshold;
@@ -140,6 +141,10 @@ export async function lockOpenPlan(
     .returning({ id: plans.id });
 
   if (updated.length === 0) return false;
+
+  // M21 — capture leading venue label as the canonical location so the
+  // confirmation email + map deep-links read a single source of truth.
+  await captureWinningVenue(planId);
 
   const appUrl = await getAppUrl();
   void sendPlanLockedEmail(planId, appUrl).catch((err) => {

@@ -2,7 +2,13 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, plans, timeSlots, votes } from "@/db/schema";
+import {
+  circles,
+  planVenues,
+  plans,
+  timeSlots,
+  votes,
+} from "@/db/schema";
 import { canModifyPlan, requireMembership } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
@@ -18,6 +24,7 @@ import {
   sendPlanCancelledEmail,
   sendPlanConfirmedEmail,
 } from "@/lib/email";
+import { captureWinningVenue } from "@/lib/actions/plan-venues";
 
 export async function createPlan(
   input: CreatePlanInput,
@@ -95,6 +102,27 @@ export async function createPlan(
       userId,
       status: "in",
     });
+
+    // M21: when the creator added extra venue options, seed plan_venues so
+    // the squad can vote between them. The single-venue path keeps writing
+    // only to plans.location (no row in plan_venues) — voting UI is hidden
+    // and existing maps/email code keeps reading the canonical free-text
+    // field. When extras exist, we also seed the first venue (data.location)
+    // so it's an equal candidate in the vote.
+    if (data.extraVenues.length > 0) {
+      const labels: string[] = [];
+      if (data.location) labels.push(data.location);
+      for (const v of data.extraVenues) labels.push(v);
+      if (labels.length > 0) {
+        await tx.insert(planVenues).values(
+          labels.map((label) => ({
+            planId: plan.id,
+            label,
+            suggestedBy: userId,
+          })),
+        );
+      }
+    }
 
     // Open-time mode: seed 5 hourly slots anchored on the picked startsAt.
     // Slots run from (startsAt - 2h) through (startsAt + 2h), one per hour.
@@ -220,6 +248,9 @@ export async function confirmPlan(input: PlanIdInput): Promise<void> {
     .update(plans)
     .set({ status: "confirmed" })
     .where(eq(plans.id, plan.id));
+
+  // M21 — promote leading venue (if any) to plans.location on lock.
+  await captureWinningVenue(plan.id);
 
   const appUrl = await getAppUrl();
   void sendPlanConfirmedEmail(plan.id, userId, appUrl).catch((err) => {

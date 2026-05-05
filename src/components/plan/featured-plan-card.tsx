@@ -12,6 +12,13 @@ export type FeaturedPlanData = {
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
   decideBy: Date | null;
+  // M21: when set, the plan has multi-venue voting in progress. We swap
+  // `location` on the card for a leader hint or "N options" fallback.
+  venueSummary?: {
+    label: string | null;
+    total: number;
+    optionCount: number;
+  } | null;
 };
 
 export function FeaturedPlanCard({
@@ -36,6 +43,23 @@ export function FeaturedPlanCard({
   const pillLabel = isConfirmed ? "Confirmed" : "Deciding";
 
   const whenLabel = formatPlanTime(plan.startsAt, plan.isApproximate, now);
+
+  // M21 — leading venue overrides plain location when voting is in progress.
+  const venueChip = plan.venueSummary
+    ? plan.venueSummary.label
+      ? {
+          label: `${plan.venueSummary.label} · ${plan.venueSummary.total}`,
+          muted: false,
+        }
+      : {
+          label: `${plan.venueSummary.optionCount} options · voting`,
+          muted: true,
+        }
+    : null;
+  const whereValue = venueChip?.label ?? plan.location ?? "TBD";
+  const whereMuted = venueChip
+    ? venueChip.muted
+    : !plan.location;
 
   return (
     <Link
@@ -65,7 +89,7 @@ export function FeaturedPlanCard({
 
       <div className="grid grid-cols-2 gap-2">
         <Chip label="When" value={whenLabel} />
-        <Chip label="Where" value={plan.location ?? "TBD"} muted={!plan.location} />
+        <Chip label="Where" value={whereValue} muted={whereMuted} />
       </div>
 
       <FeaturedPlanVoters planId={plan.id} />

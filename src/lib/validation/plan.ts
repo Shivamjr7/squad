@@ -49,6 +49,14 @@ export const createPlanSchema = z.object({
     .nullable()
     .optional()
     .transform((v) => (v ? v : null)),
+  // Optional extra venue suggestions from the create-plan form. The first
+  // input is `location`; anything here becomes additional `plan_venues` rows.
+  // Empty / whitespace-only entries are dropped server-side.
+  extraVenues: z
+    .array(z.string().trim().max(100, "Venue must be 100 characters or fewer"))
+    .max(8, "Up to 8 venue options")
+    .optional()
+    .transform((arr) => (arr ? arr.filter((s) => s.length > 0) : [])),
   maxPeople: z
     .number()
     .int()

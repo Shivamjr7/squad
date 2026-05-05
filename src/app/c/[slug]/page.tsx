@@ -6,7 +6,15 @@ import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
 import { and, asc, count, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, comments, memberships, plans, votes } from "@/db/schema";
+import {
+  circles,
+  comments,
+  memberships,
+  planVenueVotes,
+  planVenues,
+  plans,
+  votes,
+} from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { PlanCard } from "@/components/plan/plan-card";
@@ -158,8 +166,16 @@ export default async function CircleHomePage({
   ]);
 
   const planIds = [...upcoming, ...past].map((p) => p.id);
+  const upcomingPlanIds = upcoming.map((p) => p.id);
   const initialVoters: VotersByPlan = {};
   const commentCounts = new Map<string, number>();
+  // Map<planId, { label, votes, total }> — surfaces the leading venue on the
+  // home featured card + upcoming row when an active plan has multi-venue
+  // voting in progress. Null leader (tie / no votes) shows "N options".
+  const venueSummaries = new Map<
+    string,
+    { label: string | null; total: number; optionCount: number }
+  >();
   if (planIds.length > 0) {
     const [voteRows, countRows] = await Promise.all([
       db.query.votes.findMany({
@@ -190,6 +206,82 @@ export default async function CircleHomePage({
     }
     for (const row of countRows) {
       commentCounts.set(row.planId, Number(row.n));
+    }
+  }
+
+  if (upcomingPlanIds.length > 0) {
+    const venueRows = await db
+      .select({
+        planId: planVenues.planId,
+        venueId: planVenues.id,
+        label: planVenues.label,
+      })
+      .from(planVenues)
+      .where(inArray(planVenues.planId, upcomingPlanIds));
+
+    if (venueRows.length > 0) {
+      const venueIdToPlan = new Map<string, string>();
+      const optionsPerPlan = new Map<string, number>();
+      const labelByVenue = new Map<string, string>();
+      for (const v of venueRows) {
+        venueIdToPlan.set(v.venueId, v.planId);
+        labelByVenue.set(v.venueId, v.label);
+        optionsPerPlan.set(
+          v.planId,
+          (optionsPerPlan.get(v.planId) ?? 0) + 1,
+        );
+      }
+
+      const voteRows = await db
+        .select({
+          venueId: planVenueVotes.venueId,
+        })
+        .from(planVenueVotes)
+        .where(
+          inArray(planVenueVotes.venueId, Array.from(venueIdToPlan.keys())),
+        );
+
+      // Tally votes per venue, then pick a unique leader per plan.
+      const perVenueCount = new Map<string, number>();
+      for (const r of voteRows) {
+        perVenueCount.set(
+          r.venueId,
+          (perVenueCount.get(r.venueId) ?? 0) + 1,
+        );
+      }
+      const perPlanLeader = new Map<
+        string,
+        { label: string; votes: number; tied: boolean }
+      >();
+      for (const [venueId, c] of perVenueCount.entries()) {
+        const planId = venueIdToPlan.get(venueId);
+        if (!planId) continue;
+        const label = labelByVenue.get(venueId) ?? "";
+        const cur = perPlanLeader.get(planId);
+        if (!cur || c > cur.votes) {
+          perPlanLeader.set(planId, { label, votes: c, tied: false });
+        } else if (c === cur.votes) {
+          perPlanLeader.set(planId, { ...cur, tied: true });
+        }
+      }
+      // Total votes across this plan.
+      const perPlanTotal = new Map<string, number>();
+      for (const [venueId, c] of perVenueCount.entries()) {
+        const planId = venueIdToPlan.get(venueId);
+        if (!planId) continue;
+        perPlanTotal.set(planId, (perPlanTotal.get(planId) ?? 0) + c);
+      }
+
+      for (const [planId, optionCount] of optionsPerPlan.entries()) {
+        if (optionCount < 2) continue; // no need to surface for single-option seedings
+        const leader = perPlanLeader.get(planId);
+        const total = perPlanTotal.get(planId) ?? 0;
+        venueSummaries.set(planId, {
+          label: leader && !leader.tied && leader.votes > 0 ? leader.label : null,
+          total,
+          optionCount,
+        });
+      }
     }
   }
 
@@ -259,6 +351,7 @@ export default async function CircleHomePage({
                 location: featured.location,
                 status: featured.status,
                 decideBy: featured.decideBy,
+                venueSummary: venueSummaries.get(featured.id) ?? null,
               }}
               slug={circle.slug}
               now={now}
@@ -295,6 +388,7 @@ export default async function CircleHomePage({
                         isApproximate: p.isApproximate,
                         location: p.location,
                         status: p.status,
+                        venueSummary: venueSummaries.get(p.id) ?? null,
                       }}
                       slug={circle.slug}
                       now={now}

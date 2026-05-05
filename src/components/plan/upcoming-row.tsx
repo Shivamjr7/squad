@@ -20,6 +20,11 @@ export type UpcomingRowData = {
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
+  venueSummary?: {
+    label: string | null;
+    total: number;
+    optionCount: number;
+  } | null;
 };
 
 export function UpcomingRow({
@@ -35,6 +40,14 @@ export function UpcomingRow({
   // match the editorial separator used in the redesign.
   const whenLabel = formatPlanTime(plan.startsAt, plan.isApproximate, now)
     .replace(", ", " · ");
+
+  const venueLabel = plan.venueSummary
+    ? plan.venueSummary.label
+      ? `${plan.venueSummary.label} · ${plan.venueSummary.total} ${
+          plan.venueSummary.total === 1 ? "vote" : "votes"
+        }`
+      : `${plan.venueSummary.optionCount} options · voting`
+    : plan.location;
 
   return (
     <Link
@@ -54,8 +67,8 @@ export function UpcomingRow({
             </h3>
             <span className="shrink-0 text-xs text-ink-muted">{whenLabel}</span>
           </div>
-          {plan.location ? (
-            <p className="truncate text-xs text-ink-muted">{plan.location}</p>
+          {venueLabel ? (
+            <p className="truncate text-xs text-ink-muted">{venueLabel}</p>
           ) : null}
         </div>
         <VoteSummaryInline planId={plan.id} />

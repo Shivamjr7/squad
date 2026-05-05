@@ -8,6 +8,8 @@ import {
   circles,
   comments,
   memberships,
+  planVenueVotes,
+  planVenues,
   plans,
   timeSlotVotes,
   timeSlots,
@@ -25,6 +27,12 @@ import {
   TimeHeatmap,
   type HeatmapSlot,
 } from "@/components/plan/time-heatmap";
+import { VenueVote } from "@/components/plan/venue-vote";
+import type {
+  InitialVenueVoter,
+  VenueMember,
+  VenueRow,
+} from "@/lib/realtime/use-venue-votes";
 import type {
   InitialSlotVoter,
   SlotMember,
@@ -264,6 +272,60 @@ export default async function PlanDetailPage({
     }
   }
 
+  // M21: load venue rows + their votes. When >1 venue exists we render the
+  // multi-venue voting card; the leading venue's label is also surfaced on
+  // the home featured card / upcoming row at lock time.
+  const venueRows = await db.query.planVenues.findMany({
+    where: eq(planVenues.planId, planId),
+    orderBy: asc(planVenues.createdAt),
+    with: {
+      suggester: { columns: { id: true, displayName: true } },
+    },
+  });
+  const initialVenues: VenueRow[] = venueRows.map((v) => ({
+    id: v.id,
+    label: v.label,
+    suggestedBy: v.suggestedBy,
+    suggesterName: v.suggester?.displayName ?? null,
+    createdAt: v.createdAt.toISOString(),
+  }));
+  const initialVenueVoters: InitialVenueVoter[] = [];
+  const venueMembers: Record<string, VenueMember> = {};
+  // Always seed the current user so they can optimistically vote.
+  if (me.user) {
+    venueMembers[me.user.id] = {
+      userId: me.user.id,
+      displayName: me.user.displayName,
+      avatarUrl: me.user.avatarUrl,
+    };
+  }
+  if (venueRows.length > 0) {
+    const venueVoteRows = await db.query.planVenueVotes.findMany({
+      where: inArray(
+        planVenueVotes.venueId,
+        venueRows.map((v) => v.id),
+      ),
+      with: {
+        user: { columns: { id: true, displayName: true, avatarUrl: true } },
+      },
+    });
+    for (const vv of venueVoteRows) {
+      initialVenueVoters.push({ venueId: vv.venueId, userId: vv.userId });
+      if (vv.user) {
+        venueMembers[vv.user.id] = {
+          userId: vv.user.id,
+          displayName: vv.user.displayName,
+          avatarUrl: vv.user.avatarUrl,
+        };
+      }
+    }
+  }
+  // Surface multi-venue voting only while the plan is still active and has
+  // more than one option. After lock (status=confirmed/done/cancelled) the
+  // canonical plans.location is what matters; voting card hides.
+  const showVenueVote =
+    plan.status === "active" && initialVenues.length > 1;
+
   const now = new Date();
   const showVotes = plan.status === "active" || plan.status === "confirmed";
   const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
@@ -374,7 +436,11 @@ export default async function PlanDetailPage({
                 <span className="text-sm text-ink-muted">{smallTime}</span>
               ) : null}
             </div>
-            {plan.location ? (
+            {showVenueVote ? (
+              <p className="text-base text-ink-muted">
+                Voting on venue ↓
+              </p>
+            ) : plan.location ? (
               <p className="text-base text-ink">
                 {plan.location}{" "}
                 <a
@@ -392,6 +458,17 @@ export default async function PlanDetailPage({
             <VoteProgressBar planId={plan.id} />
           </section>
         )}
+
+        {showVenueVote ? (
+          <VenueVote
+            planId={plan.id}
+            initialVenues={initialVenues}
+            initialVoters={initialVenueVoters}
+            members={venueMembers}
+            currentUserId={userId}
+            canSuggest={plan.status === "active"}
+          />
+        ) : null}
 
         {showVotes ? (
           <section className="flex flex-col gap-4">

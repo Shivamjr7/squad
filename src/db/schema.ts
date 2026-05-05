@@ -201,6 +201,42 @@ export const timeSlotVotes = pgTable(
   }),
 );
 
+export const planVenues = pgTable("plan_venues", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  planId: uuid("plan_id")
+    .notNull()
+    .references(() => plans.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  suggestedBy: text("suggested_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+});
+
+export const planVenueVotes = pgTable(
+  "plan_venue_votes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    venueId: uuid("venue_id")
+      .notNull()
+      .references(() => planVenues.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    votedAt: timestamp("voted_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    venueUserUnique: uniqueIndex("plan_venue_votes_venue_user_unique").on(
+      table.venueId,
+      table.userId,
+    ),
+  }),
+);
+
 export const comments = pgTable("comments", {
   id: uuid("id").primaryKey().defaultRandom(),
   planId: uuid("plan_id")
@@ -270,6 +306,30 @@ export const plansRelations = relations(plans, ({ one, many }) => ({
   votes: many(votes),
   comments: many(comments),
   timeSlots: many(timeSlots),
+  venues: many(planVenues),
+}));
+
+export const planVenuesRelations = relations(planVenues, ({ one, many }) => ({
+  plan: one(plans, {
+    fields: [planVenues.planId],
+    references: [plans.id],
+  }),
+  suggester: one(users, {
+    fields: [planVenues.suggestedBy],
+    references: [users.id],
+  }),
+  votes: many(planVenueVotes),
+}));
+
+export const planVenueVotesRelations = relations(planVenueVotes, ({ one }) => ({
+  venue: one(planVenues, {
+    fields: [planVenueVotes.venueId],
+    references: [planVenues.id],
+  }),
+  user: one(users, {
+    fields: [planVenueVotes.userId],
+    references: [users.id],
+  }),
 }));
 
 export const timeSlotsRelations = relations(timeSlots, ({ one, many }) => ({

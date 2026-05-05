@@ -232,6 +232,9 @@ export function NewPlanForm({
       isApproximate: false,
       decideByLocal,
       location: values.location.trim() || null,
+      extraVenues: values.extraLocations
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0),
       maxPeople: null,
     };
 
@@ -381,21 +384,37 @@ export function NewPlanForm({
                     />
                   </FormControl>
                   {extraLocations.map((value, idx) => (
-                    <Input
-                      key={idx}
-                      value={value}
-                      onChange={(e) => {
-                        const next = [...extraLocations];
-                        next[idx] = e.target.value;
-                        form.setValue("extraLocations", next, {
-                          shouldDirty: true,
-                        });
-                      }}
-                      placeholder={`Option ${idx + 2}`}
-                      autoComplete="off"
-                      maxLength={100}
-                      className="h-11 border-0 border-b border-ink/15 bg-transparent px-0 text-base shadow-none focus-visible:border-coral focus-visible:ring-0"
-                    />
+                    <div key={idx} className="flex items-center gap-2">
+                      <Input
+                        value={value}
+                        onChange={(e) => {
+                          const next = [...extraLocations];
+                          next[idx] = e.target.value;
+                          form.setValue("extraLocations", next, {
+                            shouldDirty: true,
+                          });
+                        }}
+                        placeholder={`Option ${idx + 2}`}
+                        autoComplete="off"
+                        maxLength={100}
+                        className="h-11 flex-1 border-0 border-b border-ink/15 bg-transparent px-0 text-base shadow-none focus-visible:border-coral focus-visible:ring-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = extraLocations.filter(
+                            (_, i) => i !== idx,
+                          );
+                          form.setValue("extraLocations", next, {
+                            shouldDirty: true,
+                          });
+                        }}
+                        className="text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+                        aria-label={`Remove option ${idx + 2}`}
+                      >
+                        <X className="size-4" aria-hidden />
+                      </button>
+                    </div>
                   ))}
                   <button
                     type="button"
@@ -412,8 +431,7 @@ export function NewPlanForm({
                   </button>
                   {extraLocations.length > 0 ? (
                     <p className="text-[11px] text-ink-muted">
-                      Multiple venues will become a vote — voting ships in
-                      the next update.
+                      Squad will vote on the venue.
                     </p>
                   ) : null}
                   <FormMessage />
