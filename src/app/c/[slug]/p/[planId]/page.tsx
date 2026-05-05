@@ -2,12 +2,14 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { ArrowLeft } from "lucide-react";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   circles,
   comments,
   memberships,
+  planTimeProposalVotes,
+  planTimeProposals,
   planVenueVotes,
   planVenues,
   plans,
@@ -33,6 +35,12 @@ import type {
   VenueMember,
   VenueRow,
 } from "@/lib/realtime/use-venue-votes";
+import { TimeProposals } from "@/components/plan/time-proposals";
+import type {
+  InitialProposalVoter,
+  ProposalMember,
+  ProposalRow,
+} from "@/lib/realtime/use-time-proposals";
 import type {
   InitialSlotVoter,
   SlotMember,
@@ -326,6 +334,70 @@ export default async function PlanDetailPage({
   const showVenueVote =
     plan.status === "active" && initialVenues.length > 1;
 
+  // M22 — load time proposals + their votes for exact-time plans. Only shown
+  // while active; once locked / done / cancelled, plan.startsAt is the truth.
+  const proposalRows =
+    plan.status === "active" && plan.timeMode === "exact"
+      ? await db.query.planTimeProposals.findMany({
+          where: eq(planTimeProposals.planId, planId),
+          orderBy: asc(planTimeProposals.createdAt),
+          with: {
+            proposer: { columns: { id: true, displayName: true } },
+          },
+        })
+      : [];
+  const initialProposals: ProposalRow[] = proposalRows.map((p) => ({
+    id: p.id,
+    startsAt: p.startsAt.toISOString(),
+    proposedBy: p.proposedBy,
+    proposerName: p.proposer?.displayName ?? null,
+    createdAt: p.createdAt.toISOString(),
+  }));
+  const initialProposalVoters: InitialProposalVoter[] = [];
+  const proposalMembers: Record<string, ProposalMember> = {};
+  if (me.user) {
+    proposalMembers[me.user.id] = {
+      userId: me.user.id,
+      displayName: me.user.displayName,
+      avatarUrl: me.user.avatarUrl,
+    };
+  }
+  if (proposalRows.length > 0) {
+    const proposalVoteRows = await db.query.planTimeProposalVotes.findMany({
+      where: inArray(
+        planTimeProposalVotes.proposalId,
+        proposalRows.map((p) => p.id),
+      ),
+      with: {
+        user: { columns: { id: true, displayName: true, avatarUrl: true } },
+      },
+    });
+    for (const pv of proposalVoteRows) {
+      initialProposalVoters.push({
+        proposalId: pv.proposalId,
+        userId: pv.userId,
+      });
+      if (pv.user) {
+        proposalMembers[pv.user.id] = {
+          userId: pv.user.id,
+          displayName: pv.user.displayName,
+          avatarUrl: pv.user.avatarUrl,
+        };
+      }
+    }
+  }
+  const showProposals =
+    plan.status === "active" && plan.timeMode === "exact";
+
+  // "PLAN LOCKS AT 8:30 IF 5+ ARE IN" footer — only meaningful while the
+  // plan is still gathering votes.
+  const lockThreshold = plan.lockThreshold;
+  const inCountRow = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(votes)
+    .where(and(eq(votes.planId, planId), eq(votes.status, "in")));
+  const currentInCount = Number(inCountRow[0]?.n ?? 0);
+
   const now = new Date();
   const showVotes = plan.status === "active" || plan.status === "confirmed";
   const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
@@ -470,6 +542,17 @@ export default async function PlanDetailPage({
           />
         ) : null}
 
+        {showProposals ? (
+          <TimeProposals
+            planId={plan.id}
+            initialProposals={initialProposals}
+            initialVoters={initialProposalVoters}
+            members={proposalMembers}
+            currentUserId={userId}
+            canSuggest={plan.status === "active"}
+          />
+        ) : null}
+
         {showVotes ? (
           <section className="flex flex-col gap-4">
             <PlanVotes
@@ -483,11 +566,15 @@ export default async function PlanDetailPage({
               planId={plan.id}
               creatorId={plan.creator?.id ?? null}
             />
-            {plan.decideBy && plan.decideBy.getTime() > now.getTime() ? (
-              <p className="pt-1 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-                Plan locks at {SHORT_TIME.format(plan.decideBy)}
-              </p>
-            ) : null}
+            <LockFooter
+              status={plan.status}
+              decideBy={plan.decideBy}
+              startsAt={plan.startsAt}
+              isApprox={isApprox}
+              lockThreshold={lockThreshold}
+              currentInCount={currentInCount}
+              now={now}
+            />
           </section>
         ) : null}
 
@@ -505,5 +592,53 @@ export default async function PlanDetailPage({
         <BottomTabs slug={circle.slug} />
       </main>
     </CircleVotesProvider>
+  );
+}
+
+// "PLAN LOCKS AT 8:30 IF 5+ ARE IN" footer (PLAN.md §10 M22). When the plan
+// is already at threshold, copy reads "Plan locks any moment now". Confirmed
+// plans show their locked time so people landing on the page after the lock
+// see what just happened. We prefer plan.decideBy as the lock anchor when
+// it's set; otherwise we fall back to the plan's startsAt for the time
+// display so the line reads coherently for plans without a deadline.
+function LockFooter({
+  status,
+  decideBy,
+  startsAt,
+  isApprox,
+  lockThreshold,
+  currentInCount,
+  now,
+}: {
+  status: "active" | "confirmed" | "done" | "cancelled";
+  decideBy: Date | null;
+  startsAt: Date;
+  isApprox: boolean;
+  lockThreshold: number;
+  currentInCount: number;
+  now: Date;
+}) {
+  if (status !== "active") return null;
+  const TIME = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  const anchor = decideBy && decideBy.getTime() > now.getTime() ? decideBy : null;
+  const remaining = Math.max(0, lockThreshold - currentInCount);
+  let label: string;
+  if (remaining <= 0) {
+    label = "Locking any moment now";
+  } else if (anchor) {
+    label = `Plan locks at ${TIME.format(anchor)} if ${lockThreshold}+ are in`;
+  } else if (!isApprox) {
+    label = `Plan locks at ${TIME.format(startsAt)} if ${lockThreshold}+ are in`;
+  } else {
+    label = `Plan locks when ${lockThreshold}+ are in`;
+  }
+  return (
+    <p className="pt-1 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+      {label}
+    </p>
   );
 }

@@ -17,6 +17,7 @@ import {
   type AddVenueInput,
   type CastVenueVoteInput,
 } from "@/lib/validation/plan-venue";
+import { tryAutoLock } from "@/lib/actions/auto-lock";
 
 // Cast or switch a venue vote. One vote per (plan, user): if the caller has
 // already voted on a different venue in this plan, that earlier vote is
@@ -87,6 +88,9 @@ export async function castVenueVote(
     await db.insert(planVenueVotes).values({ venueId, userId });
     voted = true;
   }
+
+  // M22 — venue plurality changes can tip a lock; re-evaluate after each cast.
+  await tryAutoLock(planId);
 
   const circle = await db.query.circles.findFirst({
     columns: { slug: true },

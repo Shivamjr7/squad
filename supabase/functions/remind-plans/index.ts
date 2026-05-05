@@ -302,6 +302,180 @@ async function processOpenTimeLocks(now: Date): Promise<number> {
   return locked;
 }
 
+// M22 — Exact-time deadline reaper. For exact-time plans whose decide_by
+// has elapsed, lock to the canonical (time, venue): leading proposal wins
+// the time, leading venue wins the location, ties broken by earliest-
+// proposed (createdAt asc). When no rows / no votes, plan.starts_at and
+// plan.location stand. Mirrors src/lib/actions/auto-lock.ts (force path).
+type ExactPlan = {
+  id: string;
+  title: string;
+  starts_at: string;
+  location: string | null;
+  circle_id: string;
+};
+type ProposalRow = { id: string; starts_at: string; created_at: string };
+type ProposalVoteRow = { proposal_id: string };
+type VenueRow = { id: string; label: string; created_at: string };
+type VenueVoteRow = { venue_id: string };
+
+function resolvePlurality<
+  T extends { id: string; createdAt: string },
+>(rows: T[], counts: Map<string, number>): T | null {
+  if (rows.length === 0) return null;
+  // rows are pre-sorted earliest-first, so max-by count keeps the earliest
+  // on ties (force path doesn't require a unique leader).
+  let leader = rows[0];
+  let leaderVotes = counts.get(leader.id) ?? 0;
+  for (let i = 1; i < rows.length; i++) {
+    const c = counts.get(rows[i].id) ?? 0;
+    if (c > leaderVotes) {
+      leader = rows[i];
+      leaderVotes = c;
+    }
+  }
+  return leader;
+}
+
+async function processExactTimeLocks(now: Date): Promise<number> {
+  const cutoff = now.toISOString();
+  const { data: exactPlans, error } = await supabase
+    .from("plans")
+    .select("id, title, starts_at, location, circle_id")
+    .eq("time_mode", "exact")
+    .eq("status", "active")
+    .not("decide_by", "is", null)
+    .lte("decide_by", cutoff)
+    .returns<ExactPlan[]>();
+
+  if (error) {
+    console.error("[remind-plans] exact-lock fetch failed", error);
+    return 0;
+  }
+  if (!exactPlans || exactPlans.length === 0) return 0;
+
+  let locked = 0;
+  for (const plan of exactPlans) {
+    try {
+      // Canonical time.
+      const { data: proposals } = await supabase
+        .from("plan_time_proposals")
+        .select("id, starts_at, created_at")
+        .eq("plan_id", plan.id)
+        .order("created_at", { ascending: true })
+        .returns<ProposalRow[]>();
+
+      let canonicalStartsAt = plan.starts_at;
+      if (proposals && proposals.length > 0) {
+        const ids = proposals.map((p) => p.id);
+        const { data: pVotes } = await supabase
+          .from("plan_time_proposal_votes")
+          .select("proposal_id")
+          .in("proposal_id", ids)
+          .returns<ProposalVoteRow[]>();
+        const counts = new Map<string, number>();
+        for (const r of pVotes ?? []) {
+          counts.set(r.proposal_id, (counts.get(r.proposal_id) ?? 0) + 1);
+        }
+        const leader = resolvePlurality(
+          proposals.map((p) => ({
+            id: p.id,
+            createdAt: p.created_at,
+            startsAt: p.starts_at,
+          })),
+          counts,
+        );
+        if (leader) canonicalStartsAt = leader.startsAt;
+      }
+
+      // Canonical venue.
+      const { data: venues } = await supabase
+        .from("plan_venues")
+        .select("id, label, created_at")
+        .eq("plan_id", plan.id)
+        .order("created_at", { ascending: true })
+        .returns<VenueRow[]>();
+
+      let canonicalLocation = plan.location;
+      if (venues && venues.length > 0) {
+        const ids = venues.map((v) => v.id);
+        const { data: vVotes } = await supabase
+          .from("plan_venue_votes")
+          .select("venue_id")
+          .in("venue_id", ids)
+          .returns<VenueVoteRow[]>();
+        const counts = new Map<string, number>();
+        for (const r of vVotes ?? []) {
+          counts.set(r.venue_id, (counts.get(r.venue_id) ?? 0) + 1);
+        }
+        const leader = resolvePlurality(
+          venues.map((v) => ({
+            id: v.id,
+            createdAt: v.created_at,
+            label: v.label,
+          })),
+          counts,
+        );
+        if (leader) canonicalLocation = leader.label;
+      }
+
+      // Atomic flip — guard on status='active' so we don't race the
+      // in-app threshold path.
+      const { data: claim } = await supabase
+        .from("plans")
+        .update({
+          starts_at: canonicalStartsAt,
+          location: canonicalLocation,
+          status: "confirmed",
+        })
+        .eq("id", plan.id)
+        .eq("status", "active")
+        .select("id")
+        .returns<{ id: string }[]>();
+      if (!claim || claim.length === 0) continue;
+
+      const { data: circle } = await supabase
+        .from("circles")
+        .select("slug, name")
+        .eq("id", plan.circle_id)
+        .single();
+      if (!circle) {
+        locked += 1;
+        continue;
+      }
+
+      const { data: memberRows } = await supabase
+        .from("memberships")
+        .select("users(email)")
+        .eq("circle_id", plan.circle_id)
+        .returns<{ users: { email: string | null } | null }[]>();
+      const recipients = (memberRows ?? [])
+        .map((m) => m.users?.email)
+        .filter((e): e is string => Boolean(e));
+
+      const planUrl = `${APP_URL}/c/${circle.slug}/p/${plan.id}`;
+      const { subject, html } = buildLockedEmail({
+        planTitle: plan.title,
+        circleName: circle.name,
+        startsAt: canonicalStartsAt,
+        location: canonicalLocation,
+        planUrl,
+      });
+
+      await Promise.all(
+        recipients.map((to) => sendOneEmail(to, subject, html)),
+      );
+      locked += 1;
+    } catch (err) {
+      console.error("[remind-plans] exact-lock per-plan failed", {
+        planId: plan.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return locked;
+}
+
 // ─── handler ────────────────────────────────────────────────────────────
 
 type ClaimedPlan = {
@@ -355,10 +529,14 @@ Deno.serve(async (req) => {
   }
 
   if (!claimed || claimed.length === 0) {
-    const lockedNow = await processOpenTimeLocks(now);
+    const lockedOpen = await processOpenTimeLocks(now);
+    const lockedExact = await processExactTimeLocks(now);
+    const lockedNow = lockedOpen + lockedExact;
     console.log("[remind-plans]", {
       reminded: 0,
       locked: lockedNow,
+      lockedOpen,
+      lockedExact,
       at: now.toISOString(),
     });
     return new Response(
@@ -416,11 +594,15 @@ Deno.serve(async (req) => {
     }
   }
 
-  const locked = await processOpenTimeLocks(now);
+  const lockedOpen = await processOpenTimeLocks(now);
+  const lockedExact = await processExactTimeLocks(now);
+  const locked = lockedOpen + lockedExact;
 
   console.log("[remind-plans]", {
     reminded,
     locked,
+    lockedOpen,
+    lockedExact,
     at: now.toISOString(),
   });
   return new Response(JSON.stringify({ reminded, locked }), {

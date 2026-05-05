@@ -138,6 +138,10 @@ export const plans = pgTable("plans", {
     withTimezone: true,
     mode: "date",
   }),
+  // M22 — auto-lock threshold. Plan flips to `confirmed` when this many `in`
+  // votes have converged on a single time + venue. Stored per-plan so
+  // settings can later expose a circle-level default.
+  lockThreshold: integer("lock_threshold").notNull().default(5),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),
@@ -237,6 +241,41 @@ export const planVenueVotes = pgTable(
   }),
 );
 
+export const planTimeProposals = pgTable("plan_time_proposals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  planId: uuid("plan_id")
+    .notNull()
+    .references(() => plans.id, { onDelete: "cascade" }),
+  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+  proposedBy: text("proposed_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+});
+
+export const planTimeProposalVotes = pgTable(
+  "plan_time_proposal_votes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references(() => planTimeProposals.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    votedAt: timestamp("voted_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    proposalUserUnique: uniqueIndex(
+      "plan_time_proposal_votes_proposal_user_unique",
+    ).on(table.proposalId, table.userId),
+  }),
+);
+
 export const comments = pgTable("comments", {
   id: uuid("id").primaryKey().defaultRandom(),
   planId: uuid("plan_id")
@@ -307,6 +346,7 @@ export const plansRelations = relations(plans, ({ one, many }) => ({
   comments: many(comments),
   timeSlots: many(timeSlots),
   venues: many(planVenues),
+  timeProposals: many(planTimeProposals),
 }));
 
 export const planVenuesRelations = relations(planVenues, ({ one, many }) => ({
@@ -331,6 +371,35 @@ export const planVenueVotesRelations = relations(planVenueVotes, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+export const planTimeProposalsRelations = relations(
+  planTimeProposals,
+  ({ one, many }) => ({
+    plan: one(plans, {
+      fields: [planTimeProposals.planId],
+      references: [plans.id],
+    }),
+    proposer: one(users, {
+      fields: [planTimeProposals.proposedBy],
+      references: [users.id],
+    }),
+    votes: many(planTimeProposalVotes),
+  }),
+);
+
+export const planTimeProposalVotesRelations = relations(
+  planTimeProposalVotes,
+  ({ one }) => ({
+    proposal: one(planTimeProposals, {
+      fields: [planTimeProposalVotes.proposalId],
+      references: [planTimeProposals.id],
+    }),
+    user: one(users, {
+      fields: [planTimeProposalVotes.userId],
+      references: [users.id],
+    }),
+  }),
+);
 
 export const timeSlotsRelations = relations(timeSlots, ({ one, many }) => ({
   plan: one(plans, {
