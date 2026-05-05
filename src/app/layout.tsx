@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
+import { Geist, Geist_Mono, Source_Serif_4, Instrument_Serif } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 // @ts-expect-error -- unstable_ViewTransition is provided by the experimental React channel that Next swaps in when experimental.viewTransition is enabled
@@ -23,9 +23,17 @@ const sourceSerif = Source_Serif_4({
   style: ["normal", "italic"],
 });
 
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-instrument-serif",
+  subsets: ["latin"],
+  weight: ["400"],
+  style: ["normal", "italic"],
+});
+
 export const metadata: Metadata = {
-  title: "Squad",
-  description: "Plan a thing. Vote. Show up.",
+  title: "Squad — stop scrolling, start showing up",
+  description:
+    "A small group converges on a yes/no/maybe in a short window. WhatsApp loses decisions in scrollback — Squad keeps the current state of a plan as the source of truth.",
 };
 
 // viewportFit:cover unlocks env(safe-area-inset-*) on iOS — without it the
@@ -49,7 +57,7 @@ export default function RootLayout({
     <ClerkProvider>
       <html
         lang="en"
-        className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} ${instrumentSerif.variable} h-full antialiased`}
       >
         <body className="min-h-full flex flex-col" suppressHydrationWarning>
           <ViewTransition>{children}</ViewTransition>

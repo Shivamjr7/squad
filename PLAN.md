@@ -132,6 +132,73 @@ Seven tables. Field names and FK ON DELETE behavior finalized here so no drift l
 - `created_at` (timestamp)
 - No editing or deletion in v1 — keeps the thread honest
 
+### Post-M16 additions (plans table)
+
+The following columns are added to `plans` in M19 / M22:
+
+- `time_mode` (enum: `exact` | `open`, default `exact`) — M19. `open` = the squad votes on the hour rather than the creator picking it.
+- `lock_threshold` (int, default 5) — M22. Plan auto-locks when this many `in` votes converge on a single time + venue, or when `decide_by` is reached (whichever comes first).
+
+### Post-M16 additions (users table)
+
+- `push_subscription` (jsonb, nullable) — M26. Web Push subscription object. Null = user has not opted in.
+
+### `time_slots` (M20)
+- `id` (uuid, PK)
+- `plan_id` (uuid, FK plans.id, **ON DELETE CASCADE**)
+- `starts_at` (timestamp — top of an hour window)
+- `duration_minutes` (int, default 60)
+
+### `time_slot_votes` (M20)
+- `id` (uuid, PK)
+- `slot_id` (uuid, FK time_slots.id, **ON DELETE CASCADE**)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
+- `voted_at` (timestamp)
+- Unique constraint: (slot_id, user_id)
+
+### `plan_venues` (M21)
+- `id` (uuid, PK)
+- `plan_id` (uuid, FK plans.id, **ON DELETE CASCADE**)
+- `label` (text — "Roxie Theater" or "Karan's place")
+- `suggested_by` (text, FK users.id, **ON DELETE SET NULL**)
+- `created_at` (timestamp)
+
+### `plan_venue_votes` (M21)
+- `id` (uuid, PK)
+- `venue_id` (uuid, FK plan_venues.id, **ON DELETE CASCADE**)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
+- `voted_at` (timestamp)
+- Unique constraint: (venue_id, user_id)
+
+### `plan_time_proposals` (M22, extended in M24)
+- `id` (uuid, PK)
+- `plan_id` (uuid, FK plans.id, **ON DELETE CASCADE**)
+- `starts_at` (timestamp)
+- `proposed_by` (text, FK users.id, **ON DELETE SET NULL**)
+- `kind` (enum: `replacement` | `addition`, default `replacement`) — M24. `addition` = a stacked sub-plan ("dinner after at Bar Tartine") rather than an alternative for the same slot.
+- `created_at` (timestamp)
+
+### `plan_time_proposal_votes` (M22)
+- `id` (uuid, PK)
+- `proposal_id` (uuid, FK plan_time_proposals.id, **ON DELETE CASCADE**)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
+- Unique constraint: (proposal_id, user_id)
+
+### `plan_recipients` (M23)
+- `id` (uuid, PK)
+- `plan_id` (uuid, FK plans.id, **ON DELETE CASCADE**)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
+- Unique constraint: (plan_id, user_id)
+- Empty set for a plan = full circle (back-compat for plans created before M23).
+
+### `plan_events` (M24)
+- `id` (uuid, PK)
+- `plan_id` (uuid, FK plans.id, **ON DELETE CASCADE**)
+- `user_id` (text, FK users.id, **ON DELETE SET NULL**)
+- `kind` (enum: `created` | `voted` | `proposed_time` | `proposed_venue` | `added_member` | `locked` | `cancelled`)
+- `payload` (jsonb — details, e.g. `{"vote": "in"}` or `{"time": "8:30 PM"}`)
+- `created_at` (timestamp)
+
 ### Cascade summary
 
 Deleting a **user** cascades to: `memberships`, `votes`, `comments`, `invites` (created by them). It nullifies `created_by` on `circles` and `plans` they created — those records persist as orphans.
@@ -242,7 +309,26 @@ Each milestone ends with a working deploy and a git commit/push. Do not start th
 - **M15** — Auto-expiry + plan reminders. Originally specced as Vercel Cron; migrated mid-build because the Hobby tier limits crons to once daily. Final shape: Supabase `pg_cron` for the pure-SQL expire job (flips `status=done` 4h past `starts_at`), Supabase Edge Function (`supabase/functions/remind-plans/`) for the reminder email job (1-2h-out window, fans out to IN voters via Resend, stamps `reminder_sent_at` to prevent re-sends). Authed with a custom `CRON_SECRET` Bearer header — anon key is public.
 - **M16** — Visual redesign of home + plan detail. Paper-and-ink palette (`--paper`, `--ink`, `--coral`, semantic `--in/--maybe/--out`), Source Serif 4 headlines added (PLAN.md §8 amended). Home: date row, hero "Tonight, *circle*?" headline, single featured plan card, compact upcoming rows with type-color bars, collapsible past. Plan detail: status + countdown line, "Current plan" card with big serif time + progress bar, equal-weight vote buttons, voter list with vote pills + timestamps, admin actions moved to a `···` overflow menu. Schema added `decide_by` (optional deadline → countdown).
 
-Total active build time: ~8-10 evenings. Calendar time: 3-4 weekends if life cooperates.
+**Post-M16 reference assets:**
+- `REFERENCES/Squad-landing_Page.html` — full marketing landing for `/`.
+- `REFERENCES/Screenshot 2026-04-27 at 1.40.11 PM.png` — three home/empty/create-plan mocks.
+- `REFERENCES/Screenshot 2026-04-27 at 1.40.22 PM.png` — three plan-detail variants (decision card / live ticker dark / receipt).
+
+The M17–M27 sequence below implements everything those references show. Source of truth for M17+ scope.
+
+- **M17** — Marketing landing page. Replace the sparse sign-in card at `/` with the full landing from `Squad-landing_Page.html`. Sections: top nav, hero ("Stop scrolling. Start *showing up*."), hero phone-mockup contrast (WhatsApp scrollback vs. Squad plan card), logo strip ("As planned by squads at"), problem section ("The way it is" + animated WhatsApp dialogue), three-step "How it works", "One source of truth" plan-card explainer with four feature blocks, six-feature grid ("Built for the question — Are we still on?"), four stats blocks + Mira K. testimonial, final CTA + iOS/Android badges, footer. Add Instrument Serif via `next/font/google` for italic accents (paired with existing Source Serif 4 for headlines). Stub `/privacy` and `/terms`. Signed-in users still redirect to most-recent circle. Lighthouse mobile 90+ on `/`. (1 evening)
+- **M18** — Bottom tab bar + Squad and You routes. Persistent three-tab bar on every authenticated circle page: **Plans** (`/c/[slug]`), **Squad** (`/c/[slug]/squad` — members list, admin invite/remove), **You** (`/c/[slug]/you` — display-name edit, email read-only, notification prefs, sign-out, leave-circle). Settings remains admin-only at `/c/[slug]/settings`, accessed via gear from Squad. Fixed-bottom on mobile, in-page sidebar on `md:` desktop. (1 evening)
+- **M19** — Empty state + create-plan redesign. Empty state on `/c/[slug]` when no plans: orbital "?" graphic (CSS-only, three concentric rings with staggered orbiting dots) + "No plan yet." headline + copy verbatim from screenshot 02 + "+ Start a plan" CTA. Create-plan sheet redesign: full-screen on mobile, `Cancel · NEW PLAN · Send` header, "Anyone free *tonight*?" hero (auto-substitutes today/tonight/this-weekend), caps-label fields (WHAT / WHEN / WHERE), WHEN segmented control (`Exact time` | `Open — squad picks`), WHERE multi-input ("Add another option"), TIME picker with "decide-by" chip selector (1h / 2h / 4h / Tonight / Tomorrow), recipients chip picker ("ALL · N SELECTED"), pink "Set a deadline" callout when `decide_by` is unset. Schema: add `plans.time_mode` (M19 column on existing table). Open-mode logic stub only — full impl in M20. (1 evening)
+- **M20** — Time consensus voting. Implements `time_mode = 'open'`. Schema: `time_slots` + `time_slot_votes`. Default slot range generated on plan create (e.g. 6–11 PM). Plan-detail heatmap row of hour cells; tap to vote, optimistic + Realtime. Lock when `decide_by` hits OR ≥ 5 voters land on the same hour: set `plans.starts_at`, flip `time_mode → exact`, `status → confirmed`, send "It's happening" email to recipients. Lock job extends existing `remind-plans` Edge Function. (1-2 evenings)
+- **M21** — Venue voting. Schema: `plan_venues` + `plan_venue_votes`. Multi-venue create form (M19's "Add another option" goes live). Plan-detail: swipeable card stack of venues on mobile, tile row on desktop. One vote per user; switching deducts previous. Leading venue surfaces on home featured card and upcoming list. On lock, winning venue's `label` becomes the canonical `plans.location` (free-text fallback path stays intact for single-venue plans + maps + emails). Anyone in recipients can add a venue mid-flight (counter-proposal). (1 evening)
+- **M22** — Counter-proposals + auto-lock. Schema: `plan_time_proposals` + `plan_time_proposal_votes` + `plans.lock_threshold` column (default 5). For exact-time plans, the original `starts_at` is auto-seeded as the first proposal row; counter-proposals stack on top. Auto-lock rule: `votes` with `in` ≥ `lock_threshold` AND single time+venue plurality → confirm; OR `decide_by` reached → confirm with current plurality (ties = earliest-proposed). Lock email "It's happening — 8:30 at Roxie" to in/maybe voters. "+ Suggest another time" UI on plan detail. "PLAN LOCKS AT 8:30 IF 5+ ARE IN" footer line. (1-2 evenings)
+- **M23** — Per-plan recipients. Schema: `plan_recipients`. M19's chip picker now writes real rows. Empty set = full circle (back-compat). Email fan-out targets recipients only. Home filters out plans the user isn't a recipient of (admin sees all). Vote eligibility scoped to recipients; non-recipients see "you weren't invited — ask <creator>". Plan-detail Squad section + button (creator/admin) to add members mid-flight. (1 evening)
+- **M24** — Plan-detail variants (live ticker + receipt). Three skins, same data: **A — Decision card** (light, default; polish from M16 — voter list with timestamps, color spectrum bar, "DECIDING NOW · ENDS 8:30 PM" header). **B — Live ticker** (dark, when `decide_by - now() < 30 min` AND unlocked; big "4 / 6 in" tally hero, WHEN/WHERE/PLUS rows where PLUS is a stacked sub-plan via `plan_time_proposals.kind = 'addition'`, big "You're in" CTA + "Change", "PLAN LOCKS AT 8:30 IF 5+ ARE IN" footer). **C — Receipt** (cream, post-lock; "The Plan" serif header, receipt-style WHEN/WHERE/AFTER/RVD rows, activity log from new `plan_events` table, frozen vote buttons). Variant chosen server-side. Schema: `plan_events` + `plan_time_proposals.kind` column. Receipt is print-styled (`@media print`) for shareable screenshots. (1-2 evenings)
+- **M25** — Maps + calendar deep-links. "Open in Maps" button on plan-detail (A/C) and home featured card — Apple Maps URL on iOS Safari (UA-detected server-side), Google Maps URL elsewhere. "Add to calendar" route at `/api/plans/[id]/ics` generating ICS on the fly (title, `starts_at`, `+2h` end default, location, description with circle name + plan URL). Google Calendar tap-out URL as alternate. Walking-time hint under venue, computed client-side via `navigator.geolocation` if granted; silently hidden if denied. (1 evening)
+- **M26** — PWA install + Web Push opt-in. `public/manifest.webmanifest` (theme paper, icons 192/512), service worker (confirm `next-pwa` is acceptable to add — ask before installing), offline read of circle home shell, "Install Squad" dismissible banner on `/c/[slug]` (30-day cookie; uses `beforeinstallprompt` on Android Chrome, iOS share-sheet copy on iOS Safari). Web Push opt-in toggle on `/c/[slug]/you` — stores subscription to `users.push_subscription`. Firing pushes happens in M27. Lighthouse PWA = installable. (1 evening)
+- **M27** — Stats + polish + ship update. Real stats dashboard at `/c/[slug]/stats` (admin only): time-to-decision (median + P90), lock vs. expire %, squad size + active-voter count, counter-proposal rate. Wire landing-page stat blocks to global anonymized aggregates (placeholder copy fallback if < 10 plans exist). Update Resend templates (`new-plan`, `new-comment`, `plan-locked` new, `plan-cancelled`, `reminder`) to paper/ink visual. Reminder copy fix: today/tonight/tomorrow per local time of the plan vs. recipient (closes the v2-wishlist nit). Onboarding tour for first-time users: 3 dismissible tooltips on home. Lighthouse 90+ on `/`, `/c/[slug]`, `/c/[slug]/p/[id]`. WhatsApp re-announcement to friends. (1-2 evenings)
+
+Total active build time: ~8-10 evenings (M0-M16) + ~10-13 evenings (M17-M27). Calendar time: depends entirely on M10 observations and how many of M17-M27 still feel right post-launch.
 
 ## 11. What gets built in M11+ depends entirely on M10 observations
 

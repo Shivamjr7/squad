@@ -84,6 +84,7 @@
   --color-out: var(--out);
   --color-out-soft: var(--out-soft);
   --font-serif: var(--font-serif);
+  --font-instrument-serif: var(--font-instrument-serif);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

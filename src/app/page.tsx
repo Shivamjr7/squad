@@ -1,8 +1,16 @@
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { SignInButton, SignUpButton } from "@clerk/nextjs";
-import { Button } from "@/components/ui/button";
 import { getMostRecentCircleSlug, requireDisplayNameSet } from "@/lib/auth";
+import { LandingNav } from "@/components/landing/nav";
+import { LandingHero } from "@/components/landing/hero";
+import { LandingSocialProof } from "@/components/landing/social-proof";
+import { LandingProblem } from "@/components/landing/problem";
+import { LandingHowItWorks } from "@/components/landing/how-it-works";
+import { LandingPlanCardExplainer } from "@/components/landing/plan-card-explainer";
+import { LandingFeatureGrid } from "@/components/landing/feature-grid";
+import { LandingStatsTestimonial } from "@/components/landing/stats-testimonial";
+import { LandingFinalCta } from "@/components/landing/final-cta";
+import { LandingFooter } from "@/components/landing/footer";
 
 export default async function Home() {
   const { userId } = await auth();
@@ -17,19 +25,19 @@ export default async function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-6">
-      <h1 className="text-3xl font-semibold tracking-tight">Squad</h1>
-      <p className="text-muted-foreground text-center max-w-sm">
-        Plan a thing. Vote. Show up.
-      </p>
-      <div className="flex gap-3">
-        <SignInButton mode="modal">
-          <Button>Sign in</Button>
-        </SignInButton>
-        <SignUpButton mode="modal">
-          <Button variant="outline">Sign up</Button>
-        </SignUpButton>
-      </div>
-    </main>
+    <>
+      <LandingNav />
+      <main className="flex flex-col">
+        <LandingHero />
+        <LandingSocialProof />
+        <LandingProblem />
+        <LandingHowItWorks />
+        <LandingPlanCardExplainer />
+        <LandingFeatureGrid />
+        <LandingStatsTestimonial />
+        <LandingFinalCta />
+      </main>
+      <LandingFooter />
+    </>
   );
 }
