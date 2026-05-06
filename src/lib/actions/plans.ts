@@ -5,12 +5,14 @@ import { db } from "@/db/client";
 import {
   circles,
   memberships,
+  planEvents,
   planRecipients,
   planVenues,
   plans,
   timeSlots,
   votes,
 } from "@/db/schema";
+import { recordPlanEvent } from "@/lib/actions/plan-events";
 import { canModifyPlan, requireMembership } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
@@ -141,6 +143,16 @@ export async function createPlan(
       );
     }
 
+    // M24 — open the activity log with the creation event. Same transaction
+    // so the receipt invariant "every plan has at least one `created` event"
+    // holds even if a later step fails and rolls back the plan.
+    await tx.insert(planEvents).values({
+      planId: plan.id,
+      userId,
+      kind: "created",
+      payload: { title: data.title, type: data.type },
+    });
+
     // M21: when the creator added extra venue options, seed plan_venues so
     // the squad can vote between them. The single-venue path keeps writing
     // only to plans.location (no row in plan_venues) — voting UI is hidden
@@ -249,6 +261,13 @@ export async function cancelPlan(input: PlanIdInput): Promise<void> {
     .set({ status: "cancelled", cancelledAt: new Date() })
     .where(eq(plans.id, plan.id));
 
+  void recordPlanEvent({
+    planId: plan.id,
+    userId,
+    kind: "cancelled",
+    payload: null,
+  });
+
   const appUrl = await getAppUrl();
   void sendPlanCancelledEmail(plan.id, userId, appUrl).catch((err) => {
     console.error("[plans.cancelPlan] email fanout failed", err);
@@ -288,7 +307,17 @@ export async function confirmPlan(input: PlanIdInput): Promise<void> {
     .where(eq(plans.id, plan.id));
 
   // M21 — promote leading venue (if any) to plans.location on lock.
-  await captureWinningVenue(plan.id);
+  const winningVenue = await captureWinningVenue(plan.id);
+
+  void recordPlanEvent({
+    planId: plan.id,
+    userId,
+    kind: "locked",
+    payload: {
+      manual: true,
+      location: winningVenue,
+    },
+  });
 
   const appUrl = await getAppUrl();
   void sendPlanConfirmedEmail(plan.id, userId, appUrl).catch((err) => {

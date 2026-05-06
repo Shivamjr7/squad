@@ -13,6 +13,7 @@ import {
   type VoteStatus,
 } from "@/lib/validation/vote";
 import { tryAutoLock } from "@/lib/actions/auto-lock";
+import { recordPlanEvent } from "@/lib/actions/plan-events";
 
 export async function castVote(
   input: CastVoteInput,
@@ -51,6 +52,13 @@ export async function castVote(
       target: [votes.planId, votes.userId],
       set: { status: data.status, votedAt: new Date() },
     });
+
+  void recordPlanEvent({
+    planId: data.planId,
+    userId,
+    kind: "voted",
+    payload: { vote: data.status },
+  });
 
   // M22 — re-evaluate auto-lock after every cast. Cheap: short-circuits
   // before any extra queries when the plan isn't active or the threshold

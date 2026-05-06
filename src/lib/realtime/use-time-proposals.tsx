@@ -303,6 +303,7 @@ export function TimeProposalsProvider({
           planId,
           startsAtLocal,
           timeZone: getBrowserTimeZone(),
+          kind: "replacement",
         });
       } catch (err) {
         const msg =

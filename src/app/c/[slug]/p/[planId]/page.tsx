@@ -8,6 +8,7 @@ import {
   circles,
   comments,
   memberships,
+  planEvents,
   planRecipients,
   planTimeProposalVotes,
   planTimeProposals,
@@ -22,10 +23,17 @@ import { canModifyPlan, requireDisplayNameSet } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { PlanVotes } from "@/components/votes/plan-votes";
-import { VoteProgressBar } from "@/components/votes/vote-progress-bar";
 import { VoterListDetail } from "@/components/votes/voter-list-detail";
 import { PlanComments } from "@/components/comments/plan-comments";
 import { PlanOverflowMenu } from "@/components/plan/plan-overflow-menu";
+import { DecisionCard } from "@/components/plan/decision-card";
+import {
+  LiveTicker,
+  type LiveTickerAddition,
+} from "@/components/plan/live-ticker";
+import { Receipt, type ReceiptEvent } from "@/components/plan/receipt";
+import { SuggestAddition } from "@/components/plan/suggest-addition";
+import { getPlanVariant } from "@/lib/plan-variant";
 import {
   TimeHeatmap,
   type HeatmapSlot,
@@ -91,25 +99,6 @@ function relativeCreatedAt(createdAt: Date, now: Date): string {
     month: "short",
     day: "numeric",
   }).format(createdAt);
-}
-
-function dayDescriptor(startsAt: Date, now: Date): string {
-  if (isSameLocalDay(startsAt, now)) {
-    const h = startsAt.getHours();
-    if (h >= 18) return "tonight";
-    if (h >= 12) return "this afternoon";
-    return "this morning";
-  }
-  const dayMs = 86_400_000;
-  const diffDays = Math.round(
-    (startsAt.getTime() - now.getTime()) / dayMs,
-  );
-  if (diffDays === 1) return "tomorrow";
-  if (diffDays > 1 && diffDays < 7) return SHORT_DAY.format(startsAt);
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-  }).format(startsAt);
 }
 
 function statusLine(
@@ -395,10 +384,15 @@ export default async function PlanDetailPage({
 
   // M22 — load time proposals + their votes for exact-time plans. Only shown
   // while active; once locked / done / cancelled, plan.startsAt is the truth.
+  // M24 — only `replacement` rows feed the M22 voting UI; additions are
+  // loaded separately below.
   const proposalRows =
     plan.status === "active" && plan.timeMode === "exact"
       ? await db.query.planTimeProposals.findMany({
-          where: eq(planTimeProposals.planId, planId),
+          where: and(
+            eq(planTimeProposals.planId, planId),
+            eq(planTimeProposals.kind, "replacement"),
+          ),
           orderBy: asc(planTimeProposals.createdAt),
           with: {
             proposer: { columns: { id: true, displayName: true } },
@@ -462,6 +456,48 @@ export default async function PlanDetailPage({
   const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
   const memberCount = memberRows.length;
 
+  // M24 — load addition rows (kind=addition) for the live-ticker PLUS row
+  // and the receipt AFTER row. Always loaded; the components decide whether
+  // to surface them.
+  const additionRows = await db.query.planTimeProposals.findMany({
+    where: and(
+      eq(planTimeProposals.planId, planId),
+      eq(planTimeProposals.kind, "addition"),
+    ),
+    orderBy: asc(planTimeProposals.createdAt),
+    with: {
+      proposer: { columns: { id: true, displayName: true } },
+    },
+  });
+  const additionsForTicker: LiveTickerAddition[] = additionRows.map((r) => ({
+    id: r.id,
+    label: r.label,
+    startsAt: r.startsAt.toISOString(),
+    proposerName: r.proposer?.displayName ?? null,
+    createdAt: r.createdAt.toISOString(),
+  }));
+
+  // M24 — receipt activity log. Loaded only for the receipt variant to keep
+  // the decision/live-ticker page weight low.
+  const variant = getPlanVariant(plan, now);
+  let receiptEvents: ReceiptEvent[] = [];
+  if (variant === "receipt") {
+    const eventRows = await db.query.planEvents.findMany({
+      where: eq(planEvents.planId, planId),
+      orderBy: asc(planEvents.createdAt),
+      with: {
+        user: { columns: { displayName: true } },
+      },
+    });
+    receiptEvents = eventRows.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      actorName: e.user?.displayName ?? null,
+      payload: (e.payload as Record<string, unknown> | null) ?? null,
+      createdAt: e.createdAt.toISOString(),
+    }));
+  }
+
   // M23 — recipient list (display-name + avatar) for the Squad section.
   // Sorted in circle-membership order (matches the home/squad strips).
   const circleMemberCards: RecipientCircleMember[] = memberRows
@@ -472,21 +508,7 @@ export default async function PlanDetailPage({
       avatarUrl: m.user!.avatarUrl,
     }));
 
-  // "8:30" big + "PM tonight" smaller — split for the CURRENT PLAN card.
   const isApprox = plan.isApproximate;
-  let bigTime = "";
-  let smallTime = "";
-  if (isApprox) {
-    bigTime = formatPlanTime(plan.startsAt, true, now);
-  } else {
-    const parts = SHORT_TIME.formatToParts(plan.startsAt);
-    const hour = parts.find((p) => p.type === "hour")?.value ?? "";
-    const minute = parts.find((p) => p.type === "minute")?.value ?? "";
-    const ampm =
-      parts.find((p) => p.type === "dayPeriod")?.value?.toUpperCase() ?? "";
-    bigTime = `${hour}:${minute}`;
-    smallTime = `${ampm} ${dayDescriptor(plan.startsAt, now)}`;
-  }
 
   return (
     <CircleVotesProvider
@@ -556,74 +578,19 @@ export default async function PlanDetailPage({
           </p>
         </section>
 
+        {/* M24 — variant dispatch. Open-time plans (heatmap path) keep the
+            decision-skin chrome regardless of variant since the live ticker
+            assumes an exact time. Receipt + live-ticker render compact
+            self-contained cards; decision falls back to the M16 stack. */}
         {isOpenTime ? (
-          <TimeHeatmap
-            planId={plan.id}
-            slots={openSlots}
-            initialVoters={openInitialVoters}
-            members={openMembers}
-            currentUserId={userId}
-          />
-        ) : (
-          <section className="flex flex-col gap-4 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.10)]">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-              Current plan
-            </span>
-            <div className="flex items-baseline gap-2">
-              <span className="font-serif text-5xl font-semibold leading-none text-ink">
-                {bigTime}
-              </span>
-              {smallTime ? (
-                <span className="text-sm text-ink-muted">{smallTime}</span>
-              ) : null}
-            </div>
-            {showVenueVote ? (
-              <p className="text-base text-ink-muted">
-                Voting on venue ↓
-              </p>
-            ) : plan.location ? (
-              <p className="text-base text-ink">
-                {plan.location}{" "}
-                <a
-                  href={`https://maps.google.com/?q=${encodeURIComponent(plan.location)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-coral underline-offset-2 hover:underline"
-                >
-                  map
-                </a>
-              </p>
-            ) : (
-              <p className="text-base text-ink-muted">Location TBD</p>
-            )}
-            <VoteProgressBar planId={plan.id} />
-          </section>
-        )}
-
-        {showVenueVote ? (
-          <VenueVote
-            planId={plan.id}
-            initialVenues={initialVenues}
-            initialVoters={initialVenueVoters}
-            members={venueMembers}
-            currentUserId={userId}
-            canSuggest={plan.status === "active" && canParticipate}
-          />
-        ) : null}
-
-        {showProposals ? (
-          <TimeProposals
-            planId={plan.id}
-            initialProposals={initialProposals}
-            initialVoters={initialProposalVoters}
-            members={proposalMembers}
-            currentUserId={userId}
-            canSuggest={plan.status === "active" && canParticipate}
-          />
-        ) : null}
-
-        {showVotes ? (
-          <section className="flex flex-col gap-4">
+          <>
+            <TimeHeatmap
+              planId={plan.id}
+              slots={openSlots}
+              initialVoters={openInitialVoters}
+              members={openMembers}
+              currentUserId={userId}
+            />
             {canParticipate ? (
               <PlanVotes
                 planId={plan.id}
@@ -633,10 +600,7 @@ export default async function PlanDetailPage({
                 showTally={false}
               />
             ) : (
-              <p className="rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-4 py-3 text-sm text-ink-muted">
-                You weren&rsquo;t invited to this one — ask{" "}
-                {plan.creator?.displayName ?? "the creator"} to add you.
-              </p>
+              <NotInvitedNote creatorName={plan.creator?.displayName ?? null} />
             )}
             <VoterListDetail
               planId={plan.id}
@@ -651,8 +615,128 @@ export default async function PlanDetailPage({
               currentInCount={currentInCount}
               now={now}
             />
-          </section>
-        ) : null}
+          </>
+        ) : variant === "live-ticker" ? (
+          <LiveTicker
+            planId={plan.id}
+            planTitle={plan.title}
+            startsAt={plan.startsAt}
+            location={plan.location}
+            decideBy={plan.decideBy}
+            recipientCount={recipientIds.length}
+            lockThreshold={lockThreshold}
+            additions={additionsForTicker}
+            shiftedFromTime={null}
+            now={now}
+            suggestAddOnSlot={
+              canParticipate ? (
+                <SuggestAddition
+                  planId={plan.id}
+                  defaultStartsAt={plan.startsAt}
+                  tone="dark"
+                />
+              ) : null
+            }
+          />
+        ) : variant === "receipt" ? (
+          <Receipt
+            planId={plan.id}
+            planTitle={plan.title}
+            startsAt={plan.startsAt}
+            location={plan.location}
+            recipientCount={recipientIds.length}
+            inCount={currentInCount}
+            status={
+              plan.status === "active" ? "confirmed" : plan.status
+            }
+            additions={additionsForTicker.map((a) => ({
+              id: a.id,
+              label: a.label,
+              startsAt: a.startsAt,
+            }))}
+            events={receiptEvents}
+            suggestAddOnSlot={
+              canParticipate && plan.status === "confirmed" ? (
+                <SuggestAddition
+                  planId={plan.id}
+                  defaultStartsAt={plan.startsAt}
+                  tone="light"
+                />
+              ) : null
+            }
+          />
+        ) : (
+          <>
+            <DecisionCard
+              planId={plan.id}
+              startsAt={plan.startsAt}
+              isApproximate={isApprox}
+              location={plan.location}
+              showVenueVote={showVenueVote}
+              now={now}
+            />
+            {showVenueVote ? (
+              <VenueVote
+                planId={plan.id}
+                initialVenues={initialVenues}
+                initialVoters={initialVenueVoters}
+                members={venueMembers}
+                currentUserId={userId}
+                canSuggest={plan.status === "active" && canParticipate}
+              />
+            ) : null}
+            {showProposals ? (
+              <TimeProposals
+                planId={plan.id}
+                initialProposals={initialProposals}
+                initialVoters={initialProposalVoters}
+                members={proposalMembers}
+                currentUserId={userId}
+                canSuggest={plan.status === "active" && canParticipate}
+              />
+            ) : null}
+            {canParticipate ? (
+              <SuggestAddition
+                planId={plan.id}
+                defaultStartsAt={plan.startsAt}
+                tone="light"
+              />
+            ) : null}
+            {additionsForTicker.length > 0 ? (
+              <DecisionAdditions additions={additionsForTicker} />
+            ) : null}
+            {showVotes ? (
+              <section className="flex flex-col gap-4">
+                {canParticipate ? (
+                  <PlanVotes
+                    planId={plan.id}
+                    showFirstVoteHint
+                    density="detail"
+                    buttonSize="lg"
+                    showTally={false}
+                  />
+                ) : (
+                  <NotInvitedNote
+                    creatorName={plan.creator?.displayName ?? null}
+                  />
+                )}
+                <VoterListDetail
+                  planId={plan.id}
+                  creatorId={plan.creator?.id ?? null}
+                />
+                <LockFooter
+                  status={plan.status}
+                  decideBy={plan.decideBy}
+                  startsAt={plan.startsAt}
+                  isApprox={isApprox}
+                  lockThreshold={lockThreshold}
+                  currentInCount={currentInCount}
+                  now={now}
+                />
+              </section>
+            ) : null}
+          </>
+        )}
 
         <PlanRecipientsSection
           planId={plan.id}
@@ -678,6 +762,53 @@ export default async function PlanDetailPage({
         <BottomTabs slug={circle.slug} />
       </main>
     </CircleVotesProvider>
+  );
+}
+
+function NotInvitedNote({ creatorName }: { creatorName: string | null }) {
+  return (
+    <p className="rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-4 py-3 text-sm text-ink-muted">
+      You weren&rsquo;t invited to this one — ask{" "}
+      {creatorName ?? "the creator"} to add you.
+    </p>
+  );
+}
+
+function DecisionAdditions({
+  additions,
+}: {
+  additions: LiveTickerAddition[];
+}) {
+  const TIME = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return (
+    <section className="flex flex-col gap-2">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+        Plus
+      </span>
+      <ul className="flex flex-col divide-y divide-ink/5 rounded-xl border border-ink/10 bg-paper-card/40">
+        {additions.map((a) => (
+          <li key={a.id} className="flex items-baseline gap-3 px-4 py-3">
+            <span className="font-mono text-sm text-ink-muted tabular-nums">
+              {TIME.format(new Date(a.startsAt))}
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm text-ink">
+                {a.label ?? "Add-on"}
+              </span>
+              {a.proposerName ? (
+                <span className="text-[11px] text-ink-muted">
+                  proposed by {a.proposerName}
+                </span>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

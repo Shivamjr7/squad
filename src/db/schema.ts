@@ -1,7 +1,9 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -32,6 +34,24 @@ export const planStatus = pgEnum("plan_status", [
 export const voteStatus = pgEnum("vote_status", ["in", "out", "maybe"]);
 
 export const planTimeMode = pgEnum("plan_time_mode", ["exact", "open"]);
+
+// M24 — `addition` = stacked sub-plan ("dinner after at Bar Tartine") that
+// renders as a PLUS row on Variant B / AFTER row on Variant C, NOT a vote-
+// candidate for the same slot. `replacement` is the M22 default — counter-
+// proposes the canonical time.
+export const proposalKind = pgEnum("proposal_kind", ["replacement", "addition"]);
+
+// M24 — activity log kinds. Used by the Receipt variant to render a
+// canonical timeline of what happened to the plan, in order.
+export const planEventKind = pgEnum("plan_event_kind", [
+  "created",
+  "voted",
+  "proposed_time",
+  "proposed_venue",
+  "added_member",
+  "locked",
+  "cancelled",
+]);
 
 // ─── Tables ─────────────────────────────────────────────────────────────
 
@@ -250,6 +270,12 @@ export const planTimeProposals = pgTable("plan_time_proposals", {
   proposedBy: text("proposed_by").references(() => users.id, {
     onDelete: "set null",
   }),
+  // M24 — see proposalKind enum. Existing M22 rows back-fill to
+  // `replacement` via the column default.
+  kind: proposalKind("kind").notNull().default("replacement"),
+  // M24 — only meaningful for kind=addition; carries the sub-plan's
+  // description ("Dinner after at Bar Tartine"). Null for replacements.
+  label: text("label"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),
@@ -273,6 +299,34 @@ export const planTimeProposalVotes = pgTable(
     proposalUserUnique: uniqueIndex(
       "plan_time_proposal_votes_proposal_user_unique",
     ).on(table.proposalId, table.userId),
+  }),
+);
+
+// M24 — append-only activity log used by the Receipt variant. payload is
+// kind-specific JSON (e.g. {"vote": "in"}, {"time": "8:30 PM"}). The user_id
+// nullifies on user delete because the receipt is historical truth — we want
+// the row to survive even if the actor's account is gone.
+export const planEvents = pgTable(
+  "plan_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    kind: planEventKind("kind").notNull(),
+    payload: jsonb("payload"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    planCreatedAt: index("plan_events_plan_created_at_idx").on(
+      table.planId,
+      table.createdAt,
+    ),
   }),
 );
 
@@ -374,6 +428,18 @@ export const plansRelations = relations(plans, ({ one, many }) => ({
   venues: many(planVenues),
   timeProposals: many(planTimeProposals),
   recipients: many(planRecipients),
+  events: many(planEvents),
+}));
+
+export const planEventsRelations = relations(planEvents, ({ one }) => ({
+  plan: one(plans, {
+    fields: [planEvents.planId],
+    references: [plans.id],
+  }),
+  user: one(users, {
+    fields: [planEvents.userId],
+    references: [users.id],
+  }),
 }));
 
 export const planRecipientsRelations = relations(planRecipients, ({ one }) => ({

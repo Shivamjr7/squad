@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db/client";
 import {
   circles,
+  planEvents,
   planTimeProposalVotes,
   planTimeProposals,
   plans,
@@ -82,22 +83,32 @@ export async function proposeTime(
     throw new ActionError("INVALID", "Pick a time in the future.");
   }
 
-  const proposalId = await db.transaction(async (tx) => {
-    const existing = await tx
-      .select({ id: planTimeProposals.id })
-      .from(planTimeProposals)
-      .where(eq(planTimeProposals.planId, data.planId))
-      .limit(1);
+  // M24 — additions don't compete with the canonical time, so we never seed
+  // the original starts_at row when adding one. Replacements keep the M22
+  // behavior of seeding the original so the prior time stays in the vote.
+  const isAddition = data.kind === "addition";
+  const label = isAddition ? data.label?.trim() || null : null;
 
-    // Promote single-time plan to multi-proposal by seeding the original.
-    // We attribute the seed row to plan.createdBy (or NULL if the creator
-    // deleted their account) so the original time has its own author label.
-    if (existing.length === 0) {
-      await tx.insert(planTimeProposals).values({
-        planId: data.planId,
-        startsAt: plan.startsAt,
-        proposedBy: plan.createdBy,
-      });
+  const proposalId = await db.transaction(async (tx) => {
+    if (!isAddition) {
+      const existing = await tx
+        .select({ id: planTimeProposals.id })
+        .from(planTimeProposals)
+        .where(
+          and(
+            eq(planTimeProposals.planId, data.planId),
+            eq(planTimeProposals.kind, "replacement"),
+          ),
+        )
+        .limit(1);
+      if (existing.length === 0) {
+        await tx.insert(planTimeProposals).values({
+          planId: data.planId,
+          startsAt: plan.startsAt,
+          proposedBy: plan.createdBy,
+          kind: "replacement",
+        });
+      }
     }
 
     const [row] = await tx
@@ -106,11 +117,27 @@ export async function proposeTime(
         planId: data.planId,
         startsAt,
         proposedBy: userId,
+        kind: data.kind,
+        label,
       })
       .returning({ id: planTimeProposals.id });
     if (!row) {
       throw new ActionError("INVALID", "Could not save proposal.");
     }
+
+    // M24 — log to activity timeline. Inside the transaction so a rolled-back
+    // proposal doesn't leave an event behind.
+    await tx.insert(planEvents).values({
+      planId: data.planId,
+      userId,
+      kind: "proposed_time",
+      payload: {
+        kind: data.kind,
+        startsAt: startsAt.toISOString(),
+        label: label ?? undefined,
+      },
+    });
+
     return row.id;
   });
 

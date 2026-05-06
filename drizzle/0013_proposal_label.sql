@@ -1,0 +1,1 @@
+ALTER TABLE "plan_time_proposals" ADD COLUMN "label" text;

@@ -14,6 +14,7 @@ import {
 } from "@/db/schema";
 import { sendPlanLockedEmail } from "@/lib/email";
 import { getAppUrl } from "@/lib/url";
+import { recordPlanEvent } from "@/lib/actions/plan-events";
 
 // M22 auto-lock. The plan flips to `confirmed` when:
 //   1. (regular path) `votes` with status = 'in' ≥ plans.lock_threshold AND a
@@ -218,6 +219,17 @@ export async function tryAutoLock(
       location: canonicalLocation,
     };
   }
+
+  void recordPlanEvent({
+    planId,
+    userId: null, // system-driven lock
+    kind: "locked",
+    payload: {
+      startsAt: canonicalStartsAt.toISOString(),
+      location: canonicalLocation,
+      forced: force,
+    },
+  });
 
   const circle = await db.query.circles.findFirst({
     columns: { slug: true },

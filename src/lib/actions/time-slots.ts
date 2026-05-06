@@ -18,6 +18,7 @@ import {
 import { sendPlanLockedEmail } from "@/lib/email";
 import { getAppUrl } from "@/lib/url";
 import { captureWinningVenue } from "@/lib/actions/plan-venues";
+import { recordPlanEvent } from "@/lib/actions/plan-events";
 
 // Lock threshold for auto-confirming an open-time plan when N voters
 // converge on the same slot. M22 will move this onto plans.lock_threshold;
@@ -145,7 +146,18 @@ export async function lockOpenPlan(
 
   // M21 — capture leading venue label as the canonical location so the
   // confirmation email + map deep-links read a single source of truth.
-  await captureWinningVenue(planId);
+  const winningVenue = await captureWinningVenue(planId);
+
+  void recordPlanEvent({
+    planId,
+    userId: null,
+    kind: "locked",
+    payload: {
+      startsAt: startsAt.toISOString(),
+      location: winningVenue,
+      mode: "open",
+    },
+  });
 
   const appUrl = await getAppUrl();
   void sendPlanLockedEmail(planId, appUrl).catch((err) => {

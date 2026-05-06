@@ -176,6 +176,7 @@ The following columns are added to `plans` in M19 / M22:
 - `starts_at` (timestamp)
 - `proposed_by` (text, FK users.id, **ON DELETE SET NULL**)
 - `kind` (enum: `replacement` | `addition`, default `replacement`) — M24. `addition` = a stacked sub-plan ("dinner after at Bar Tartine") rather than an alternative for the same slot.
+- `label` (text, nullable) — M24. Sub-plan description for `addition` rows ("Dinner after at Bar Tartine"). Null for `replacement`.
 - `created_at` (timestamp)
 
 ### `plan_time_proposal_votes` (M22)

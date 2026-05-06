@@ -9,6 +9,7 @@ import {
   planRecipients,
   plans,
 } from "@/db/schema";
+import { recordPlanEvent } from "@/lib/actions/plan-events";
 import { canModifyPlan, requireMembership } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
@@ -110,6 +111,19 @@ export async function addPlanRecipients(
       .onConflictDoNothing({
         target: [planRecipients.planId, planRecipients.userId],
       });
+  }
+
+  // M24 — one event per newly-added user (existing users were already in the
+  // implicit set or filtered as duplicates above). The on-conflict path means
+  // some of these may have been no-ops; we still log because the user-intent
+  // is "add these people" — the receipt should reflect that.
+  for (const uid of requested) {
+    void recordPlanEvent({
+      planId,
+      userId,
+      kind: "added_member",
+      payload: { addedUserId: uid },
+    });
   }
 
   const circle = await db.query.circles.findFirst({

@@ -85,6 +85,20 @@
       "when": 1777989811709,
       "tag": "0011_plan_recipients",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1778038492678,
+      "tag": "0012_plan_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778038903505,
+      "tag": "0013_proposal_label",
+      "breakpoints": true
     }
   ]
 }

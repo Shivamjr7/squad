@@ -1,0 +1,20 @@
+/* M24 — print-friendly receipt. Strips chrome (header, comments, tabs) and
+   crops to the receipt card so users can screenshot/share cleanly via
+   Cmd-P → Save as PDF or the share sheet. */
+
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+  /* Hide any element flagged by the page as not-for-print (vote buttons,
+     bottom tabs, app header, comments). The receipt card itself stays. */
+  .no-print {
+    display: none !important;
+  }
+  .plan-receipt {
+    box-shadow: none !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    margin: 0 auto;
+    max-width: 480px;
+  }
+}

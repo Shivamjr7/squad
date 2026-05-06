@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db/client";
 import {
   circles,
+  planEvents,
   planVenueVotes,
   planVenues,
   plans,
@@ -166,6 +167,15 @@ export async function addVenue(
     if (!row) {
       throw new ActionError("INVALID", "Could not add venue.");
     }
+
+    // M24 — log the suggestion for the receipt's activity timeline.
+    await tx.insert(planEvents).values({
+      planId,
+      userId,
+      kind: "proposed_venue",
+      payload: { label },
+    });
+
     return row.id;
   });
 
