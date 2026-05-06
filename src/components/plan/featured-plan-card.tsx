@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { formatDecideBy } from "@/lib/format-decide-by";
@@ -25,10 +26,14 @@ export function FeaturedPlanCard({
   plan,
   slug,
   now,
+  // M25 — UA-aware Maps URL computed by the server. Null when there's no
+  // canonical location to point at (yet).
+  mapsUrl,
 }: {
   plan: FeaturedPlanData;
   slug: string;
   now: Date;
+  mapsUrl: string | null;
 }) {
   const isConfirmed = plan.status === "confirmed";
   const countdown =
@@ -61,13 +66,24 @@ export function FeaturedPlanCard({
     ? venueChip.muted
     : !plan.location;
 
+  // M25 — show Open in Maps when the plan has a real (non-voting) location
+  // pinned. While venue voting is open we don't surface it because the
+  // canonical address isn't decided yet.
+  const showMaps = mapsUrl && !venueChip;
+
   return (
-    <Link
-      href={`/c/${slug}/p/${plan.id}`}
-      prefetch
-      className="group flex touch-manipulation flex-col gap-5 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.12)] transition-shadow duration-150 hover:shadow-[0_1px_2px_rgba(20,15,10,0.05),0_12px_32px_-12px_rgba(20,15,10,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-    >
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="group relative flex touch-manipulation flex-col gap-5 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.12)] transition-shadow duration-150 hover:shadow-[0_1px_2px_rgba(20,15,10,0.05),0_12px_32px_-12px_rgba(20,15,10,0.18)] focus-within:ring-2 focus-within:ring-coral">
+      {/* Stretched-link overlay: the whole card is the plan-detail link via
+          this absolute-fill anchor, which lets us nest other interactive
+          elements (Open in Maps) without breaking HTML semantics. */}
+      <Link
+        href={`/c/${slug}/p/${plan.id}`}
+        prefetch
+        aria-label={plan.title}
+        className="absolute inset-0 rounded-2xl focus-visible:outline-none"
+      />
+
+      <div className="relative flex flex-wrap items-center gap-2">
         <span className={cn(pillBase, pillStyle)}>
           {isConfirmed ? (
             <span aria-hidden>✓</span>
@@ -83,17 +99,31 @@ export function FeaturedPlanCard({
         ) : null}
       </div>
 
-      <h2 className="font-serif text-2xl font-semibold leading-tight text-ink sm:text-3xl">
+      <h2 className="relative font-serif text-2xl font-semibold leading-tight text-ink sm:text-3xl">
         {plan.title}
       </h2>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="relative grid grid-cols-2 gap-2">
         <Chip label="When" value={whenLabel} />
         <Chip label="Where" value={whereValue} muted={whereMuted} />
       </div>
 
-      <FeaturedPlanVoters planId={plan.id} />
-    </Link>
+      {showMaps ? (
+        <a
+          href={mapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="relative inline-flex w-fit items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-ink/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+        >
+          <MapPin className="size-3.5" aria-hidden />
+          Open in Maps
+        </a>
+      ) : null}
+
+      <div className="relative">
+        <FeaturedPlanVoters planId={plan.id} />
+      </div>
+    </div>
   );
 }
 

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
@@ -27,6 +28,7 @@ import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
+import { buildMapsUrl } from "@/lib/maps";
 import {
   CircleVotesProvider,
   type Member,
@@ -313,6 +315,14 @@ export default async function CircleHomePage({
   const dateLabel = formatDateHeader(now);
   const isEmpty = upcoming.length === 0 && past.length === 0;
 
+  // M25 — UA-aware Maps URL for the featured card. Skipped while venue
+  // voting is in progress (no canonical address to point at yet).
+  const ua = (await headers()).get("user-agent");
+  const featuredMapsUrl =
+    featured && featured.location && !venueSummaries.get(featured.id)
+      ? buildMapsUrl(featured.location, ua)
+      : null;
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col pb-32">
       <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
@@ -371,6 +381,7 @@ export default async function CircleHomePage({
               }}
               slug={circle.slug}
               now={now}
+              mapsUrl={featuredMapsUrl}
             />
           ) : isEmpty ? (
             <OrbitalEmptyState>

@@ -59,6 +59,9 @@ type Props = {
   events: ReceiptEvent[];
   // Slot for "+ Suggest add-on" — composed by the page.
   suggestAddOnSlot?: React.ReactNode;
+  // M25 — Maps + calendar deep-links cluster, composed server-side so the
+  // maps URL can pick Apple vs. Google by UA.
+  deepLinksSlot?: React.ReactNode;
 };
 
 export function Receipt({
@@ -72,6 +75,7 @@ export function Receipt({
   additions,
   events,
   suggestAddOnSlot,
+  deepLinksSlot,
 }: Props) {
   const { voters, currentUser } = useCircleVotes();
   const planVoters = useMemo(
@@ -171,6 +175,7 @@ export function Receipt({
         />
       </dl>
 
+      {deepLinksSlot ? <div className="pt-4">{deepLinksSlot}</div> : null}
       {suggestAddOnSlot ? <div className="pt-3">{suggestAddOnSlot}</div> : null}
 
       <section className="flex flex-col gap-1.5 pt-5 font-mono text-xs leading-relaxed text-ink/80">

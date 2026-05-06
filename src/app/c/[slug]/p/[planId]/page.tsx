@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { ArrowLeft } from "lucide-react";
@@ -56,6 +57,10 @@ import type {
 } from "@/lib/realtime/use-slot-votes";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { BottomTabs } from "@/components/circle/bottom-tabs";
+import { PlanDeepLinks } from "@/components/plan/plan-deeplinks";
+import { buildMapsUrl } from "@/lib/maps";
+import { buildGoogleCalendarUrl } from "@/lib/calendar";
+import { getAppUrl } from "@/lib/url";
 import {
   PlanRecipientsSection,
   type RecipientCircleMember,
@@ -510,6 +515,22 @@ export default async function PlanDetailPage({
 
   const isApprox = plan.isApproximate;
 
+  // M25 — UA-aware Maps + calendar deep-links. Computed once on the server
+  // so client components don't need to do their own UA sniffing or URL
+  // building. mapsUrl is null when the plan has no canonical location yet.
+  const ua = (await headers()).get("user-agent");
+  const baseUrl = await getAppUrl();
+  const planUrl = `${baseUrl}/c/${circle.slug}/p/${plan.id}`;
+  const calendarDescription = `${circle.name} · Plan locked via Squad\n${planUrl}`;
+  const mapsUrl = plan.location ? buildMapsUrl(plan.location, ua) : null;
+  const icsUrl = `/api/plans/${plan.id}/ics`;
+  const gcalUrl = buildGoogleCalendarUrl({
+    title: plan.title,
+    startsAt: plan.startsAt,
+    location: plan.location,
+    description: calendarDescription,
+  });
+
   return (
     <CircleVotesProvider
       initialVoters={initialVoters}
@@ -655,6 +676,15 @@ export default async function PlanDetailPage({
               startsAt: a.startsAt,
             }))}
             events={receiptEvents}
+            deepLinksSlot={
+              <PlanDeepLinks
+                mapsUrl={mapsUrl}
+                icsUrl={icsUrl}
+                gcalUrl={gcalUrl}
+                location={plan.location}
+                tone="cream"
+              />
+            }
             suggestAddOnSlot={
               canParticipate && plan.status === "confirmed" ? (
                 <SuggestAddition
@@ -673,6 +703,9 @@ export default async function PlanDetailPage({
               isApproximate={isApprox}
               location={plan.location}
               showVenueVote={showVenueVote}
+              mapsUrl={mapsUrl}
+              icsUrl={icsUrl}
+              gcalUrl={gcalUrl}
               now={now}
             />
             {showVenueVote ? (

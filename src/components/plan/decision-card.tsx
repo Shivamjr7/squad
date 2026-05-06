@@ -1,4 +1,5 @@
 import { VoteSpectrumBar } from "@/components/votes/vote-spectrum-bar";
+import { PlanDeepLinks } from "./plan-deeplinks";
 
 const SHORT_TIME = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -41,6 +42,11 @@ type Props = {
   isApproximate: boolean;
   location: string | null;
   showVenueVote: boolean; // when multi-venue voting is open, defer to that
+  // M25 — deep links computed server-side (UA-aware maps URL); null when
+  // the plan has no location yet (still wires calendar links).
+  mapsUrl: string | null;
+  icsUrl: string;
+  gcalUrl: string;
   now: Date;
 };
 
@@ -54,6 +60,9 @@ export function DecisionCard({
   isApproximate,
   location,
   showVenueVote,
+  mapsUrl,
+  icsUrl,
+  gcalUrl,
   now,
 }: Props) {
   let bigTime = "";
@@ -86,20 +95,19 @@ export function DecisionCard({
       {showVenueVote ? (
         <p className="text-base text-ink-muted">Voting on venue ↓</p>
       ) : location ? (
-        <p className="text-base text-ink">
-          {location}{" "}
-          <a
-            href={`https://maps.google.com/?q=${encodeURIComponent(location)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-coral underline-offset-2 hover:underline"
-          >
-            map
-          </a>
-        </p>
+        <p className="text-base text-ink">{location}</p>
       ) : (
         <p className="text-base text-ink-muted">Location TBD</p>
       )}
+      {!showVenueVote ? (
+        <PlanDeepLinks
+          mapsUrl={mapsUrl}
+          icsUrl={icsUrl}
+          gcalUrl={gcalUrl}
+          location={location}
+          tone="light"
+        />
+      ) : null}
       <VoteSpectrumBar planId={planId} tone="light" />
     </section>
   );
