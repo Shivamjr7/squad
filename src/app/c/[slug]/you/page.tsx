@@ -12,6 +12,7 @@ import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { EditDisplayName } from "@/components/circle/edit-display-name";
 import { LeaveCircleButton } from "@/components/circle/leave-circle-button";
 import { YouSignOutButton } from "@/components/circle/sign-out-button";
+import { PushOptIn } from "@/components/circle/push-opt-in";
 import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 
@@ -33,7 +34,7 @@ export default async function YouPage({
 
   const [me, membership, userCircles] = await Promise.all([
     db.query.users.findFirst({
-      columns: { displayName: true, email: true },
+      columns: { displayName: true, email: true, pushSubscription: true },
       where: eq(users.id, userId),
     }),
     db.query.memberships.findFirst({
@@ -132,6 +133,7 @@ export default async function YouPage({
               default.
             </p>
           </div>
+          <PushOptIn initiallyOn={me.pushSubscription !== null} />
         </section>
 
         <section className="flex flex-col gap-3">

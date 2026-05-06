@@ -25,6 +25,7 @@ import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
+import { InstallBanner } from "@/components/pwa/install-banner";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
@@ -338,6 +339,8 @@ export default async function CircleHomePage({
           <UserButton />
         </div>
       </header>
+
+      <InstallBanner />
 
       <div className="flex items-center justify-between gap-3 px-4 pt-6 sm:px-6">
         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">

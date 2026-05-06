@@ -61,10 +61,19 @@ export const users = pgTable("users", {
   displayName: text("display_name").notNull(),
   avatarUrl: text("avatar_url"),
   hasSetDisplayName: boolean("has_set_display_name").notNull().default(false),
+  // M26 — Web Push subscription object (endpoint + keys.p256dh + keys.auth).
+  // Null = user has not opted in. Pushes are fired in M27.
+  pushSubscription: jsonb("push_subscription").$type<PushSubscriptionRecord | null>(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),
 });
+
+export type PushSubscriptionRecord = {
+  endpoint: string;
+  expirationTime: number | null;
+  keys: { p256dh: string; auth: string };
+};
 
 export const circles = pgTable(
   "circles",
