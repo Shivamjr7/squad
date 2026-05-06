@@ -1,9 +1,11 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   circles,
+  memberships,
+  planRecipients,
   planVenues,
   plans,
   timeSlots,
@@ -74,6 +76,34 @@ export async function createPlan(
     throw new ActionError("NOT_FOUND", "Circle not found.");
   }
 
+  // M23 — resolve and validate recipient set up-front so we can fail fast
+  // before writing the plan. Empty array stays empty (= full circle).
+  let recipientIds: string[] = [];
+  if (data.recipientUserIds.length > 0) {
+    // De-dupe and ensure the creator is always in their own plan.
+    const requested = new Set<string>(data.recipientUserIds);
+    requested.add(userId);
+    const requestedArr = Array.from(requested);
+
+    const memberRows = await db
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.circleId, data.circleId),
+          inArray(memberships.userId, requestedArr),
+        ),
+      );
+    const validIds = new Set(memberRows.map((m) => m.userId));
+    if (validIds.size !== requestedArr.length) {
+      throw new ActionError(
+        "INVALID",
+        "One or more recipients aren't in this circle.",
+      );
+    }
+    recipientIds = requestedArr;
+  }
+
   const planId = await db.transaction(async (tx) => {
     const [plan] = await tx
       .insert(plans)
@@ -102,6 +132,14 @@ export async function createPlan(
       userId,
       status: "in",
     });
+
+    // M23 — write recipient rows when a subset was picked. Empty intentionally
+    // means "full circle" (back-compat with pre-M23 plans).
+    if (recipientIds.length > 0) {
+      await tx.insert(planRecipients).values(
+        recipientIds.map((uid) => ({ planId: plan.id, userId: uid })),
+      );
+    }
 
     // M21: when the creator added extra venue options, seed plan_venues so
     // the squad can vote between them. The single-venue path keeps writing

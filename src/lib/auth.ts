@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, memberships, users } from "@/db/schema";
+import { circles, memberships, planRecipients, users } from "@/db/schema";
 import { ActionError } from "@/lib/actions/errors";
 
 export type MembershipRole = "admin" | "member";
@@ -82,4 +82,25 @@ export function canModifyPlan(
   if (!membership) return false;
   if (membership.role === "admin") return true;
   return plan.createdBy !== null && plan.createdBy === userId;
+}
+
+// M23 — gate plan participation (vote, comment, suggest time/venue) on
+// recipient set membership. Empty recipient set = full circle (back-compat),
+// so anyone in the circle can participate. Otherwise: must be in the set.
+// Admins are NOT auto-eligible — they self-add via the Squad section if they
+// want to participate, matching the spec's vote eligibility rule.
+export async function requirePlanRecipient(
+  planId: string,
+  userId: string,
+): Promise<void> {
+  const rows = await db
+    .select({ userId: planRecipients.userId })
+    .from(planRecipients)
+    .where(eq(planRecipients.planId, planId));
+  if (rows.length === 0) return; // implicit-full-circle
+  if (rows.some((r) => r.userId === userId)) return;
+  throw new ActionError(
+    "FORBIDDEN",
+    "You weren't invited to this plan.",
+  );
 }

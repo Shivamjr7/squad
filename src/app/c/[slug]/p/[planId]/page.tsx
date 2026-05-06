@@ -8,6 +8,7 @@ import {
   circles,
   comments,
   memberships,
+  planRecipients,
   planTimeProposalVotes,
   planTimeProposals,
   planVenueVotes,
@@ -47,6 +48,10 @@ import type {
 } from "@/lib/realtime/use-slot-votes";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { BottomTabs } from "@/components/circle/bottom-tabs";
+import {
+  PlanRecipientsSection,
+  type RecipientCircleMember,
+} from "@/components/plan/plan-recipients-section";
 import { getUserCircles } from "@/lib/circles";
 import {
   CircleVotesProvider,
@@ -179,6 +184,60 @@ export default async function PlanDetailPage({
     userId,
     { role: me.role },
   );
+
+  // M23 — load explicit recipient set. Empty rows = full circle (back-compat
+  // for plans created before M23).
+  const recipientRows = await db
+    .select({ userId: planRecipients.userId })
+    .from(planRecipients)
+    .where(eq(planRecipients.planId, planId));
+  const isAllRecipients = recipientRows.length === 0;
+  const recipientIds = isAllRecipients
+    ? memberRows.map((m) => m.userId)
+    : recipientRows.map((r) => r.userId);
+  const recipientIdSet = new Set(recipientIds);
+  const isRecipient = recipientIdSet.has(userId);
+  const isAdmin = me.role === "admin";
+  const canParticipate = isRecipient; // admins must self-add to vote (per spec)
+
+  // Non-recipient + non-admin who navigates directly to the URL: render the
+  // "you weren't invited" view instead of the full plan. Admins still see the
+  // full plan (they can intervene if needed) but won't see vote buttons until
+  // they add themselves to the recipient set.
+  if (!isRecipient && !isAdmin) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 pt-3 pb-32 sm:px-6">
+        <header className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1">
+            <Button
+              asChild
+              variant="ghost"
+              size="icon"
+              className="-ml-2 shrink-0"
+              aria-label="Back to circle"
+            >
+              <Link href={`/c/${circle.slug}`}>
+                <ArrowLeft />
+              </Link>
+            </Button>
+          </div>
+        </header>
+        <section className="mt-12 flex flex-col items-center gap-4 px-4 text-center">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+            Private plan
+          </span>
+          <h1 className="font-serif text-2xl font-semibold text-ink sm:text-3xl">
+            You weren&rsquo;t invited to this one.
+          </h1>
+          <p className="max-w-sm text-sm text-ink-muted">
+            Ask {plan.creator?.displayName ?? "the creator"} to add you if
+            you&rsquo;d like to join.
+          </p>
+        </section>
+        <BottomTabs slug={circle.slug} />
+      </main>
+    );
+  }
 
   const members: Record<string, Member> = {};
   for (const m of memberRows) {
@@ -403,6 +462,16 @@ export default async function PlanDetailPage({
   const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
   const memberCount = memberRows.length;
 
+  // M23 — recipient list (display-name + avatar) for the Squad section.
+  // Sorted in circle-membership order (matches the home/squad strips).
+  const circleMemberCards: RecipientCircleMember[] = memberRows
+    .filter((m) => m.user)
+    .map((m) => ({
+      userId: m.user!.id,
+      displayName: m.user!.displayName,
+      avatarUrl: m.user!.avatarUrl,
+    }));
+
   // "8:30" big + "PM tonight" smaller — split for the CURRENT PLAN card.
   const isApprox = plan.isApproximate;
   let bigTime = "";
@@ -538,7 +607,7 @@ export default async function PlanDetailPage({
             initialVoters={initialVenueVoters}
             members={venueMembers}
             currentUserId={userId}
-            canSuggest={plan.status === "active"}
+            canSuggest={plan.status === "active" && canParticipate}
           />
         ) : null}
 
@@ -549,19 +618,26 @@ export default async function PlanDetailPage({
             initialVoters={initialProposalVoters}
             members={proposalMembers}
             currentUserId={userId}
-            canSuggest={plan.status === "active"}
+            canSuggest={plan.status === "active" && canParticipate}
           />
         ) : null}
 
         {showVotes ? (
           <section className="flex flex-col gap-4">
-            <PlanVotes
-              planId={plan.id}
-              showFirstVoteHint
-              density="detail"
-              buttonSize="lg"
-              showTally={false}
-            />
+            {canParticipate ? (
+              <PlanVotes
+                planId={plan.id}
+                showFirstVoteHint
+                density="detail"
+                buttonSize="lg"
+                showTally={false}
+              />
+            ) : (
+              <p className="rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-4 py-3 text-sm text-ink-muted">
+                You weren&rsquo;t invited to this one — ask{" "}
+                {plan.creator?.displayName ?? "the creator"} to add you.
+              </p>
+            )}
             <VoterListDetail
               planId={plan.id}
               creatorId={plan.creator?.id ?? null}
@@ -578,6 +654,15 @@ export default async function PlanDetailPage({
           </section>
         ) : null}
 
+        <PlanRecipientsSection
+          planId={plan.id}
+          circleMembers={circleMemberCards}
+          recipientIds={recipientIds}
+          isAll={isAllRecipients}
+          canAdd={canMutateStatus}
+          isPlanActive={plan.status === "active"}
+        />
+
         <section className="flex flex-1 flex-col gap-3 border-t border-ink/10 pt-6">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
             Discussion
@@ -587,6 +672,7 @@ export default async function PlanDetailPage({
             members={members}
             initialComments={initialComments}
             currentUser={currentUser}
+            canCompose={canParticipate}
           />
         </section>
         <BottomTabs slug={circle.slug} />

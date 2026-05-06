@@ -9,7 +9,7 @@ import {
   planTimeProposals,
   plans,
 } from "@/db/schema";
-import { requireMembership } from "@/lib/auth";
+import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
   castProposalVoteSchema,
@@ -76,6 +76,7 @@ export async function proposeTime(
   }
 
   const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(data.planId, userId);
 
   if (startsAt.getTime() <= Date.now()) {
     throw new ActionError("INVALID", "Pick a time in the future.");
@@ -161,6 +162,7 @@ export async function castProposalVote(
   }
 
   const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(planId, userId);
 
   // Find any prior vote by this user on any proposal of this plan.
   const existing = await db

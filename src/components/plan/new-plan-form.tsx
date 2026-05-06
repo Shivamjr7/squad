@@ -222,6 +222,15 @@ export function NewPlanForm({
 
     const decideByLocal = decideBy ? toDateTimeLocal(decideBy) : null;
 
+    // M23 — recipientUserIds. Empty array = "ALL" (back-compat path; the
+    // server treats no rows as full circle). Otherwise we send the explicit
+    // selection; the server enforces creator inclusion + circle-membership.
+    const recipientUserIds = allSelected
+      ? []
+      : members
+          .map((m) => m.userId)
+          .filter((id) => !excluded.has(id));
+
     const input: CreatePlanInput = {
       circleId,
       title: values.title,
@@ -236,6 +245,7 @@ export function NewPlanForm({
         .map((v) => v.trim())
         .filter((v) => v.length > 0),
       maxPeople: null,
+      recipientUserIds,
     };
 
     const parsed = createPlanSchema.safeParse(input);
@@ -560,8 +570,9 @@ export function NewPlanForm({
                 </div>
               ) : null}
               <p className="text-[11px] text-ink-muted">
-                Per-plan recipients save in the next update; for now everyone
-                in the circle gets the email.
+                {allSelected
+                  ? "Everyone in the circle will be invited."
+                  : `Only ${selectedCount} ${selectedCount === 1 ? "person" : "people"} will be invited.`}
               </p>
             </div>
 

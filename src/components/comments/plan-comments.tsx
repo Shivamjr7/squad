@@ -20,6 +20,9 @@ type Props = {
     displayName: string;
     avatarUrl: string | null;
   };
+  // M23 — non-recipients (e.g. an admin viewing a restricted plan) can read
+  // the discussion but can't post; the composer is hidden when false.
+  canCompose?: boolean;
 };
 
 function makeTempId(): string {
@@ -34,6 +37,7 @@ export function PlanComments({
   members,
   initialComments,
   currentUser,
+  canCompose = true,
 }: Props) {
   const {
     comments,
@@ -104,7 +108,7 @@ export function PlanComments({
         currentUserId={currentUser.id}
         onRetry={onRetry}
       />
-      <CommentComposer onSend={onSend} />
+      {canCompose ? <CommentComposer onSend={onSend} /> : null}
     </div>
   );
 }

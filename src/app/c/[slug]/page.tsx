@@ -128,12 +128,27 @@ export default async function CircleHomePage({
 
   const now = new Date();
   const cancelledCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  // M23 — visibility filter. A plan shows on home when (a) it has no
+  // explicit recipient rows (back-compat: full circle), (b) the current
+  // user is in the recipient set, or (c) the user is an admin (admins see
+  // all plans in their circle, including restricted ones, per spec).
+  // Note: subquery columns are written as bare SQL because Drizzle's
+  // ${table.col} interpolation here resolves to the outer query's alias.
+  const recipientVisibilityClause = isAdmin
+    ? undefined
+    : or(
+        sql`NOT EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id})`,
+        sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
+      );
+
   const [upcoming, past] = await Promise.all([
     db.query.plans.findMany({
       where: and(
         eq(plans.circleId, circle.id),
         inArray(plans.status, ["active", "confirmed"]),
         gte(plans.startsAt, now),
+        recipientVisibilityClause,
       ),
       orderBy: [
         sql`(${plans.status} = 'confirmed') desc`,
@@ -157,6 +172,7 @@ export default async function CircleHomePage({
             gte(plans.cancelledAt, cancelledCutoff),
           ),
         ),
+        recipientVisibilityClause,
       ),
       orderBy: desc(plans.startsAt),
       with: {

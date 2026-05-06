@@ -37,6 +37,28 @@ function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// M23 — fetch the explicit recipient user_id set for a plan. Returns null
+// when there are no rows (back-compat: plan goes to the full circle). Mirrors
+// getRecipientUserIdSet() in src/lib/email.ts.
+async function getPlanRecipientUserIds(
+  planId: string,
+): Promise<Set<string> | null> {
+  const { data, error } = await supabase
+    .from("plan_recipients")
+    .select("user_id")
+    .eq("plan_id", planId)
+    .returns<{ user_id: string }[]>();
+  if (error) {
+    console.error("[remind-plans] recipient lookup failed", {
+      planId,
+      error: error.message,
+    });
+    return null;
+  }
+  if (!data || data.length === 0) return null;
+  return new Set(data.map((r) => r.user_id));
+}
+
 function formatTimeShort(iso: string): string {
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
@@ -272,10 +294,19 @@ async function processOpenTimeLocks(now: Date): Promise<number> {
 
       const { data: memberRows } = await supabase
         .from("memberships")
-        .select("users(email)")
+        .select("user_id, users(email)")
         .eq("circle_id", plan.circle_id)
-        .returns<{ users: { email: string | null } | null }[]>();
+        .returns<
+          {
+            user_id: string;
+            users: { email: string | null } | null;
+          }[]
+        >();
+      const recipientFilter = await getPlanRecipientUserIds(plan.id);
       const recipients = (memberRows ?? [])
+        .filter((m) =>
+          recipientFilter === null ? true : recipientFilter.has(m.user_id),
+        )
         .map((m) => m.users?.email)
         .filter((e): e is string => Boolean(e));
 
@@ -446,10 +477,19 @@ async function processExactTimeLocks(now: Date): Promise<number> {
 
       const { data: memberRows } = await supabase
         .from("memberships")
-        .select("users(email)")
+        .select("user_id, users(email)")
         .eq("circle_id", plan.circle_id)
-        .returns<{ users: { email: string | null } | null }[]>();
+        .returns<
+          {
+            user_id: string;
+            users: { email: string | null } | null;
+          }[]
+        >();
+      const recipientFilter = await getPlanRecipientUserIds(plan.id);
       const recipients = (memberRows ?? [])
+        .filter((m) =>
+          recipientFilter === null ? true : recipientFilter.has(m.user_id),
+        )
         .map((m) => m.users?.email)
         .filter((e): e is string => Boolean(e));
 
@@ -487,6 +527,7 @@ type ClaimedPlan = {
 };
 
 type VoterJoinRow = {
+  user_id: string;
   users: { display_name: string | null; email: string | null } | null;
 };
 
@@ -557,12 +598,17 @@ Deno.serve(async (req) => {
 
       const { data: voterRows } = await supabase
         .from("votes")
-        .select("users(display_name, email)")
+        .select("user_id, users(display_name, email)")
         .eq("plan_id", plan.id)
         .eq("status", "in")
         .returns<VoterJoinRow[]>();
 
-      const rows = voterRows ?? [];
+      // M23 — defensive intersect with recipient set in case legacy
+      // votes pre-date the eligibility check.
+      const recipientFilter = await getPlanRecipientUserIds(plan.id);
+      const rows = (voterRows ?? []).filter((v) =>
+        recipientFilter === null ? true : recipientFilter.has(v.user_id),
+      );
       const recipients = rows
         .map((v) => v.users?.email)
         .filter((e): e is string => Boolean(e));

@@ -65,6 +65,15 @@ export const createPlanSchema = z.object({
     .nullable()
     .optional()
     .transform((v) => (v ?? null)),
+  // M23 — explicit recipient set. Empty array = full circle (back-compat
+  // path; the chip picker writes [] when "ALL" is selected). When non-empty,
+  // the server will additionally enforce that every id is a circle member
+  // and that the creator is included.
+  recipientUserIds: z
+    .array(z.string().min(1))
+    .max(200, "Too many recipients")
+    .optional()
+    .default([]),
 });
 
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;

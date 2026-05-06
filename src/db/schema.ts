@@ -276,6 +276,32 @@ export const planTimeProposalVotes = pgTable(
   }),
 );
 
+// M23 — per-plan recipient set. Empty set for a plan = full circle (this is
+// the back-compat path for plans created before M23, and the convention
+// "ALL" in the chip picker writes no rows). Otherwise, only listed users are
+// fan-out targets, see plans on home, and can vote.
+export const planRecipients = pgTable(
+  "plan_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    planUserUnique: uniqueIndex("plan_recipients_plan_user_unique").on(
+      table.planId,
+      table.userId,
+    ),
+  }),
+);
+
 export const comments = pgTable("comments", {
   id: uuid("id").primaryKey().defaultRandom(),
   planId: uuid("plan_id")
@@ -347,6 +373,18 @@ export const plansRelations = relations(plans, ({ one, many }) => ({
   timeSlots: many(timeSlots),
   venues: many(planVenues),
   timeProposals: many(planTimeProposals),
+  recipients: many(planRecipients),
+}));
+
+export const planRecipientsRelations = relations(planRecipients, ({ one }) => ({
+  plan: one(plans, {
+    fields: [planRecipients.planId],
+    references: [plans.id],
+  }),
+  user: one(users, {
+    fields: [planRecipients.userId],
+    references: [users.id],
+  }),
 }));
 
 export const planVenuesRelations = relations(planVenues, ({ one, many }) => ({

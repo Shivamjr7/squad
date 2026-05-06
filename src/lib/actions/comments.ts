@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { comments, plans } from "@/db/schema";
-import { requireMembership } from "@/lib/auth";
+import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
   addCommentSchema,
@@ -41,6 +41,7 @@ export async function addComment(
   }
 
   const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(data.planId, userId);
 
   const [row] = await db
     .insert(comments)

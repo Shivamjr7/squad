@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { plans, votes } from "@/db/schema";
-import { requireMembership } from "@/lib/auth";
+import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
   castVoteSchema,
@@ -38,6 +38,7 @@ export async function castVote(
   }
 
   const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(data.planId, userId);
 
   await db
     .insert(votes)

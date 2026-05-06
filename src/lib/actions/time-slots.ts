@@ -9,7 +9,7 @@ import {
   timeSlotVotes,
   timeSlots,
 } from "@/db/schema";
-import { requireMembership } from "@/lib/auth";
+import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
   toggleSlotVoteSchema,
@@ -75,6 +75,7 @@ export async function toggleSlotVote(
   }
 
   const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(planId, userId);
 
   // Toggle: if the row exists, delete it; otherwise insert. The unique
   // (slot_id, user_id) constraint guarantees at most one row per pair.

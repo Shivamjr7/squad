@@ -4,6 +4,7 @@ import { db } from "@/db/client";
 import {
   comments,
   memberships,
+  planRecipients,
   plans,
   users,
   votes,
@@ -118,6 +119,20 @@ async function sendFanout(
   );
 }
 
+// M23 — fetch the explicit recipient set for a plan. null = no rows
+// (back-compat: full circle). Caller intersects this with whatever audience
+// it would otherwise email.
+async function getRecipientUserIdSet(
+  planId: string,
+): Promise<Set<string> | null> {
+  const rows = await db
+    .select({ userId: planRecipients.userId })
+    .from(planRecipients)
+    .where(eq(planRecipients.planId, planId));
+  if (rows.length === 0) return null;
+  return new Set(rows.map((r) => r.userId));
+}
+
 export async function sendNewPlanEmail(
   planId: string,
   appUrl: string,
@@ -137,9 +152,13 @@ export async function sendNewPlanEmail(
         eq(memberships.circleId, plan.circle.id),
         plan.creator ? ne(memberships.userId, plan.creator.id) : undefined,
       ),
-      with: { user: { columns: { email: true } } },
+      with: { user: { columns: { id: true, email: true } } },
     });
+    const recipientFilter = await getRecipientUserIdSet(planId);
     const recipients = memberRows
+      .filter((m) =>
+        recipientFilter === null ? true : m.user && recipientFilter.has(m.user.id),
+      )
       .map((m) => m.user?.email)
       .filter((e): e is string => Boolean(e));
 
@@ -185,9 +204,16 @@ export async function sendNewCommentEmail(
         eq(votes.planId, comment.plan.id),
         comment.user ? ne(votes.userId, comment.user.id) : undefined,
       ),
-      with: { user: { columns: { email: true } } },
+      with: { user: { columns: { id: true, email: true } } },
     });
+    // Vote eligibility is restricted to recipients (M23), so voters are
+    // already a subset — but we filter defensively here in case admins or
+    // legacy votes from before the recipient set was tightened slipped in.
+    const recipientFilter = await getRecipientUserIdSet(comment.plan.id);
     const recipients = voterRows
+      .filter((v) =>
+        recipientFilter === null ? true : v.user && recipientFilter.has(v.user.id),
+      )
       .map((v) => v.user?.email)
       .filter((e): e is string => Boolean(e));
 
@@ -231,9 +257,13 @@ export async function sendPlanConfirmedEmail(
         eq(memberships.circleId, plan.circle.id),
         ne(memberships.userId, confirmerId),
       ),
-      with: { user: { columns: { email: true } } },
+      with: { user: { columns: { id: true, email: true } } },
     });
+    const recipientFilter = await getRecipientUserIdSet(plan.id);
     const recipients = memberRows
+      .filter((m) =>
+        recipientFilter === null ? true : m.user && recipientFilter.has(m.user.id),
+      )
       .map((m) => m.user?.email)
       .filter((e): e is string => Boolean(e));
 
@@ -284,13 +314,18 @@ export async function sendPlanLockedEmail(
     });
     if (!plan || !plan.circle) return;
 
-    // Recipients: all circle members. Open-mode lock is the moment of truth;
-    // every member should hear about it, not just the slot voters.
+    // Recipients: every plan recipient (M23). Pre-M23 plans (no rows) fall
+    // back to the full circle. Open-mode lock is the moment of truth — every
+    // intended recipient hears about it, not just slot voters.
     const memberRows = await db.query.memberships.findMany({
       where: eq(memberships.circleId, plan.circle.id),
-      with: { user: { columns: { email: true } } },
+      with: { user: { columns: { id: true, email: true } } },
     });
+    const recipientFilter = await getRecipientUserIdSet(plan.id);
     const recipients = memberRows
+      .filter((m) =>
+        recipientFilter === null ? true : m.user && recipientFilter.has(m.user.id),
+      )
       .map((m) => m.user?.email)
       .filter((e): e is string => Boolean(e));
 
@@ -336,9 +371,13 @@ export async function sendPlanCancelledEmail(
         inArray(votes.status, ["in", "maybe"]),
         ne(votes.userId, cancellerId),
       ),
-      with: { user: { columns: { email: true } } },
+      with: { user: { columns: { id: true, email: true } } },
     });
+    const recipientFilter = await getRecipientUserIdSet(planId);
     const recipients = voterRows
+      .filter((v) =>
+        recipientFilter === null ? true : v.user && recipientFilter.has(v.user.id),
+      )
       .map((v) => v.user?.email)
       .filter((e): e is string => Boolean(e));
 

@@ -9,7 +9,7 @@ import {
   planVenues,
   plans,
 } from "@/db/schema";
-import { requireMembership } from "@/lib/auth";
+import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
   addVenueSchema,
@@ -58,6 +58,7 @@ export async function castVenueVote(
   }
 
   const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(planId, userId);
 
   // Find any existing vote by this user on any venue belonging to this plan.
   const existing = await db
@@ -135,6 +136,7 @@ export async function addVenue(
   }
 
   const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(planId, userId);
 
   const venueId = await db.transaction(async (tx) => {
     const existing = await tx
