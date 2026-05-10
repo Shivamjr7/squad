@@ -1,0 +1,32 @@
+
+Bugs to fix : 
+- Page load is slow 
+- http://localhost:3000/onboarding - loads to a page where it is asked to create new circle or invite 
+It should land in the main page where users have circles
+- 3 different plan buttons - to have only one 
+- Switch from plans to squad or to any tab is slow 
+- Create plan 
+    - Cancel and Send button to be at buttom
+    - Send to be replaced with create plan 
+    -  Invalid UUID issue while creating plan only in Test crew
+    -  Confirm plan / Mark done / Cancel plan not visible 
+    -  Max suggest add on to be 5 
+    -  Inconsistency in view when plan is created . In one 
+- Plan reciept :    
+
+
+
+ Features :
+ - location to be added in create plan - user can enter a place or a text  in "Where"
+ - Plan should be like cards which user can scroll like posts 
+ - Calendar features where user can see who all are available , if a user has another 
+ plan at the same time mark him as busy
+ - Plan detail screen is not exact 
+ - Its happening and notifications are missing
+ - Notify when a user votes in a plan or when the plan locks in    
+ - Share the plans via whatsapp 
+ - Add option to book a place by providing district link 
+ - Fetch if any discount is there for the place in district 
+ - Merge two ideas   
+ - Notification of reminding about the plan 
+ - option to add photos after the people went on with the plan

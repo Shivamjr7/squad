@@ -23,6 +23,7 @@ import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
 import { UpcomingRow } from "@/components/plan/upcoming-row";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { CircleSideMenu, CircleSideMenuMobile } from "@/components/circle/circle-side-menu";
 import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import { InstallBanner } from "@/components/pwa/install-banner";
@@ -325,9 +326,12 @@ export default async function CircleHomePage({
       : null;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col pb-32">
+    <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
       <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
+        <div className="flex items-center gap-2">
+          <CircleSideMenuMobile slug={circle.slug} />
+          <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
+        </div>
         <div className="flex items-center gap-1">
           {isAdmin ? (
             <Button asChild variant="ghost" size="icon" aria-label="Settings">
@@ -340,117 +344,89 @@ export default async function CircleHomePage({
         </div>
       </header>
 
-      <InstallBanner />
+      <div className="flex flex-col gap-4 px-4 pt-4 sm:px-6 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start lg:gap-6">
+        <div className="flex flex-col gap-4 lg:order-2">
+          <InstallBanner />
 
-      <div className="flex items-center justify-between gap-3 px-4 pt-6 sm:px-6">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-          {dateLabel}
-        </span>
-        <NewPlanTrigger
-          circleId={circle.id}
-          slug={circle.slug}
-          members={formMembers}
-          currentUserId={userId}
-          mode="header"
-        />
-      </div>
-
-      <h1 className="px-4 pt-3 pb-2 font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:px-6 sm:text-[40px]">
-        {heroPrefix}{" "}
-        <em className="font-serif italic font-normal text-coral">
-          {circle.name}
-        </em>
-        ?
-      </h1>
-
-      <CircleVotesProvider
-        initialVoters={initialVoters}
-        members={members}
-        knownPlanIds={planIds}
-        currentUser={currentUser}
-      >
-        <div className="flex flex-col gap-8 px-4 pt-4 sm:px-6">
-          {featured ? (
-            <FeaturedPlanCard
-              plan={{
-                id: featured.id,
-                title: featured.title,
-                startsAt: featured.startsAt,
-                isApproximate: featured.isApproximate,
-                location: featured.location,
-                status: featured.status,
-                decideBy: featured.decideBy,
-                venueSummary: venueSummaries.get(featured.id) ?? null,
-              }}
-              slug={circle.slug}
-              now={now}
-              mapsUrl={featuredMapsUrl}
-            />
-          ) : isEmpty ? (
-            <OrbitalEmptyState>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+              {dateLabel}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
               <NewPlanTrigger
                 circleId={circle.id}
                 slug={circle.slug}
                 members={formMembers}
                 currentUserId={userId}
-                mode="cta"
+                mode="header"
               />
-            </OrbitalEmptyState>
-          ) : (
-            <NoUpcomingState />
-          )}
+            </div>
+          </div>
 
-          {restUpcoming.length > 0 ? (
-            <section className="flex flex-col gap-3">
-              <SectionHeader
-                label="Upcoming"
-                hint={`${upcoming.length} plan${upcoming.length === 1 ? "" : "s"}`}
-              />
-              <ul className="flex flex-col gap-1">
-                {restUpcoming.map((p) => (
-                  <li key={p.id}>
-                    <UpcomingRow
-                      plan={{
-                        id: p.id,
-                        title: p.title,
-                        type: p.type,
-                        startsAt: p.startsAt,
-                        isApproximate: p.isApproximate,
-                        location: p.location,
-                        status: p.status,
-                        venueSummary: venueSummaries.get(p.id) ?? null,
-                      }}
-                      slug={circle.slug}
-                      now={now}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
+          <h1 className="font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:text-[40px]">
+            {heroPrefix}{" "}
+            <em className="font-serif italic font-normal text-coral">
+              {circle.name}
+            </em>
+            ?
+          </h1>
 
-          {past.length > 0 ? (
-            <section className="flex flex-col gap-3">
-              <SectionHeader label="Past" />
-              {past.length > PAST_COLLAPSE_THRESHOLD ? (
-                <details className="group rounded-lg">
-                  <summary className="cursor-pointer list-none rounded-md px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper-card/60">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="transition-transform group-open:rotate-90">▸</span>
-                      <span className="group-open:hidden">
-                        Show {past.length} past plans
-                      </span>
-                      <span className="hidden group-open:inline">Hide past plans</span>
-                    </span>
-                  </summary>
-                  <ul className="flex flex-col gap-3 pt-3">
-                    {past.map((p) => (
+          <CircleVotesProvider
+            initialVoters={initialVoters}
+            members={members}
+            knownPlanIds={planIds}
+            currentUser={currentUser}
+          >
+            <div className="flex flex-col gap-8">
+              {featured ? (
+                <FeaturedPlanCard
+                  plan={{
+                    id: featured.id,
+                    title: featured.title,
+                    startsAt: featured.startsAt,
+                    isApproximate: featured.isApproximate,
+                    location: featured.location,
+                    status: featured.status,
+                    decideBy: featured.decideBy,
+                    venueSummary: venueSummaries.get(featured.id) ?? null,
+                  }}
+                  slug={circle.slug}
+                  now={now}
+                  mapsUrl={featuredMapsUrl}
+                />
+              ) : isEmpty ? (
+                <OrbitalEmptyState>
+                  <NewPlanTrigger
+                    circleId={circle.id}
+                    slug={circle.slug}
+                    members={formMembers}
+                    currentUserId={userId}
+                    mode="cta"
+                  />
+                </OrbitalEmptyState>
+              ) : (
+                <NoUpcomingState />
+              )}
+
+              {restUpcoming.length > 0 ? (
+                <section className="flex flex-col gap-3">
+                  <SectionHeader
+                    label="Upcoming"
+                    hint={`${upcoming.length} plan${upcoming.length === 1 ? "" : "s"}`}
+                  />
+                  <ul className="flex flex-col gap-1">
+                    {restUpcoming.map((p) => (
                       <li key={p.id}>
-                        <PlanCard
+                        <UpcomingRow
                           plan={{
-                            ...p,
-                            creator: p.creator ?? null,
-                            commentCount: commentCounts.get(p.id) ?? 0,
+                            id: p.id,
+                            title: p.title,
+                            type: p.type,
+                            startsAt: p.startsAt,
+                            isApproximate: p.isApproximate,
+                            location: p.location,
+                            status: p.status,
+                            venueSummary: venueSummaries.get(p.id) ?? null,
                           }}
                           slug={circle.slug}
                           now={now}
@@ -458,28 +434,67 @@ export default async function CircleHomePage({
                       </li>
                     ))}
                   </ul>
-                </details>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {past.map((p) => (
-                    <li key={p.id}>
-                      <PlanCard
-                        plan={{
-                          ...p,
-                          creator: p.creator ?? null,
-                          commentCount: commentCounts.get(p.id) ?? 0,
-                        }}
-                        slug={circle.slug}
-                        now={now}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ) : null}
+                </section>
+              ) : null}
+
+              {past.length > 0 ? (
+                <section className="flex flex-col gap-3">
+                  <SectionHeader label="Past" />
+                  {past.length > PAST_COLLAPSE_THRESHOLD ? (
+                    <details className="group rounded-lg">
+                      <summary className="cursor-pointer list-none rounded-md px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper-card/60">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="transition-transform group-open:rotate-90">▸</span>
+                          <span className="group-open:hidden">
+                            Show {past.length} past plans
+                          </span>
+                          <span className="hidden group-open:inline">Hide past plans</span>
+                        </span>
+                      </summary>
+                      <ul className="flex flex-col gap-3 pt-3">
+                        {past.map((p) => (
+                          <li key={p.id}>
+                            <PlanCard
+                              plan={{
+                                ...p,
+                                creator: p.creator ?? null,
+                                commentCount: commentCounts.get(p.id) ?? 0,
+                              }}
+                              slug={circle.slug}
+                              now={now}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : (
+                    <ul className="flex flex-col gap-3">
+                      {past.map((p) => (
+                        <li key={p.id}>
+                          <PlanCard
+                            plan={{
+                              ...p,
+                              creator: p.creator ?? null,
+                              commentCount: commentCounts.get(p.id) ?? 0,
+                            }}
+                            slug={circle.slug}
+                            now={now}
+                            hideVotes
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ) : null}
+            </div>
+          </CircleVotesProvider>
         </div>
-      </CircleVotesProvider>
+
+        <aside className="hidden lg:block">
+          <CircleSideMenu slug={circle.slug} />
+        </aside>
+      </div>
 
       <NewPlanTrigger
         circleId={circle.id}

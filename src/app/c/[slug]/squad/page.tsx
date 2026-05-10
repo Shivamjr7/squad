@@ -8,6 +8,7 @@ import { db } from "@/db/client";
 import { circles, invites, memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { CircleSideMenuMobile } from "@/components/circle/circle-side-menu";
 import { InviteButton } from "@/components/circle/invite-button";
 import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { MembersList, type ListMember } from "@/components/circle/members-list";
@@ -69,11 +70,14 @@ export default async function SquadPage({
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col pb-32">
       <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <CircleSwitcher
-          currentSlug={circle.slug}
-          circles={userCircles}
-          size="sm"
-        />
+        <div className="flex items-center gap-2">
+          <CircleSideMenuMobile slug={circle.slug} />
+          <CircleSwitcher
+            currentSlug={circle.slug}
+            circles={userCircles}
+            size="sm"
+          />
+        </div>
         <div className="flex items-center gap-1">
           {isAdmin ? (
             <Button asChild variant="ghost" size="icon" aria-label="Settings">
