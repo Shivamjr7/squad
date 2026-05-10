@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { MapPin } from "lucide-react";
+import { Edit, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { formatDecideBy } from "@/lib/format-decide-by";
 import { FeaturedPlanVoters } from "./featured-plan-voters";
+import { PlanVotes } from "@/components/votes/plan-votes";
 
 export type FeaturedPlanData = {
   id: string;
@@ -21,6 +22,14 @@ export type FeaturedPlanData = {
     total: number;
     optionCount: number;
   } | null;
+  creator?: {
+    displayName: string;
+    avatarUrl: string | null;
+  } | null;
+  // Latest plan_events.created_at (M24) for "last edit Nm ago".
+  lastEditAt?: Date | null;
+  // True if the viewer is allowed to edit the plan (creator or circle admin).
+  canEdit?: boolean;
 };
 
 export function FeaturedPlanCard({
@@ -37,6 +46,10 @@ export function FeaturedPlanCard({
   mapsUrl: string | null;
 }) {
   const isConfirmed = plan.status === "confirmed";
+  const isVoting =
+    !isConfirmed &&
+    !!plan.venueSummary &&
+    plan.venueSummary.optionCount >= 2;
   const countdown =
     plan.decideBy && !isConfirmed ? formatDecideBy(plan.decideBy, now) : null;
 
@@ -44,9 +57,10 @@ export function FeaturedPlanCard({
     "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]";
   const pillStyle = isConfirmed
     ? "bg-in-soft text-in"
-    : "bg-coral-soft text-coral";
-  const dotColor = isConfirmed ? "bg-in" : "bg-coral";
-  const pillLabel = isConfirmed ? "Confirmed" : "Deciding";
+    : isVoting
+      ? "bg-coral-soft text-coral"
+      : "bg-coral-soft text-coral";
+  const pillLabel = isConfirmed ? "Locked" : isVoting ? "Voting" : "Deciding";
 
   const whenLabel = formatPlanTime(
     plan.startsAt,
@@ -68,33 +82,27 @@ export function FeaturedPlanCard({
         }
     : null;
   const whereValue = venueChip?.label ?? plan.location ?? "TBD";
-  const whereMuted = venueChip
-    ? venueChip.muted
-    : !plan.location;
+  const whereMuted = venueChip ? venueChip.muted : !plan.location;
 
   // M25 — show Open in Maps when the plan has a real (non-voting) location
   // pinned. While venue voting is open we don't surface it because the
   // canonical address isn't decided yet.
   const showMaps = mapsUrl && !venueChip;
+  const showEdit = plan.canEdit ?? false;
+  const showActionRow = showMaps || showEdit;
+
+  const lastEditLabel = plan.lastEditAt
+    ? formatLastEdit(plan.lastEditAt, now)
+    : null;
 
   return (
-    <div className="group relative flex touch-manipulation flex-col gap-5 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.12)] transition-shadow duration-150 hover:shadow-[0_1px_2px_rgba(20,15,10,0.05),0_12px_32px_-12px_rgba(20,15,10,0.18)] focus-within:ring-2 focus-within:ring-coral">
-      {/* Stretched-link overlay: the whole card is the plan-detail link via
-          this absolute-fill anchor, which lets us nest other interactive
-          elements (Open in Maps) without breaking HTML semantics. */}
-      <Link
-        href={`/c/${slug}/p/${plan.id}`}
-        prefetch
-        aria-label={plan.title}
-        className="absolute inset-0 rounded-2xl focus-visible:outline-none"
-      />
-
-      <div className="relative flex flex-wrap items-center gap-2">
+    <div className="group relative flex flex-col gap-5 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.12)] transition-shadow duration-150 focus-within:ring-2 focus-within:ring-coral">
+      <div className="flex flex-wrap items-center gap-2">
         <span className={cn(pillBase, pillStyle)}>
           {isConfirmed ? (
             <span aria-hidden>✓</span>
           ) : (
-            <span aria-hidden className={cn("size-1.5 rounded-full", dotColor)} />
+            <span aria-hidden className="size-1.5 rounded-full bg-coral" />
           )}
           {pillLabel}
         </span>
@@ -105,32 +113,96 @@ export function FeaturedPlanCard({
         ) : null}
       </div>
 
-      <h2 className="relative font-serif text-2xl font-semibold leading-tight text-ink sm:text-3xl">
-        {plan.title}
-      </h2>
+      {/* Whole-title link instead of a stretched overlay so the inline
+          vote buttons + action row stay easily clickable. */}
+      <Link
+        href={`/c/${slug}/p/${plan.id}`}
+        prefetch
+        className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+      >
+        <h2 className="font-serif text-2xl font-semibold leading-tight text-ink sm:text-3xl">
+          {plan.title}
+        </h2>
+      </Link>
 
-      <div className="relative grid grid-cols-2 gap-2">
+      {(plan.creator || lastEditLabel) ? (
+        <div className="-mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+          {plan.creator ? (
+            <span className="inline-flex items-center gap-1.5">
+              {plan.creator.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={plan.creator.avatarUrl}
+                  alt=""
+                  className="size-4 rounded-full object-cover"
+                />
+              ) : null}
+              <span>Started by {plan.creator.displayName}</span>
+            </span>
+          ) : null}
+          {lastEditLabel ? (
+            <span>· last edit {lastEditLabel}</span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-2">
         <Chip label="When" value={whenLabel} />
         <Chip label="Where" value={whereValue} muted={whereMuted} />
       </div>
 
-      {showMaps ? (
-        <a
-          href={mapsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="relative inline-flex w-fit items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-ink/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-        >
-          <MapPin className="size-3.5" aria-hidden />
-          Open in Maps
-        </a>
-      ) : null}
-
-      <div className="relative">
-        <FeaturedPlanVoters planId={plan.id} />
+      <div>
+        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+          Who&apos;s in
+        </span>
+        <div className="mt-2">
+          <FeaturedPlanVoters planId={plan.id} />
+        </div>
       </div>
+
+      <div>
+        <PlanVotes planId={plan.id} buttonSize="lg" showTally={false} />
+      </div>
+
+      {showActionRow ? (
+        <div className="flex flex-wrap gap-2">
+          {showMaps ? (
+            <a
+              href={mapsUrl!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-ink/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+            >
+              <MapPin className="size-3.5" aria-hidden />
+              Open in Maps
+            </a>
+          ) : null}
+          {showEdit ? (
+            <Link
+              href={`/c/${slug}/p/${plan.id}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-ink/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+            >
+              <Edit className="size-3.5" aria-hidden />
+              Edit plan
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function formatLastEdit(d: Date, now: Date): string {
+  const diffMs = now.getTime() - d.getTime();
+  if (diffMs < 0) return "just now";
+  const min = Math.floor(diffMs / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const days = Math.floor(diffMs / 86_400_000);
+  if (days === 1) return "yesterday";
+  return `${days}d ago`;
 }
 
 function Chip({

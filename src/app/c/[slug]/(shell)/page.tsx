@@ -5,12 +5,12 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { and, asc, count, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, max, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   circles,
-  comments,
   memberships,
+  planEvents,
   planVenueVotes,
   planVenues,
   plans,
@@ -19,13 +19,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
-import { UpcomingRow } from "@/components/plan/upcoming-row";
+import {
+  UpcomingStrip,
+  type UpcomingStripPlan,
+} from "@/components/plan/upcoming-strip";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
-import { CircleSideMenu, CircleSideMenuMobile } from "@/components/circle/circle-side-menu";
-import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import { InstallBanner } from "@/components/pwa/install-banner";
+import { WeatherChip } from "@/components/circle/weather-chip";
+import { HomeSubline } from "@/components/circle/home-subline";
+import {
+  SquadPulse,
+  SquadPulseInline,
+  type PulseMember,
+} from "@/components/circle/squad-pulse";
+import { QuickNudge } from "@/components/circle/quick-nudge";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
@@ -161,7 +170,6 @@ export default async function CircleHomePage({
   const planIds = upcoming.map((p) => p.id);
   const upcomingPlanIds = upcoming.map((p) => p.id);
   const initialVoters: VotersByPlan = {};
-  const commentCounts = new Map<string, number>();
   // Map<planId, { label, votes, total }> — surfaces the leading venue on the
   // home featured card + upcoming row when an active plan has multi-venue
   // voting in progress. Null leader (tie / no votes) shows "N options".
@@ -170,21 +178,14 @@ export default async function CircleHomePage({
     { label: string | null; total: number; optionCount: number }
   >();
   if (planIds.length > 0) {
-    const [voteRows, countRows] = await Promise.all([
-      db.query.votes.findMany({
-        where: inArray(votes.planId, planIds),
-        with: {
-          user: {
-            columns: { id: true, displayName: true, avatarUrl: true },
-          },
+    const voteRows = await db.query.votes.findMany({
+      where: inArray(votes.planId, planIds),
+      with: {
+        user: {
+          columns: { id: true, displayName: true, avatarUrl: true },
         },
-      }),
-      db
-        .select({ planId: comments.planId, n: count() })
-        .from(comments)
-        .where(inArray(comments.planId, planIds))
-        .groupBy(comments.planId),
-    ]);
+      },
+    });
     for (const v of voteRows) {
       if (!v.user) continue;
       const list = initialVoters[v.planId] ?? [];
@@ -196,9 +197,6 @@ export default async function CircleHomePage({
         votedAt: v.votedAt.toISOString(),
       });
       initialVoters[v.planId] = list;
-    }
-    for (const row of countRows) {
-      commentCounts.set(row.planId, Number(row.n));
     }
   }
 
@@ -298,13 +296,92 @@ export default async function CircleHomePage({
       ? buildMapsUrl(featured.location, ua)
       : null;
 
+  // Featured-plan "last edit Nm ago" — derived from MAX(plan_events.created_at)
+  // (M24 activity log). Falls back to plan.createdAt if there are no events.
+  let featuredLastEditAt: Date | null = null;
+  if (featured) {
+    const ev = await db
+      .select({ at: max(planEvents.createdAt) })
+      .from(planEvents)
+      .where(eq(planEvents.planId, featured.id));
+    featuredLastEditAt = ev[0]?.at ?? null;
+  }
+
+  // Squad Pulse — derive each member's last in-app activity from
+  // MAX(votes.voted_at, plans.created_at by them). All scoped to this circle.
+  const circleMemberIds = memberRows
+    .map((m) => m.user?.id)
+    .filter((id): id is string => Boolean(id));
+  const [voteActivityRows, planActivityRows] = circleMemberIds.length
+    ? await Promise.all([
+        db
+          .select({
+            userId: votes.userId,
+            at: max(votes.votedAt),
+          })
+          .from(votes)
+          .innerJoin(plans, eq(votes.planId, plans.id))
+          .where(
+            and(
+              eq(plans.circleId, circle.id),
+              inArray(votes.userId, circleMemberIds),
+            ),
+          )
+          .groupBy(votes.userId),
+        db
+          .select({
+            userId: plans.createdBy,
+            at: max(plans.createdAt),
+          })
+          .from(plans)
+          .where(
+            and(
+              eq(plans.circleId, circle.id),
+              inArray(
+                plans.createdBy,
+                circleMemberIds,
+              ),
+            ),
+          )
+          .groupBy(plans.createdBy),
+      ])
+    : [[], []];
+
+  const lastActiveByUser = new Map<string, Date>();
+  for (const r of voteActivityRows) {
+    if (!r.userId || !r.at) continue;
+    const prev = lastActiveByUser.get(r.userId);
+    if (!prev || r.at > prev) lastActiveByUser.set(r.userId, r.at);
+  }
+  for (const r of planActivityRows) {
+    if (!r.userId || !r.at) continue;
+    const prev = lastActiveByUser.get(r.userId);
+    if (!prev || r.at > prev) lastActiveByUser.set(r.userId, r.at);
+  }
+  const pulseMembers: PulseMember[] = memberRows
+    .map((m) =>
+      m.user
+        ? {
+            userId: m.user.id,
+            displayName: m.user.displayName,
+            avatarUrl: m.user.avatarUrl,
+            lastActiveAt: lastActiveByUser.get(m.user.id) ?? null,
+          }
+        : null,
+    )
+    .filter((m): m is PulseMember => m !== null);
+
+  // Subline computations.
+  const decidingCount = upcoming.filter((p) => p.status === "active").length;
+  const featuredVoters = featured
+    ? new Set((initialVoters[featured.id] ?? []).map((v) => v.userId))
+    : new Set<string>();
+  const totalMembers = memberRows.length;
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
       <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <div className="flex items-center gap-2">
-          <CircleSideMenuMobile slug={circle.slug} />
-          <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
-        </div>
+        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
         <div className="flex items-center gap-1">
           {isAdmin ? (
             <Button asChild variant="ghost" size="icon" aria-label="Settings">
@@ -317,41 +394,58 @@ export default async function CircleHomePage({
         </div>
       </header>
 
-      <div className="flex flex-col gap-4 px-4 pt-4 sm:px-6 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start lg:gap-6">
-        <div className="flex flex-col gap-4 lg:order-2">
-          <InstallBanner />
+      <CircleVotesProvider
+        initialVoters={initialVoters}
+        members={members}
+        knownPlanIds={planIds}
+        currentUser={currentUser}
+      >
+        <div className="flex flex-col gap-4 px-4 pt-4 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-8">
+          <div className="flex flex-col gap-6 lg:order-1">
+            <InstallBanner />
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-              {dateLabel}
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="hidden sm:block">
-                <NewPlanTrigger
-                  circleId={circle.id}
-                  slug={circle.slug}
-                  members={formMembers}
-                  currentUserId={userId}
-                  mode="header"
-                />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+                  {dateLabel}
+                </span>
+                <WeatherChip />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="hidden sm:block">
+                  <NewPlanTrigger
+                    circleId={circle.id}
+                    slug={circle.slug}
+                    members={formMembers}
+                    currentUserId={userId}
+                    mode="header"
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          <h1 className="font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:text-[40px]">
-            {heroPrefix}{" "}
-            <em className="font-serif italic font-normal text-coral">
-              {circle.name}
-            </em>
-            ?
-          </h1>
+            <div className="flex flex-col gap-2">
+              <h1 className="font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:text-[40px]">
+                {heroPrefix}{" "}
+                <em className="font-serif italic font-normal text-coral">
+                  {circle.name}
+                </em>
+                ?
+              </h1>
+              <HomeSubline
+                decidingCount={decidingCount}
+                decideBy={featured?.decideBy ?? null}
+                weighedIn={featuredVoters.size}
+                totalMembers={totalMembers}
+                now={now}
+              />
+            </div>
 
-          <CircleVotesProvider
-            initialVoters={initialVoters}
-            members={members}
-            knownPlanIds={planIds}
-            currentUser={currentUser}
-          >
+            {/* Mobile-only inline pulse chips. Desktop has the full sidebar. */}
+            <div className="lg:hidden">
+              <SquadPulseInline members={pulseMembers} now={now} />
+            </div>
+
             <div className="flex flex-col gap-8">
               {featured ? (
                 <FeaturedPlanCard
@@ -365,6 +459,14 @@ export default async function CircleHomePage({
                     status: featured.status,
                     decideBy: featured.decideBy,
                     venueSummary: venueSummaries.get(featured.id) ?? null,
+                    creator: featured.creator
+                      ? {
+                          displayName: featured.creator.displayName,
+                          avatarUrl: featured.creator.avatarUrl,
+                        }
+                      : null,
+                    lastEditAt: featuredLastEditAt,
+                    canEdit: isAdmin || featured.createdBy === userId,
                   }}
                   slug={circle.slug}
                   now={now}
@@ -386,44 +488,77 @@ export default async function CircleHomePage({
                 <NoUpcomingState />
               )}
 
+              {/* Mobile-only Quick Nudge — desktop sees it in the right rail. */}
+              <div className="lg:hidden">
+                <QuickNudge />
+              </div>
+
               {restUpcoming.length > 0 ? (
                 <section className="flex flex-col gap-3">
                   <SectionHeader
-                    label="Upcoming"
+                    label="Upcoming this week"
                     hint={`${upcoming.length} plan${upcoming.length === 1 ? "" : "s"}`}
                   />
-                  <ul className="flex flex-col gap-1">
-                    {restUpcoming.map((p) => (
-                      <li key={p.id}>
-                        <UpcomingRow
-                          plan={{
-                            id: p.id,
-                            title: p.title,
-                            type: p.type,
-                            startsAt: p.startsAt,
-                            timeZone: p.timeZone,
-                            isApproximate: p.isApproximate,
-                            location: p.location,
-                            status: p.status,
-                            venueSummary: venueSummaries.get(p.id) ?? null,
-                          }}
-                          slug={circle.slug}
-                          now={now}
-                        />
+                  <UpcomingStrip
+                    plans={restUpcoming.map<UpcomingStripPlan>((p) => ({
+                      id: p.id,
+                      title: p.title,
+                      type: p.type,
+                      startsAt: p.startsAt,
+                      timeZone: p.timeZone,
+                      isApproximate: p.isApproximate,
+                      location: p.location,
+                      status: p.status,
+                      venueSummary: venueSummaries.get(p.id) ?? null,
+                    }))}
+                    slug={circle.slug}
+                  />
+                </section>
+              ) : null}
+
+              {/* Mobile-only Favourites strip — desktop has them in the
+                  sidebar Favourites section. Horizontal scroll keeps the
+                  vertical footprint small. */}
+              {userCircles.length > 0 ? (
+                <section className="lg:hidden flex flex-col gap-3">
+                  <SectionHeader label="Favourites" />
+                  <ul className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
+                    {userCircles.map((c) => (
+                      <li key={c.id} className="shrink-0">
+                        <Link
+                          href={`/c/${c.slug}`}
+                          prefetch={false}
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                            c.slug === circle.slug
+                              ? "border-coral/40 bg-coral-soft/40 text-ink"
+                              : "border-ink/10 bg-paper-card text-ink-muted hover:text-ink"
+                          }`}
+                        >
+                          <span
+                            aria-hidden
+                            className="size-2 shrink-0 rounded-full bg-ink/30"
+                          />
+                          <span className="font-medium text-ink">{c.name}</span>
+                          <span className="text-[11px] text-ink-muted">
+                            {c.role === "admin"
+                              ? "admin"
+                              : `${c.memberCount}`}
+                          </span>
+                        </Link>
                       </li>
                     ))}
                   </ul>
                 </section>
               ) : null}
-
             </div>
-          </CircleVotesProvider>
-        </div>
+          </div>
 
-        <aside className="hidden lg:block">
-          <CircleSideMenu slug={circle.slug} />
-        </aside>
-      </div>
+          <aside className="hidden flex-col gap-4 lg:order-2 lg:flex">
+            <SquadPulse members={pulseMembers} now={now} />
+            <QuickNudge />
+          </aside>
+        </div>
+      </CircleVotesProvider>
 
       <NewPlanTrigger
         circleId={circle.id}
@@ -432,7 +567,6 @@ export default async function CircleHomePage({
         currentUserId={userId}
         mode="fab"
       />
-      <BottomTabs slug={circle.slug} />
       <Suspense fallback={null}>
         <PostJoinToast />
       </Suspense>

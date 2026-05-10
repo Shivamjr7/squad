@@ -8,9 +8,7 @@ import { db } from "@/db/client";
 import { circles, invites, memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
-import { CircleSideMenu, CircleSideMenuMobile } from "@/components/circle/circle-side-menu";
 import { InviteButton } from "@/components/circle/invite-button";
-import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { MembersList, type ListMember } from "@/components/circle/members-list";
 import { getKnownSquadUsers, getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
@@ -70,14 +68,11 @@ export default async function SquadPage({
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
       <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <div className="flex items-center gap-2">
-          <CircleSideMenuMobile slug={circle.slug} />
-          <CircleSwitcher
-            currentSlug={circle.slug}
-            circles={userCircles}
-            size="sm"
-          />
-        </div>
+        <CircleSwitcher
+          currentSlug={circle.slug}
+          circles={userCircles}
+          size="sm"
+        />
         <div className="flex items-center gap-1">
           {isAdmin ? (
             <Button asChild variant="ghost" size="icon" aria-label="Settings">
@@ -90,11 +85,7 @@ export default async function SquadPage({
         </div>
       </header>
 
-      <div className="grid gap-6 px-4 pt-6 sm:px-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="hidden lg:block">
-          <CircleSideMenu slug={circle.slug} />
-        </aside>
-
+      <div className="px-4 pt-6 sm:px-6">
         <div className="space-y-6">
           <div className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
@@ -129,7 +120,6 @@ export default async function SquadPage({
         </div>
       </div>
 
-      <BottomTabs slug={circle.slug} />
     </main>
   );
 }
