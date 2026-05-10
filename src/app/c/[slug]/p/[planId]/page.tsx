@@ -648,6 +648,7 @@ export default async function PlanDetailPage({
             planId={plan.id}
             planTitle={plan.title}
             startsAt={plan.startsAt}
+            timeZone={plan.timeZone}
             location={plan.location}
             decideBy={plan.decideBy}
             recipientCount={recipientIds.length}
@@ -670,6 +671,7 @@ export default async function PlanDetailPage({
             planId={plan.id}
             planTitle={plan.title}
             startsAt={plan.startsAt}
+            timeZone={plan.timeZone}
             location={plan.location}
             recipientCount={recipientIds.length}
             inCount={currentInCount}
@@ -706,6 +708,7 @@ export default async function PlanDetailPage({
             <DecisionCard
               planId={plan.id}
               startsAt={plan.startsAt}
+              timeZone={plan.timeZone}
               isApproximate={isApprox}
               location={plan.location}
               showVenueVote={showVenueVote}

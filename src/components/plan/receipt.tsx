@@ -8,17 +8,23 @@ import type { VoteStatus } from "@/lib/validation/vote";
 import { VoteButtons } from "@/components/votes/vote-buttons";
 import "./receipt-print.css";
 
-const SHORT_TIME = new Intl.DateTimeFormat(undefined, {
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+function formatShortTime(date: Date, timeZone?: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  }).format(date);
+}
 
-const RECEIPT_DATE = new Intl.DateTimeFormat("en-US", {
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-});
+function formatReceiptDate(date: Date, timeZone?: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone,
+  }).format(date);
+}
 
 const LOG_TIME = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
@@ -51,6 +57,7 @@ type Props = {
   planId: string;
   planTitle: string;
   startsAt: Date;
+  timeZone?: string;
   location: string | null;
   recipientCount: number;
   inCount: number; // server-rendered seed for "RVD x of y"
@@ -68,6 +75,7 @@ export function Receipt({
   planId,
   planTitle,
   startsAt,
+  timeZone,
   location,
   recipientCount,
   inCount: seedInCount,
@@ -134,8 +142,8 @@ export function Receipt({
     }, 200);
   };
 
-  const dateLabel = RECEIPT_DATE.format(startsAt).toUpperCase();
-  const timeLabel = SHORT_TIME.format(startsAt);
+  const dateLabel = formatReceiptDate(startsAt, timeZone).toUpperCase();
+  const timeLabel = formatShortTime(startsAt, timeZone);
   const afterRow = additions[0] ?? null;
 
   return (
@@ -164,8 +172,11 @@ export function Receipt({
             label="After"
             value={
               afterRow.label
-                ? `${afterRow.label} · ${SHORT_TIME.format(new Date(afterRow.startsAt))}`
-                : SHORT_TIME.format(new Date(afterRow.startsAt))
+                ? `${afterRow.label} · ${formatShortTime(
+                    new Date(afterRow.startsAt),
+                    timeZone,
+                  )}`
+                : formatShortTime(new Date(afterRow.startsAt), timeZone)
             }
           />
         ) : null}
@@ -187,7 +198,9 @@ export function Receipt({
               <span className="shrink-0 tabular-nums text-ink-muted">
                 {LOG_TIME.format(new Date(e.createdAt))}
               </span>
-              <span className="min-w-0 flex-1">{describeEvent(e)}</span>
+              <span className="min-w-0 flex-1">
+                {describeEvent(e, timeZone)}
+              </span>
             </p>
           ))
         )}
@@ -230,7 +243,7 @@ function statusLabel(s: "confirmed" | "done" | "cancelled"): string {
   return "Cancelled";
 }
 
-function describeEvent(e: ReceiptEvent): string {
+function describeEvent(e: ReceiptEvent, timeZone?: string): string {
   const who = e.actorName ?? "Someone";
   switch (e.kind) {
     case "created":
@@ -244,7 +257,7 @@ function describeEvent(e: ReceiptEvent): string {
       const label = e.payload?.label as string | undefined;
       const startsAt = e.payload?.startsAt as string | undefined;
       const time = startsAt
-        ? SHORT_TIME.format(new Date(startsAt)).toLowerCase()
+        ? formatShortTime(new Date(startsAt), timeZone).toLowerCase()
         : "a new time";
       if (kind === "addition") {
         return `${who} added "${label ?? "add-on"}" at ${time}`;

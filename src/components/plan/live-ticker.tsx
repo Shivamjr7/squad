@@ -10,11 +10,14 @@ import { cn } from "@/lib/utils";
 
 const COMMIT_DEBOUNCE_MS = 200;
 
-const SHORT_TIME = new Intl.DateTimeFormat(undefined, {
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+function formatShortTime(date: Date, timeZone?: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  }).format(date);
+}
 
 export type LiveTickerAddition = {
   id: string;
@@ -28,6 +31,7 @@ type Props = {
   planId: string;
   planTitle: string;
   startsAt: Date;
+  timeZone?: string;
   location: string | null;
   decideBy: Date | null;
   recipientCount: number;
@@ -48,6 +52,7 @@ export function LiveTicker({
   planId,
   planTitle,
   startsAt,
+  timeZone,
   location,
   decideBy,
   recipientCount,
@@ -139,8 +144,9 @@ export function LiveTicker({
 
   const isIn = ownVote === "in";
   const ctaLabel = isIn ? "You're in" : "I'm in";
-  const lockTimeLabel = SHORT_TIME.format(
+  const lockTimeLabel = formatShortTime(
     decideBy && decideBy.getTime() > serverNow.getTime() ? decideBy : startsAt,
+    timeZone,
   );
 
   return (
@@ -197,10 +203,13 @@ export function LiveTicker({
       <dl className="flex flex-col gap-3 border-t border-white/10 pt-4">
         <Row
           label="When"
-          value={SHORT_TIME.format(startsAt)}
+          value={formatShortTime(startsAt, timeZone)}
           hint={
             shiftedFromTime
-              ? `moved ${SHORT_TIME.format(shiftedFromTime).toLowerCase()} → ${SHORT_TIME.format(startsAt).toLowerCase()}`
+              ? `moved ${formatShortTime(shiftedFromTime, timeZone).toLowerCase()} → ${formatShortTime(
+                  startsAt,
+                  timeZone,
+                ).toLowerCase()}`
               : null
           }
         />
@@ -212,8 +221,14 @@ export function LiveTicker({
               label="Plus"
               value={
                 a.label
-                  ? `${a.label} at ${SHORT_TIME.format(new Date(a.startsAt))}`
-                  : `Add-on at ${SHORT_TIME.format(new Date(a.startsAt))}`
+                  ? `${a.label} at ${formatShortTime(
+                      new Date(a.startsAt),
+                      timeZone,
+                    )}`
+                  : `Add-on at ${formatShortTime(
+                      new Date(a.startsAt),
+                      timeZone,
+                    )}`
               }
               hint={
                 a.proposerName

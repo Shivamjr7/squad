@@ -1,25 +1,37 @@
 import { VoteSpectrumBar } from "@/components/votes/vote-spectrum-bar";
 import { PlanDeepLinks } from "./plan-deeplinks";
 
-const SHORT_TIME = new Intl.DateTimeFormat(undefined, {
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+function formatShortTime(date: Date, timeZone?: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  }).format(date);
+}
 
 const SHORT_DAY = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 
-function isSameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+function isSameLocalDay(a: Date, b: Date, timeZone?: string): boolean {
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      timeZone,
+    }).format(d);
+
+  return fmt(a) === fmt(b);
 }
 
-function dayDescriptor(startsAt: Date, now: Date): string {
-  if (isSameLocalDay(startsAt, now)) {
-    const h = startsAt.getHours();
+function dayDescriptor(startsAt: Date, now: Date, timeZone?: string): string {
+  const localHour = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    hour12: false,
+    timeZone,
+  }).format(startsAt);
+  const h = Number(localHour);
+  if (isSameLocalDay(startsAt, now, timeZone)) {
     if (h >= 18) return "tonight";
     if (h >= 12) return "this afternoon";
     return "this morning";
@@ -39,6 +51,7 @@ function dayDescriptor(startsAt: Date, now: Date): string {
 type Props = {
   planId: string;
   startsAt: Date;
+  timeZone?: string;
   isApproximate: boolean;
   location: string | null;
   showVenueVote: boolean; // when multi-venue voting is open, defer to that
@@ -57,6 +70,7 @@ type Props = {
 export function DecisionCard({
   planId,
   startsAt,
+  timeZone,
   isApproximate,
   location,
   showVenueVote,
@@ -68,15 +82,20 @@ export function DecisionCard({
   let bigTime = "";
   let smallTime = "";
   if (isApproximate) {
-    bigTime = SHORT_TIME.format(startsAt);
+    bigTime = formatShortTime(startsAt, timeZone);
   } else {
-    const parts = SHORT_TIME.formatToParts(startsAt);
+    const parts = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone,
+    }).formatToParts(startsAt);
     const hour = parts.find((p) => p.type === "hour")?.value ?? "";
     const minute = parts.find((p) => p.type === "minute")?.value ?? "";
     const ampm =
       parts.find((p) => p.type === "dayPeriod")?.value?.toUpperCase() ?? "";
     bigTime = `${hour}:${minute}`;
-    smallTime = `${ampm} ${dayDescriptor(startsAt, now)}`;
+    smallTime = `${ampm} ${dayDescriptor(startsAt, now, timeZone)}`;
   }
 
   return (
