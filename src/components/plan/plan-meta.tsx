@@ -45,12 +45,14 @@ export function PlanMeta({
   type,
   startsAt,
   isApproximate,
+  timeZone,
   location,
   className,
 }: {
   type: PlanType;
   startsAt: Date | string;
   isApproximate: boolean;
+  timeZone?: string;
   location: string | null;
   className?: string;
 }) {
@@ -63,7 +65,11 @@ export function PlanMeta({
     >
       <span className="inline-flex items-center gap-1.5">
         <PlanTypeIcon type={type} />
-        <PlanTime startsAt={startsAt} isApproximate={isApproximate} />
+        <PlanTime
+          startsAt={startsAt}
+          isApproximate={isApproximate}
+          timeZone={timeZone}
+        />
       </span>
       {location ? (
         <>

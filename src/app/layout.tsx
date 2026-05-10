@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Source_Serif_4, Instrument_Serif } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
+import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 // @ts-expect-error -- unstable_ViewTransition is provided by the experimental React channel that Next swaps in when experimental.viewTransition is enabled
 import { unstable_ViewTransition as ViewTransition } from "react";
 import "./globals.css";
@@ -34,6 +35,20 @@ export const metadata: Metadata = {
   title: "Squad — stop scrolling, start showing up",
   description:
     "A small group converges on a yes/no/maybe in a short window. WhatsApp loses decisions in scrollback — Squad keeps the current state of a plan as the source of truth.",
+  manifest: "/manifest.webmanifest",
+  applicationName: "Squad",
+  appleWebApp: {
+    capable: true,
+    title: "Squad",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 // viewportFit:cover unlocks env(safe-area-inset-*) on iOS — without it the
@@ -62,6 +77,7 @@ export default function RootLayout({
         <body className="min-h-full flex flex-col" suppressHydrationWarning>
           <ViewTransition>{children}</ViewTransition>
           <Toaster richColors closeButton />
+          <ServiceWorkerRegister />
         </body>
       </html>
     </ClerkProvider>

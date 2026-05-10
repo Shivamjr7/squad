@@ -113,6 +113,7 @@ export async function createPlan(
         circleId: data.circleId,
         title: data.title,
         type: data.type,
+        timeZone: data.timeZone,
         timeMode: data.timeMode,
         startsAt,
         isApproximate: data.isApproximate,

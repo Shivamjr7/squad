@@ -17,6 +17,7 @@ export type UpcomingRowData = {
   title: string;
   type: PlanType;
   startsAt: Date;
+  timeZone?: string;
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
@@ -38,8 +39,12 @@ export function UpcomingRow({
 }) {
   // formatPlanTime returns "today, 8:00 PM" etc. Swap the comma for a dot to
   // match the editorial separator used in the redesign.
-  const whenLabel = formatPlanTime(plan.startsAt, plan.isApproximate, now)
-    .replace(", ", " · ");
+  const whenLabel = formatPlanTime(
+    plan.startsAt,
+    plan.isApproximate,
+    now,
+    plan.timeZone,
+  ).replace(", ", " · ");
 
   const venueLabel = plan.venueSummary
     ? plan.venueSummary.label

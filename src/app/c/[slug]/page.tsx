@@ -5,7 +5,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { and, asc, count, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   circles,
@@ -18,13 +18,14 @@ import {
 } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
-import { PlanCard } from "@/components/plan/plan-card";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
 import { UpcomingRow } from "@/components/plan/upcoming-row";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { CircleSideMenu, CircleSideMenuMobile } from "@/components/circle/circle-side-menu";
 import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
+import { InstallBanner } from "@/components/pwa/install-banner";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
@@ -77,8 +78,6 @@ function pickHeroPrefix(
   return "What's the plan,";
 }
 
-const PAST_COLLAPSE_THRESHOLD = 5;
-
 export default async function CircleHomePage({
   params,
 }: {
@@ -129,7 +128,6 @@ export default async function CircleHomePage({
   }
 
   const now = new Date();
-  const cancelledCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   // M23 — visibility filter. A plan shows on home when (a) it has no
   // explicit recipient rows (back-compat: full circle), (b) the current
@@ -144,46 +142,23 @@ export default async function CircleHomePage({
         sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
       );
 
-  const [upcoming, past] = await Promise.all([
-    db.query.plans.findMany({
-      where: and(
-        eq(plans.circleId, circle.id),
-        inArray(plans.status, ["active", "confirmed"]),
-        gte(plans.startsAt, now),
-        recipientVisibilityClause,
-      ),
-      orderBy: [
-        sql`(${plans.status} = 'confirmed') desc`,
-        asc(plans.startsAt),
-      ],
-      with: {
-        creator: { columns: { displayName: true, avatarUrl: true } },
-      },
-    }),
-    db.query.plans.findMany({
-      where: and(
-        eq(plans.circleId, circle.id),
-        or(
-          eq(plans.status, "done"),
-          and(
-            inArray(plans.status, ["active", "confirmed"]),
-            lt(plans.startsAt, now),
-          ),
-          and(
-            eq(plans.status, "cancelled"),
-            gte(plans.cancelledAt, cancelledCutoff),
-          ),
-        ),
-        recipientVisibilityClause,
-      ),
-      orderBy: desc(plans.startsAt),
-      with: {
-        creator: { columns: { displayName: true, avatarUrl: true } },
-      },
-    }),
-  ]);
+  const upcoming = await db.query.plans.findMany({
+    where: and(
+      eq(plans.circleId, circle.id),
+      inArray(plans.status, ["active", "confirmed"]),
+      gte(plans.startsAt, now),
+      recipientVisibilityClause,
+    ),
+    orderBy: [
+      sql`(${plans.status} = 'confirmed') desc`,
+      asc(plans.startsAt),
+    ],
+    with: {
+      creator: { columns: { displayName: true, avatarUrl: true } },
+    },
+  });
 
-  const planIds = [...upcoming, ...past].map((p) => p.id);
+  const planIds = upcoming.map((p) => p.id);
   const upcomingPlanIds = upcoming.map((p) => p.id);
   const initialVoters: VotersByPlan = {};
   const commentCounts = new Map<string, number>();
@@ -313,7 +288,7 @@ export default async function CircleHomePage({
   const restUpcoming = upcoming.slice(1);
   const heroPrefix = pickHeroPrefix(featured, now);
   const dateLabel = formatDateHeader(now);
-  const isEmpty = upcoming.length === 0 && past.length === 0;
+  const isEmpty = upcoming.length === 0;
 
   // M25 — UA-aware Maps URL for the featured card. Skipped while venue
   // voting is in progress (no canonical address to point at yet).
@@ -324,9 +299,12 @@ export default async function CircleHomePage({
       : null;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col pb-32">
+    <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
       <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
+        <div className="flex items-center gap-2">
+          <CircleSideMenuMobile slug={circle.slug} />
+          <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
+        </div>
         <div className="flex items-center gap-1">
           {isAdmin ? (
             <Button asChild variant="ghost" size="icon" aria-label="Settings">
@@ -339,115 +317,95 @@ export default async function CircleHomePage({
         </div>
       </header>
 
-      <div className="flex items-center justify-between gap-3 px-4 pt-6 sm:px-6">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-          {dateLabel}
-        </span>
-        <NewPlanTrigger
-          circleId={circle.id}
-          slug={circle.slug}
-          members={formMembers}
-          currentUserId={userId}
-          mode="header"
-        />
-      </div>
+      <div className="flex flex-col gap-4 px-4 pt-4 sm:px-6 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start lg:gap-6">
+        <div className="flex flex-col gap-4 lg:order-2">
+          <InstallBanner />
 
-      <h1 className="px-4 pt-3 pb-2 font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:px-6 sm:text-[40px]">
-        {heroPrefix}{" "}
-        <em className="font-serif italic font-normal text-coral">
-          {circle.name}
-        </em>
-        ?
-      </h1>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+              {dateLabel}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="hidden sm:block">
+                <NewPlanTrigger
+                  circleId={circle.id}
+                  slug={circle.slug}
+                  members={formMembers}
+                  currentUserId={userId}
+                  mode="header"
+                />
+              </div>
+            </div>
+          </div>
 
-      <CircleVotesProvider
-        initialVoters={initialVoters}
-        members={members}
-        knownPlanIds={planIds}
-        currentUser={currentUser}
-      >
-        <div className="flex flex-col gap-8 px-4 pt-4 sm:px-6">
-          {featured ? (
-            <FeaturedPlanCard
-              plan={{
-                id: featured.id,
-                title: featured.title,
-                startsAt: featured.startsAt,
-                isApproximate: featured.isApproximate,
-                location: featured.location,
-                status: featured.status,
-                decideBy: featured.decideBy,
-                venueSummary: venueSummaries.get(featured.id) ?? null,
-              }}
-              slug={circle.slug}
-              now={now}
-              mapsUrl={featuredMapsUrl}
-            />
-          ) : isEmpty ? (
-            <OrbitalEmptyState>
-              <NewPlanTrigger
-                circleId={circle.id}
-                slug={circle.slug}
-                members={formMembers}
-                currentUserId={userId}
-                mode="cta"
-              />
-            </OrbitalEmptyState>
-          ) : (
-            <NoUpcomingState />
-          )}
+          <h1 className="font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:text-[40px]">
+            {heroPrefix}{" "}
+            <em className="font-serif italic font-normal text-coral">
+              {circle.name}
+            </em>
+            ?
+          </h1>
 
-          {restUpcoming.length > 0 ? (
-            <section className="flex flex-col gap-3">
-              <SectionHeader
-                label="Upcoming"
-                hint={`${upcoming.length} plan${upcoming.length === 1 ? "" : "s"}`}
-              />
-              <ul className="flex flex-col gap-1">
-                {restUpcoming.map((p) => (
-                  <li key={p.id}>
-                    <UpcomingRow
-                      plan={{
-                        id: p.id,
-                        title: p.title,
-                        type: p.type,
-                        startsAt: p.startsAt,
-                        isApproximate: p.isApproximate,
-                        location: p.location,
-                        status: p.status,
-                        venueSummary: venueSummaries.get(p.id) ?? null,
-                      }}
+          <CircleVotesProvider
+            initialVoters={initialVoters}
+            members={members}
+            knownPlanIds={planIds}
+            currentUser={currentUser}
+          >
+            <div className="flex flex-col gap-8">
+              {featured ? (
+                <FeaturedPlanCard
+                  plan={{
+                    id: featured.id,
+                    title: featured.title,
+                    startsAt: featured.startsAt,
+                    timeZone: featured.timeZone,
+                    isApproximate: featured.isApproximate,
+                    location: featured.location,
+                    status: featured.status,
+                    decideBy: featured.decideBy,
+                    venueSummary: venueSummaries.get(featured.id) ?? null,
+                  }}
+                  slug={circle.slug}
+                  now={now}
+                  mapsUrl={featuredMapsUrl}
+                />
+              ) : isEmpty ? (
+                <OrbitalEmptyState>
+                  <div className="hidden sm:inline-flex">
+                    <NewPlanTrigger
+                      circleId={circle.id}
                       slug={circle.slug}
-                      now={now}
+                      members={formMembers}
+                      currentUserId={userId}
+                      mode="cta"
                     />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
+                  </div>
+                </OrbitalEmptyState>
+              ) : (
+                <NoUpcomingState />
+              )}
 
-          {past.length > 0 ? (
-            <section className="flex flex-col gap-3">
-              <SectionHeader label="Past" />
-              {past.length > PAST_COLLAPSE_THRESHOLD ? (
-                <details className="group rounded-lg">
-                  <summary className="cursor-pointer list-none rounded-md px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper-card/60">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="transition-transform group-open:rotate-90">▸</span>
-                      <span className="group-open:hidden">
-                        Show {past.length} past plans
-                      </span>
-                      <span className="hidden group-open:inline">Hide past plans</span>
-                    </span>
-                  </summary>
-                  <ul className="flex flex-col gap-3 pt-3">
-                    {past.map((p) => (
+              {restUpcoming.length > 0 ? (
+                <section className="flex flex-col gap-3">
+                  <SectionHeader
+                    label="Upcoming"
+                    hint={`${upcoming.length} plan${upcoming.length === 1 ? "" : "s"}`}
+                  />
+                  <ul className="flex flex-col gap-1">
+                    {restUpcoming.map((p) => (
                       <li key={p.id}>
-                        <PlanCard
+                        <UpcomingRow
                           plan={{
-                            ...p,
-                            creator: p.creator ?? null,
-                            commentCount: commentCounts.get(p.id) ?? 0,
+                            id: p.id,
+                            title: p.title,
+                            type: p.type,
+                            startsAt: p.startsAt,
+                            timeZone: p.timeZone,
+                            isApproximate: p.isApproximate,
+                            location: p.location,
+                            status: p.status,
+                            venueSummary: venueSummaries.get(p.id) ?? null,
                           }}
                           slug={circle.slug}
                           now={now}
@@ -455,28 +413,17 @@ export default async function CircleHomePage({
                       </li>
                     ))}
                   </ul>
-                </details>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {past.map((p) => (
-                    <li key={p.id}>
-                      <PlanCard
-                        plan={{
-                          ...p,
-                          creator: p.creator ?? null,
-                          commentCount: commentCounts.get(p.id) ?? 0,
-                        }}
-                        slug={circle.slug}
-                        now={now}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ) : null}
+                </section>
+              ) : null}
+
+            </div>
+          </CircleVotesProvider>
         </div>
-      </CircleVotesProvider>
+
+        <aside className="hidden lg:block">
+          <CircleSideMenu slug={circle.slug} />
+        </aside>
+      </div>
 
       <NewPlanTrigger
         circleId={circle.id}

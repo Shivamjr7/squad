@@ -1,0 +1,1 @@
+ALTER TABLE "plans" ADD COLUMN "time_zone" text DEFAULT 'UTC' NOT NULL;

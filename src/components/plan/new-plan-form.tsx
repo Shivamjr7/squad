@@ -280,33 +280,16 @@ export function NewPlanForm({
         onSubmit={form.handleSubmit(onSubmit)}
         className="flex h-full flex-col bg-paper"
       >
-        {/* Header — Cancel · NEW PLAN · Send */}
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-ink/10 bg-paper/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-paper/80">
-          <button
-            type="button"
-            onClick={onDone}
-            className="text-sm text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-          >
-            Cancel
-          </button>
+        {/* Header — NEW PLAN */}
+        <header className="sticky top-0 z-10 border-b border-ink/10 bg-paper/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-paper/80">
           <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">
             New plan
           </span>
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className={cn(
-              "text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral",
-              canSubmit ? "text-coral" : "cursor-not-allowed text-ink-muted/60",
-            )}
-          >
-            {pending ? "Sending…" : "Send"}
-          </button>
         </header>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-md flex-col gap-7 px-5 pt-7 pb-12">
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="mx-auto flex w-full max-w-md flex-col gap-7 px-5 pt-7 pb-20">
             <div className="flex flex-col gap-2">
               <h1 className="font-serif text-[34px] leading-[1.05] font-semibold text-ink">
                 Anyone free{" "}
@@ -588,6 +571,29 @@ export function NewPlanForm({
             ) : null}
           </div>
         </div>
+        <footer className="sticky bottom-0 z-10 border-t border-ink/10 bg-paper px-4 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={onDone}
+              className="text-sm text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className={cn(
+                "rounded-full border px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral",
+                canSubmit
+                  ? "border-coral bg-coral text-paper-card hover:bg-coral/90"
+                  : "cursor-not-allowed border-ink/15 bg-paper-card text-ink-muted/60",
+              )}
+            >
+              {pending ? "Creating…" : "Create plan"}
+            </button>
+          </div>
+        </footer>
       </form>
     </Form>
   );

@@ -381,14 +381,21 @@ export default async function PlanDetailPage({
       }
     }
   }
+  const now = new Date();
+  const isPastPlan =
+    plan.status === "done" ||
+    plan.status === "cancelled" ||
+    plan.startsAt < now;
+
   // Surface multi-venue voting only while the plan is still active and has
-  // more than one option. After lock (status=confirmed/done/cancelled) the
-  // canonical plans.location is what matters; voting card hides.
+  // more than one option. After lock (status=confirmed/done/cancelled) or a
+  // past time, the canonical plan location is what matters; voting card hides.
   const showVenueVote =
-    plan.status === "active" && initialVenues.length > 1;
+    !isPastPlan && plan.status === "active" && initialVenues.length > 1;
 
   // M22 — load time proposals + their votes for exact-time plans. Only shown
-  // while active; once locked / done / cancelled, plan.startsAt is the truth.
+  // while active and still eligible for decision. Once locked / done /
+  // cancelled / past, plan.startsAt is the truth.
   // M24 — only `replacement` rows feed the M22 voting UI; additions are
   // loaded separately below.
   const proposalRows =
@@ -445,7 +452,11 @@ export default async function PlanDetailPage({
     }
   }
   const showProposals =
-    plan.status === "active" && plan.timeMode === "exact";
+    !isPastPlan && plan.status === "active" && plan.timeMode === "exact";
+
+  const showVotes = !isPastPlan && (plan.status === "active" || plan.status === "confirmed");
+  const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
+  const memberCount = memberRows.length;
 
   // "PLAN LOCKS AT 8:30 IF 5+ ARE IN" footer — only meaningful while the
   // plan is still gathering votes.
@@ -455,11 +466,6 @@ export default async function PlanDetailPage({
     .from(votes)
     .where(and(eq(votes.planId, planId), eq(votes.status, "in")));
   const currentInCount = Number(inCountRow[0]?.n ?? 0);
-
-  const now = new Date();
-  const showVotes = plan.status === "active" || plan.status === "confirmed";
-  const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
-  const memberCount = memberRows.length;
 
   // M24 — load addition rows (kind=addition) for the live-ticker PLUS row
   // and the receipt AFTER row. Always loaded; the components decide whether
@@ -558,13 +564,13 @@ export default async function PlanDetailPage({
               size="sm"
             />
           </div>
-          {canMutateStatus ? (
+          {canMutateStatus && !isPastPlan ? (
             <PlanOverflowMenu
               planId={plan.id}
               status={plan.status}
               circleSlug={circle.slug}
               planTitle={plan.title}
-              planTimeLabel={formatPlanTime(plan.startsAt, isApprox, now)}
+              planTimeLabel={formatPlanTime(plan.startsAt, isApprox, now, plan.timeZone)}
             />
           ) : null}
         </header>
@@ -642,6 +648,7 @@ export default async function PlanDetailPage({
             planId={plan.id}
             planTitle={plan.title}
             startsAt={plan.startsAt}
+            timeZone={plan.timeZone}
             location={plan.location}
             decideBy={plan.decideBy}
             recipientCount={recipientIds.length}
@@ -664,6 +671,7 @@ export default async function PlanDetailPage({
             planId={plan.id}
             planTitle={plan.title}
             startsAt={plan.startsAt}
+            timeZone={plan.timeZone}
             location={plan.location}
             recipientCount={recipientIds.length}
             inCount={currentInCount}
@@ -700,6 +708,7 @@ export default async function PlanDetailPage({
             <DecisionCard
               planId={plan.id}
               startsAt={plan.startsAt}
+              timeZone={plan.timeZone}
               isApproximate={isApprox}
               location={plan.location}
               showVenueVote={showVenueVote}
@@ -728,7 +737,7 @@ export default async function PlanDetailPage({
                 canSuggest={plan.status === "active" && canParticipate}
               />
             ) : null}
-            {canParticipate ? (
+            {!isPastPlan && canParticipate ? (
               <SuggestAddition
                 planId={plan.id}
                 defaultStartsAt={plan.startsAt}
@@ -767,7 +776,14 @@ export default async function PlanDetailPage({
                   now={now}
                 />
               </section>
-            ) : null}
+            ) : (
+              <section className="flex flex-col gap-4">
+                <VoterListDetail
+                  planId={plan.id}
+                  creatorId={plan.creator?.id ?? null}
+                />
+              </section>
+            )}
           </>
         )}
 

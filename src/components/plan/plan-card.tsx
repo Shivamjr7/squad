@@ -11,6 +11,7 @@ export type PlanCardData = {
   title: string;
   type: PlanType;
   startsAt: Date;
+  timeZone?: string;
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
@@ -25,14 +26,16 @@ export function PlanCard({
   plan,
   slug,
   now,
+  hideVotes,
 }: {
   plan: PlanCardData;
   slug: string;
   now: Date;
+  hideVotes?: boolean;
 }) {
   const isCancelled = plan.status === "cancelled";
   const isConfirmed = plan.status === "confirmed";
-  const showVotes = plan.status === "active" || plan.status === "confirmed";
+  const showVotes = !hideVotes && (plan.status === "active" || plan.status === "confirmed");
 
   return (
     <article
@@ -66,6 +69,7 @@ export function PlanCard({
           type={plan.type}
           startsAt={plan.startsAt}
           isApproximate={plan.isApproximate}
+          timeZone={plan.timeZone}
           location={plan.location}
         />
 

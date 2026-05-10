@@ -14,7 +14,7 @@ type Tab = {
 
 const TABS: Tab[] = [
   {
-    label: "Plans",
+    label: "Home",
     href: (slug) => `/c/${slug}`,
     icon: Calendar,
     match: (path, slug) =>
