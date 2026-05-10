@@ -11,6 +11,7 @@ export type PlanCardData = {
   title: string;
   type: PlanType;
   startsAt: Date;
+  timeZone?: string;
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
@@ -68,6 +69,7 @@ export function PlanCard({
           type={plan.type}
           startsAt={plan.startsAt}
           isApproximate={plan.isApproximate}
+          timeZone={plan.timeZone}
           location={plan.location}
         />
 

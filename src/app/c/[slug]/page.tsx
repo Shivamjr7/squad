@@ -5,7 +5,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { and, asc, count, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   circles,
@@ -18,7 +18,6 @@ import {
 } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
-import { PlanCard } from "@/components/plan/plan-card";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
 import { UpcomingRow } from "@/components/plan/upcoming-row";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
@@ -79,8 +78,6 @@ function pickHeroPrefix(
   return "What's the plan,";
 }
 
-const PAST_COLLAPSE_THRESHOLD = 5;
-
 export default async function CircleHomePage({
   params,
 }: {
@@ -131,7 +128,6 @@ export default async function CircleHomePage({
   }
 
   const now = new Date();
-  const cancelledCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   // M23 — visibility filter. A plan shows on home when (a) it has no
   // explicit recipient rows (back-compat: full circle), (b) the current
@@ -146,46 +142,23 @@ export default async function CircleHomePage({
         sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
       );
 
-  const [upcoming, past] = await Promise.all([
-    db.query.plans.findMany({
-      where: and(
-        eq(plans.circleId, circle.id),
-        inArray(plans.status, ["active", "confirmed"]),
-        gte(plans.startsAt, now),
-        recipientVisibilityClause,
-      ),
-      orderBy: [
-        sql`(${plans.status} = 'confirmed') desc`,
-        asc(plans.startsAt),
-      ],
-      with: {
-        creator: { columns: { displayName: true, avatarUrl: true } },
-      },
-    }),
-    db.query.plans.findMany({
-      where: and(
-        eq(plans.circleId, circle.id),
-        or(
-          eq(plans.status, "done"),
-          and(
-            inArray(plans.status, ["active", "confirmed"]),
-            lt(plans.startsAt, now),
-          ),
-          and(
-            eq(plans.status, "cancelled"),
-            gte(plans.cancelledAt, cancelledCutoff),
-          ),
-        ),
-        recipientVisibilityClause,
-      ),
-      orderBy: desc(plans.startsAt),
-      with: {
-        creator: { columns: { displayName: true, avatarUrl: true } },
-      },
-    }),
-  ]);
+  const upcoming = await db.query.plans.findMany({
+    where: and(
+      eq(plans.circleId, circle.id),
+      inArray(plans.status, ["active", "confirmed"]),
+      gte(plans.startsAt, now),
+      recipientVisibilityClause,
+    ),
+    orderBy: [
+      sql`(${plans.status} = 'confirmed') desc`,
+      asc(plans.startsAt),
+    ],
+    with: {
+      creator: { columns: { displayName: true, avatarUrl: true } },
+    },
+  });
 
-  const planIds = [...upcoming, ...past].map((p) => p.id);
+  const planIds = upcoming.map((p) => p.id);
   const upcomingPlanIds = upcoming.map((p) => p.id);
   const initialVoters: VotersByPlan = {};
   const commentCounts = new Map<string, number>();
@@ -315,7 +288,7 @@ export default async function CircleHomePage({
   const restUpcoming = upcoming.slice(1);
   const heroPrefix = pickHeroPrefix(featured, now);
   const dateLabel = formatDateHeader(now);
-  const isEmpty = upcoming.length === 0 && past.length === 0;
+  const isEmpty = upcoming.length === 0;
 
   // M25 — UA-aware Maps URL for the featured card. Skipped while venue
   // voting is in progress (no canonical address to point at yet).
@@ -353,13 +326,15 @@ export default async function CircleHomePage({
               {dateLabel}
             </span>
             <div className="flex flex-wrap items-center gap-2">
-              <NewPlanTrigger
-                circleId={circle.id}
-                slug={circle.slug}
-                members={formMembers}
-                currentUserId={userId}
-                mode="header"
-              />
+              <div className="hidden sm:block">
+                <NewPlanTrigger
+                  circleId={circle.id}
+                  slug={circle.slug}
+                  members={formMembers}
+                  currentUserId={userId}
+                  mode="header"
+                />
+              </div>
             </div>
           </div>
 
@@ -384,6 +359,7 @@ export default async function CircleHomePage({
                     id: featured.id,
                     title: featured.title,
                     startsAt: featured.startsAt,
+                    timeZone: featured.timeZone,
                     isApproximate: featured.isApproximate,
                     location: featured.location,
                     status: featured.status,
@@ -396,13 +372,15 @@ export default async function CircleHomePage({
                 />
               ) : isEmpty ? (
                 <OrbitalEmptyState>
-                  <NewPlanTrigger
-                    circleId={circle.id}
-                    slug={circle.slug}
-                    members={formMembers}
-                    currentUserId={userId}
-                    mode="cta"
-                  />
+                  <div className="hidden sm:inline-flex">
+                    <NewPlanTrigger
+                      circleId={circle.id}
+                      slug={circle.slug}
+                      members={formMembers}
+                      currentUserId={userId}
+                      mode="cta"
+                    />
+                  </div>
                 </OrbitalEmptyState>
               ) : (
                 <NoUpcomingState />
@@ -423,6 +401,7 @@ export default async function CircleHomePage({
                             title: p.title,
                             type: p.type,
                             startsAt: p.startsAt,
+                            timeZone: p.timeZone,
                             isApproximate: p.isApproximate,
                             location: p.location,
                             status: p.status,
@@ -437,56 +416,6 @@ export default async function CircleHomePage({
                 </section>
               ) : null}
 
-              {past.length > 0 ? (
-                <section className="flex flex-col gap-3">
-                  <SectionHeader label="Past" />
-                  {past.length > PAST_COLLAPSE_THRESHOLD ? (
-                    <details className="group rounded-lg">
-                      <summary className="cursor-pointer list-none rounded-md px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper-card/60">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="transition-transform group-open:rotate-90">▸</span>
-                          <span className="group-open:hidden">
-                            Show {past.length} past plans
-                          </span>
-                          <span className="hidden group-open:inline">Hide past plans</span>
-                        </span>
-                      </summary>
-                      <ul className="flex flex-col gap-3 pt-3">
-                        {past.map((p) => (
-                          <li key={p.id}>
-                            <PlanCard
-                              plan={{
-                                ...p,
-                                creator: p.creator ?? null,
-                                commentCount: commentCounts.get(p.id) ?? 0,
-                              }}
-                              slug={circle.slug}
-                              now={now}
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : (
-                    <ul className="flex flex-col gap-3">
-                      {past.map((p) => (
-                        <li key={p.id}>
-                          <PlanCard
-                            plan={{
-                              ...p,
-                              creator: p.creator ?? null,
-                              commentCount: commentCounts.get(p.id) ?? 0,
-                            }}
-                            slug={circle.slug}
-                            now={now}
-                            hideVotes
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
-              ) : null}
             </div>
           </CircleVotesProvider>
         </div>

@@ -146,6 +146,7 @@ export const plans = pgTable("plans", {
     .references(() => circles.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   type: planType("type").notNull(),
+  timeZone: text("time_zone").notNull().default("UTC"),
   startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
   timeMode: planTimeMode("time_mode").notNull().default("exact"),
   isApproximate: boolean("is_approximate").notNull().default(false),

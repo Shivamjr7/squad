@@ -75,6 +75,7 @@ export default async function MyPlansRoute({
     title: plan.title,
     type: plan.type,
     startsAt: plan.startsAt.toISOString(),
+    timeZone: plan.timeZone,
     isApproximate: plan.isApproximate,
     location: plan.location,
     status: plan.status,

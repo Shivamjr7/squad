@@ -9,6 +9,7 @@ export type FeaturedPlanData = {
   id: string;
   title: string;
   startsAt: Date;
+  timeZone?: string;
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
@@ -47,7 +48,12 @@ export function FeaturedPlanCard({
   const dotColor = isConfirmed ? "bg-in" : "bg-coral";
   const pillLabel = isConfirmed ? "Confirmed" : "Deciding";
 
-  const whenLabel = formatPlanTime(plan.startsAt, plan.isApproximate, now);
+  const whenLabel = formatPlanTime(
+    plan.startsAt,
+    plan.isApproximate,
+    now,
+    plan.timeZone,
+  );
 
   // M21 — leading venue overrides plain location when voting is in progress.
   const venueChip = plan.venueSummary

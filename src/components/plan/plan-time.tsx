@@ -3,17 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatPlanTime } from "@/lib/format-plan-time";
 
-// Renders the plan time using the viewer's local TZ. We defer formatting to
-// useEffect so the first paint (server) doesn't lock in UTC text and then
-// flicker on hydration — the placeholder dash matches both passes.
 export function PlanTime({
   startsAt,
   isApproximate,
   className,
+  timeZone,
 }: {
   startsAt: Date | string;
   isApproximate: boolean;
   className?: string;
+  timeZone?: string;
 }) {
   const date = useMemo(
     () => (startsAt instanceof Date ? startsAt : new Date(startsAt)),
@@ -22,8 +21,8 @@ export function PlanTime({
   const [text, setText] = useState<string | null>(null);
 
   useEffect(() => {
-    setText(formatPlanTime(date, isApproximate, new Date()));
-  }, [date, isApproximate]);
+    setText(formatPlanTime(date, isApproximate, new Date(), timeZone));
+  }, [date, isApproximate, timeZone]);
 
   return (
     <time
