@@ -14,6 +14,7 @@ import {
   planVenueVotes,
   planVenues,
   plans,
+  pushSubscriptions,
   votes,
 } from "@/db/schema";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import { InstallBanner } from "@/components/pwa/install-banner";
+import { EnablePushBanner } from "@/components/circle/enable-push-banner";
 import { WeatherChip } from "@/components/circle/weather-chip";
 import { HomeSubline } from "@/components/circle/home-subline";
 import {
@@ -103,7 +105,7 @@ export default async function CircleHomePage({
   });
   if (!circle) notFound();
 
-  const [memberRows, userCircles] = await Promise.all([
+  const [memberRows, userCircles, pushRows] = await Promise.all([
     db.query.memberships.findMany({
       where: eq(memberships.circleId, circle.id),
       orderBy: asc(memberships.joinedAt),
@@ -114,7 +116,13 @@ export default async function CircleHomePage({
       },
     }),
     getUserCircles(userId),
+    db
+      .select({ id: pushSubscriptions.id })
+      .from(pushSubscriptions)
+      .where(eq(pushSubscriptions.userId, userId))
+      .limit(1),
   ]);
+  const hasAnyPushSubscription = pushRows.length > 0;
 
   const me = memberRows.find((m) => m.userId === userId);
   if (!me) notFound();
@@ -403,6 +411,7 @@ export default async function CircleHomePage({
         <div className="flex flex-col gap-4 px-4 pt-4 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-8">
           <div className="flex flex-col gap-6 lg:order-1">
             <InstallBanner />
+            <EnablePushBanner hasAnySubscription={hasAnyPushSubscription} />
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
