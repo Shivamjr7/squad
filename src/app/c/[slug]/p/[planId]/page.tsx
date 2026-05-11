@@ -1,14 +1,12 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { ArrowLeft } from "lucide-react";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
-  circles,
-  comments,
-  memberships,
   planEvents,
   planRecipients,
   planTimeProposalVotes,
@@ -26,7 +24,10 @@ import { Button } from "@/components/ui/button";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { PlanVotes } from "@/components/votes/plan-votes";
 import { VoterListDetail } from "@/components/votes/voter-list-detail";
-import { PlanComments } from "@/components/comments/plan-comments";
+import {
+  PlanCommentsSection,
+  PlanCommentsSkeleton,
+} from "@/components/comments/plan-comments-section";
 import { PlanOverflowMenu } from "@/components/plan/plan-overflow-menu";
 import { DecisionCard } from "@/components/plan/decision-card";
 import {
@@ -66,13 +67,16 @@ import {
   PlanRecipientsSection,
   type RecipientCircleMember,
 } from "@/components/plan/plan-recipients-section";
-import { getUserCircles } from "@/lib/circles";
+import {
+  getCircleBySlug,
+  getCircleMembers,
+  getUserCircles,
+} from "@/lib/circles";
 import {
   CircleVotesProvider,
   type Member,
   type VotersByPlan,
 } from "@/lib/realtime/use-circle-votes";
-import type { PlanComment } from "@/lib/realtime/use-plan-comments";
 
 const SHORT_TIME = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -143,43 +147,44 @@ export default async function PlanDetailPage({
   const { slug, planId } = await params;
   const { userId } = await auth();
   if (!userId) notFound();
-  await requireDisplayNameSet(userId);
 
-  const circle = await db.query.circles.findFirst({
-    columns: { id: true, name: true, slug: true },
-    where: eq(circles.slug, slug),
-  });
-  if (!circle) notFound();
-
-  const [memberRows, userCircles] = await Promise.all([
-    db.query.memberships.findMany({
-      where: eq(memberships.circleId, circle.id),
+  // Fan out auth/circle/plan/userCircles + display-name check in parallel.
+  // None depend on each other; sequential was costing ~5 roundtrips.
+  const [, circle, initialPlan, userCircles] = await Promise.all([
+    requireDisplayNameSet(userId),
+    getCircleBySlug(slug),
+    db.query.plans.findFirst({
+      where: eq(plans.id, planId),
       with: {
-        user: {
-          columns: { id: true, displayName: true, avatarUrl: true },
-        },
+        creator: { columns: { id: true, displayName: true, avatarUrl: true } },
       },
     }),
     getUserCircles(userId),
   ]);
 
+  if (!circle) notFound();
+  if (!initialPlan || initialPlan.circleId !== circle.id) notFound();
+
+  // Members are layout-cached so this is request-scoped free.
+  const memberRows = await getCircleMembers(circle.id);
   const me = memberRows.find((m) => m.userId === userId);
   if (!me) notFound();
-
-  let plan = await db.query.plans.findFirst({
-    where: eq(plans.id, planId),
-    with: {
-      creator: { columns: { id: true, displayName: true, avatarUrl: true } },
-    },
-  });
-  if (!plan || plan.circleId !== circle.id) notFound();
 
   // M29 — idempotent recheck. Covers races where a vote slipped through
   // before the all-voted gate existed, or two voters tipped a threshold
   // simultaneously and one mutation skipped its lock attempt. tryAutoLock
   // short-circuits when the plan isn't lockable; on a successful flip we
-  // refetch so the rendered status matches DB truth this request.
-  if (plan.status === "active" && plan.timeMode === "exact") {
+  // refetch so the rendered status matches DB truth this request. Skip on
+  // pure browse views — without `decide_by` already passed, the lock
+  // conditions only flip on a write path (a vote), so the read-side
+  // recheck does five DB queries for nothing on every active-plan visit.
+  let plan = initialPlan;
+  const couldPossiblyLockOnRead =
+    plan.status === "active" &&
+    plan.timeMode === "exact" &&
+    plan.decideBy !== null &&
+    plan.decideBy.getTime() <= Date.now();
+  if (couldPossiblyLockOnRead) {
     const recheck = await tryAutoLock(planId);
     if (recheck.lockedNow) {
       const refreshed = await db.query.plans.findFirst({
@@ -200,12 +205,129 @@ export default async function PlanDetailPage({
     { role: me.role },
   );
 
-  // M23 — load explicit recipient set. Empty rows = full circle (back-compat
-  // for plans created before M23).
-  const recipientRows = await db
-    .select({ userId: planRecipients.userId })
-    .from(planRecipients)
-    .where(eq(planRecipients.planId, planId));
+  const isOpenTime = plan.timeMode === "open" && plan.status === "active";
+  const isActiveExact = plan.status === "active" && plan.timeMode === "exact";
+  const variant = getPlanVariant(plan, new Date());
+
+  // Fan out every independent plan-detail data query in a single Promise.all
+  // — previously they ran sequentially (~8 roundtrips). Conditional helpers
+  // skip work that's irrelevant to the current variant.
+  const loadSlots = async () => {
+    if (!isOpenTime) return [];
+    return db.query.timeSlots.findMany({
+      where: eq(timeSlots.planId, planId),
+      orderBy: asc(timeSlots.startsAt),
+      columns: { id: true, startsAt: true },
+    });
+  };
+  const loadProposals = async () => {
+    if (!isActiveExact) return [];
+    return db.query.planTimeProposals.findMany({
+      where: and(
+        eq(planTimeProposals.planId, planId),
+        eq(planTimeProposals.kind, "replacement"),
+      ),
+      orderBy: asc(planTimeProposals.createdAt),
+      with: {
+        proposer: { columns: { id: true, displayName: true } },
+      },
+    });
+  };
+  const loadReceiptEvents = async () => {
+    if (variant !== "receipt") return [];
+    return db.query.planEvents.findMany({
+      where: eq(planEvents.planId, planId),
+      orderBy: asc(planEvents.createdAt),
+      with: {
+        user: { columns: { displayName: true } },
+      },
+    });
+  };
+  // Comments are streamed via <PlanCommentsSection> below — not in this
+  // Promise.all. They appear last in the visual order and don't gate any
+  // earlier render decisions, so we let the page flush before fetching them.
+  const [
+    recipientRows,
+    voteRows,
+    slotRows,
+    venueRows,
+    proposalRows,
+    additionRows,
+    receiptEventRows,
+  ] = await Promise.all([
+    db
+      .select({ userId: planRecipients.userId })
+      .from(planRecipients)
+      .where(eq(planRecipients.planId, planId)),
+    db.query.votes.findMany({
+      where: eq(votes.planId, planId),
+      with: {
+        user: {
+          columns: { id: true, displayName: true, avatarUrl: true },
+        },
+      },
+    }),
+    loadSlots(),
+    db.query.planVenues.findMany({
+      where: eq(planVenues.planId, planId),
+      orderBy: asc(planVenues.createdAt),
+      with: {
+        suggester: { columns: { id: true, displayName: true } },
+      },
+    }),
+    loadProposals(),
+    db.query.planTimeProposals.findMany({
+      where: and(
+        eq(planTimeProposals.planId, planId),
+        eq(planTimeProposals.kind, "addition"),
+      ),
+      orderBy: asc(planTimeProposals.createdAt),
+      with: {
+        proposer: { columns: { id: true, displayName: true } },
+      },
+    }),
+    loadReceiptEvents(),
+  ]);
+
+  // Fire the second-level dependent vote queries (slot votes, venue votes,
+  // proposal votes) in parallel now that we have the parent IDs. These three
+  // are independent of each other.
+  const slotIds = slotRows.map((s) => s.id);
+  const venueIds = venueRows.map((v) => v.id);
+  const proposalIds = proposalRows.map((p) => p.id);
+  const loadSlotVotes = async () => {
+    if (!slotIds.length) return [];
+    return db.query.timeSlotVotes.findMany({
+      where: inArray(timeSlotVotes.slotId, slotIds),
+      with: {
+        user: { columns: { id: true, displayName: true, avatarUrl: true } },
+      },
+    });
+  };
+  const loadVenueVotes = async () => {
+    if (!venueIds.length) return [];
+    return db.query.planVenueVotes.findMany({
+      where: inArray(planVenueVotes.venueId, venueIds),
+      with: {
+        user: { columns: { id: true, displayName: true, avatarUrl: true } },
+      },
+    });
+  };
+  const loadProposalVotes = async () => {
+    if (!proposalIds.length) return [];
+    return db.query.planTimeProposalVotes.findMany({
+      where: inArray(planTimeProposalVotes.proposalId, proposalIds),
+      with: {
+        user: { columns: { id: true, displayName: true, avatarUrl: true } },
+      },
+    });
+  };
+  const [slotVoteRows, venueVoteRows, proposalVoteRows] = await Promise.all([
+    loadSlotVotes(),
+    loadVenueVotes(),
+    loadProposalVotes(),
+  ]);
+
   const isAllRecipients = recipientRows.length === 0;
   const recipientIds = isAllRecipients
     ? memberRows.map((m) => m.userId)
@@ -263,17 +385,14 @@ export default async function PlanDetailPage({
     };
   }
 
+  // Build voter map + tally `in` count in a single pass over voteRows.
+  // (Previously a separate COUNT(*) query ran for the lock-footer; we already
+  // have every vote here.)
   const initialVoters: VotersByPlan = {};
-  const voteRows = await db.query.votes.findMany({
-    where: eq(votes.planId, planId),
-    with: {
-      user: {
-        columns: { id: true, displayName: true, avatarUrl: true },
-      },
-    },
-  });
+  let currentInCount = 0;
   for (const v of voteRows) {
     if (!v.user) continue;
+    if (v.status === "in") currentInCount += 1;
     const list = initialVoters[v.planId] ?? [];
     list.push({
       userId: v.user.id,
@@ -291,56 +410,21 @@ export default async function PlanDetailPage({
     avatarUrl: me.user?.avatarUrl ?? null,
   };
 
-  const commentRows = await db.query.comments.findMany({
-    where: eq(comments.planId, planId),
-    orderBy: asc(comments.createdAt),
-    with: {
-      user: { columns: { id: true, displayName: true, avatarUrl: true } },
-    },
-  });
-  const initialComments: PlanComment[] = commentRows.map((c) => ({
-    id: c.id,
-    authorId: c.userId,
-    authorName: c.user?.displayName ?? "Member",
-    authorAvatarUrl: c.user?.avatarUrl ?? null,
-    body: c.body,
-    createdAt: c.createdAt.toISOString(),
+  const openSlots: HeatmapSlot[] = slotRows.map((s) => ({
+    id: s.id,
+    startsAt: s.startsAt.toISOString(),
   }));
-
-  const isOpenTime = plan.timeMode === "open" && plan.status === "active";
-
-  let openSlots: HeatmapSlot[] = [];
   const openInitialVoters: InitialSlotVoter[] = [];
   const openMembers: Record<string, SlotMember> = {};
   if (isOpenTime) {
-    const slotRows = await db.query.timeSlots.findMany({
-      where: eq(timeSlots.planId, planId),
-      orderBy: asc(timeSlots.startsAt),
-      columns: { id: true, startsAt: true },
-    });
-    openSlots = slotRows.map((s) => ({
-      id: s.id,
-      startsAt: s.startsAt.toISOString(),
-    }));
-    if (slotRows.length > 0) {
-      const slotVoteRows = await db.query.timeSlotVotes.findMany({
-        where: inArray(
-          timeSlotVotes.slotId,
-          slotRows.map((s) => s.id),
-        ),
-        with: {
-          user: { columns: { id: true, displayName: true, avatarUrl: true } },
-        },
-      });
-      for (const sv of slotVoteRows) {
-        openInitialVoters.push({ slotId: sv.slotId, userId: sv.userId });
-        if (sv.user) {
-          openMembers[sv.user.id] = {
-            userId: sv.user.id,
-            displayName: sv.user.displayName,
-            avatarUrl: sv.user.avatarUrl,
-          };
-        }
+    for (const sv of slotVoteRows) {
+      openInitialVoters.push({ slotId: sv.slotId, userId: sv.userId });
+      if (sv.user) {
+        openMembers[sv.user.id] = {
+          userId: sv.user.id,
+          displayName: sv.user.displayName,
+          avatarUrl: sv.user.avatarUrl,
+        };
       }
     }
     // Ensure the current user is in members so they can optimistically vote
@@ -354,16 +438,6 @@ export default async function PlanDetailPage({
     }
   }
 
-  // M21: load venue rows + their votes. When >1 venue exists we render the
-  // multi-venue voting card; the leading venue's label is also surfaced on
-  // the home featured card / upcoming row at lock time.
-  const venueRows = await db.query.planVenues.findMany({
-    where: eq(planVenues.planId, planId),
-    orderBy: asc(planVenues.createdAt),
-    with: {
-      suggester: { columns: { id: true, displayName: true } },
-    },
-  });
   const initialVenues: VenueRow[] = venueRows.map((v) => ({
     id: v.id,
     label: v.label,
@@ -381,25 +455,14 @@ export default async function PlanDetailPage({
       avatarUrl: me.user.avatarUrl,
     };
   }
-  if (venueRows.length > 0) {
-    const venueVoteRows = await db.query.planVenueVotes.findMany({
-      where: inArray(
-        planVenueVotes.venueId,
-        venueRows.map((v) => v.id),
-      ),
-      with: {
-        user: { columns: { id: true, displayName: true, avatarUrl: true } },
-      },
-    });
-    for (const vv of venueVoteRows) {
-      initialVenueVoters.push({ venueId: vv.venueId, userId: vv.userId });
-      if (vv.user) {
-        venueMembers[vv.user.id] = {
-          userId: vv.user.id,
-          displayName: vv.user.displayName,
-          avatarUrl: vv.user.avatarUrl,
-        };
-      }
+  for (const vv of venueVoteRows) {
+    initialVenueVoters.push({ venueId: vv.venueId, userId: vv.userId });
+    if (vv.user) {
+      venueMembers[vv.user.id] = {
+        userId: vv.user.id,
+        displayName: vv.user.displayName,
+        avatarUrl: vv.user.avatarUrl,
+      };
     }
   }
   const now = new Date();
@@ -414,24 +477,6 @@ export default async function PlanDetailPage({
   const showVenueVote =
     !isPastPlan && plan.status === "active" && initialVenues.length > 1;
 
-  // M22 — load time proposals + their votes for exact-time plans. Only shown
-  // while active and still eligible for decision. Once locked / done /
-  // cancelled / past, plan.startsAt is the truth.
-  // M24 — only `replacement` rows feed the M22 voting UI; additions are
-  // loaded separately below.
-  const proposalRows =
-    plan.status === "active" && plan.timeMode === "exact"
-      ? await db.query.planTimeProposals.findMany({
-          where: and(
-            eq(planTimeProposals.planId, planId),
-            eq(planTimeProposals.kind, "replacement"),
-          ),
-          orderBy: asc(planTimeProposals.createdAt),
-          with: {
-            proposer: { columns: { id: true, displayName: true } },
-          },
-        })
-      : [];
   const initialProposals: ProposalRow[] = proposalRows.map((p) => ({
     id: p.id,
     startsAt: p.startsAt.toISOString(),
@@ -448,28 +493,17 @@ export default async function PlanDetailPage({
       avatarUrl: me.user.avatarUrl,
     };
   }
-  if (proposalRows.length > 0) {
-    const proposalVoteRows = await db.query.planTimeProposalVotes.findMany({
-      where: inArray(
-        planTimeProposalVotes.proposalId,
-        proposalRows.map((p) => p.id),
-      ),
-      with: {
-        user: { columns: { id: true, displayName: true, avatarUrl: true } },
-      },
+  for (const pv of proposalVoteRows) {
+    initialProposalVoters.push({
+      proposalId: pv.proposalId,
+      userId: pv.userId,
     });
-    for (const pv of proposalVoteRows) {
-      initialProposalVoters.push({
-        proposalId: pv.proposalId,
-        userId: pv.userId,
-      });
-      if (pv.user) {
-        proposalMembers[pv.user.id] = {
-          userId: pv.user.id,
-          displayName: pv.user.displayName,
-          avatarUrl: pv.user.avatarUrl,
-        };
-      }
+    if (pv.user) {
+      proposalMembers[pv.user.id] = {
+        userId: pv.user.id,
+        displayName: pv.user.displayName,
+        avatarUrl: pv.user.avatarUrl,
+      };
     }
   }
   const showProposals =
@@ -478,29 +512,8 @@ export default async function PlanDetailPage({
   const showVotes = !isPastPlan && (plan.status === "active" || plan.status === "confirmed");
   const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
   const memberCount = memberRows.length;
-
-  // "PLAN LOCKS AT 8:30 IF 5+ ARE IN" footer — only meaningful while the
-  // plan is still gathering votes.
   const lockThreshold = plan.lockThreshold;
-  const inCountRow = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(votes)
-    .where(and(eq(votes.planId, planId), eq(votes.status, "in")));
-  const currentInCount = Number(inCountRow[0]?.n ?? 0);
 
-  // M24 — load addition rows (kind=addition) for the live-ticker PLUS row
-  // and the receipt AFTER row. Always loaded; the components decide whether
-  // to surface them.
-  const additionRows = await db.query.planTimeProposals.findMany({
-    where: and(
-      eq(planTimeProposals.planId, planId),
-      eq(planTimeProposals.kind, "addition"),
-    ),
-    orderBy: asc(planTimeProposals.createdAt),
-    with: {
-      proposer: { columns: { id: true, displayName: true } },
-    },
-  });
   const additionsForTicker: LiveTickerAddition[] = additionRows.map((r) => ({
     id: r.id,
     label: r.label,
@@ -509,26 +522,13 @@ export default async function PlanDetailPage({
     createdAt: r.createdAt.toISOString(),
   }));
 
-  // M24 — receipt activity log. Loaded only for the receipt variant to keep
-  // the decision/live-ticker page weight low.
-  const variant = getPlanVariant(plan, now);
-  let receiptEvents: ReceiptEvent[] = [];
-  if (variant === "receipt") {
-    const eventRows = await db.query.planEvents.findMany({
-      where: eq(planEvents.planId, planId),
-      orderBy: asc(planEvents.createdAt),
-      with: {
-        user: { columns: { displayName: true } },
-      },
-    });
-    receiptEvents = eventRows.map((e) => ({
-      id: e.id,
-      kind: e.kind,
-      actorName: e.user?.displayName ?? null,
-      payload: (e.payload as Record<string, unknown> | null) ?? null,
-      createdAt: e.createdAt.toISOString(),
-    }));
-  }
+  const receiptEvents: ReceiptEvent[] = receiptEventRows.map((e) => ({
+    id: e.id,
+    kind: e.kind,
+    actorName: e.user?.displayName ?? null,
+    payload: (e.payload as Record<string, unknown> | null) ?? null,
+    createdAt: e.createdAt.toISOString(),
+  }));
 
   // M23 — recipient list (display-name + avatar) for the Squad section.
   // Sorted in circle-membership order (matches the home/squad strips).
@@ -821,13 +821,14 @@ export default async function PlanDetailPage({
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
             Discussion
           </h2>
-          <PlanComments
-            planId={plan.id}
-            members={members}
-            initialComments={initialComments}
-            currentUser={currentUser}
-            canCompose={canParticipate}
-          />
+          <Suspense fallback={<PlanCommentsSkeleton />}>
+            <PlanCommentsSection
+              planId={plan.id}
+              members={members}
+              currentUser={currentUser}
+              canCompose={canParticipate}
+            />
+          </Suspense>
         </section>
         <BottomTabs slug={circle.slug} />
       </main>

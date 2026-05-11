@@ -1,11 +1,8 @@
 import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { eq } from "drizzle-orm";
-import { db } from "@/db/client";
-import { circles } from "@/db/schema";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { NotificationsFeed } from "@/components/notifications/notifications-feed";
-import { getUserCircles } from "@/lib/circles";
+import { getCircleBySlug, getUserCircles } from "@/lib/circles";
 import { listNotifications } from "@/lib/actions/notifications";
 import { requireDisplayNameSet } from "@/lib/auth";
 
@@ -19,10 +16,7 @@ export default async function NotificationsPage({
   if (!userId) notFound();
   await requireDisplayNameSet(userId);
 
-  const circle = await db.query.circles.findFirst({
-    columns: { id: true, name: true, slug: true },
-    where: eq(circles.slug, slug),
-  });
+  const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
   const [rows, userCircles] = await Promise.all([

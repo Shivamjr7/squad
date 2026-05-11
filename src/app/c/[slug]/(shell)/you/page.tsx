@@ -5,14 +5,14 @@ import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, memberships, pushSubscriptions, users } from "@/db/schema";
+import { memberships, pushSubscriptions, users } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { EditDisplayName } from "@/components/circle/edit-display-name";
 import { LeaveCircleButton } from "@/components/circle/leave-circle-button";
 import { YouSignOutButton } from "@/components/circle/sign-out-button";
 import { PushOptIn } from "@/components/circle/push-opt-in";
-import { getUserCircles } from "@/lib/circles";
+import { getCircleBySlug, getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 
 export default async function YouPage({
@@ -25,10 +25,7 @@ export default async function YouPage({
   if (!userId) notFound();
   await requireDisplayNameSet(userId);
 
-  const circle = await db.query.circles.findFirst({
-    columns: { id: true, name: true, slug: true },
-    where: eq(circles.slug, slug),
-  });
+  const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
   const [me, membership, userCircles, pushRows] = await Promise.all([

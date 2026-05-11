@@ -207,43 +207,53 @@ export const invites = pgTable(
   }),
 );
 
-export const plans = pgTable("plans", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  circleId: uuid("circle_id")
-    .notNull()
-    .references(() => circles.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  type: planType("type").notNull(),
-  timeZone: text("time_zone").notNull().default("UTC"),
-  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
-  timeMode: planTimeMode("time_mode").notNull().default("exact"),
-  isApproximate: boolean("is_approximate").notNull().default(false),
-  location: text("location"),
-  maxPeople: integer("max_people"),
-  createdBy: text("created_by").references(() => users.id, {
-    onDelete: "set null",
+export const plans = pgTable(
+  "plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    circleId: uuid("circle_id")
+      .notNull()
+      .references(() => circles.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    type: planType("type").notNull(),
+    timeZone: text("time_zone").notNull().default("UTC"),
+    startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+    timeMode: planTimeMode("time_mode").notNull().default("exact"),
+    isApproximate: boolean("is_approximate").notNull().default(false),
+    location: text("location"),
+    maxPeople: integer("max_people"),
+    createdBy: text("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    status: planStatus("status").notNull().default("active"),
+    cancelledAt: timestamp("cancelled_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    reminderSentAt: timestamp("reminder_sent_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    decideBy: timestamp("decide_by", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    // M22 — auto-lock threshold. Plan flips to `confirmed` when this many `in`
+    // votes have converged on a single time + venue. Stored per-plan so
+    // settings can later expose a circle-level default.
+    lockThreshold: integer("lock_threshold").notNull().default(5),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    circleIdx: index("plans_circle_id_idx").on(table.circleId),
+    circleStartsIdx: index("plans_circle_starts_idx").on(
+      table.circleId,
+      table.startsAt,
+    ),
   }),
-  status: planStatus("status").notNull().default("active"),
-  cancelledAt: timestamp("cancelled_at", {
-    withTimezone: true,
-    mode: "date",
-  }),
-  reminderSentAt: timestamp("reminder_sent_at", {
-    withTimezone: true,
-    mode: "date",
-  }),
-  decideBy: timestamp("decide_by", {
-    withTimezone: true,
-    mode: "date",
-  }),
-  // M22 — auto-lock threshold. Plan flips to `confirmed` when this many `in`
-  // votes have converged on a single time + venue. Stored per-plan so
-  // settings can later expose a circle-level default.
-  lockThreshold: integer("lock_threshold").notNull().default(5),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-    .notNull()
-    .defaultNow(),
-});
+);
 
 export const votes = pgTable(
   "votes",
@@ -265,21 +275,30 @@ export const votes = pgTable(
       table.planId,
       table.userId,
     ),
+    // Squad Pulse + Activity by user — votes_plan_user_unique leads on plan_id,
+    // so a user-only filter falls back to seq scan without this.
+    userIdx: index("votes_user_id_idx").on(table.userId),
   }),
 );
 
-export const timeSlots = pgTable("time_slots", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  planId: uuid("plan_id")
-    .notNull()
-    .references(() => plans.id, { onDelete: "cascade" }),
-  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" })
-    .notNull(),
-  durationMinutes: integer("duration_minutes").notNull().default(60),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-    .notNull()
-    .defaultNow(),
-});
+export const timeSlots = pgTable(
+  "time_slots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" })
+      .notNull(),
+    durationMinutes: integer("duration_minutes").notNull().default(60),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    planIdx: index("time_slots_plan_id_idx").on(table.planId),
+  }),
+);
 
 export const timeSlotVotes = pgTable(
   "time_slot_votes",
@@ -303,19 +322,25 @@ export const timeSlotVotes = pgTable(
   }),
 );
 
-export const planVenues = pgTable("plan_venues", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  planId: uuid("plan_id")
-    .notNull()
-    .references(() => plans.id, { onDelete: "cascade" }),
-  label: text("label").notNull(),
-  suggestedBy: text("suggested_by").references(() => users.id, {
-    onDelete: "set null",
+export const planVenues = pgTable(
+  "plan_venues",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    suggestedBy: text("suggested_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    planIdx: index("plan_venues_plan_id_idx").on(table.planId),
   }),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-    .notNull()
-    .defaultNow(),
-});
+);
 
 export const planVenueVotes = pgTable(
   "plan_venue_votes",
@@ -339,25 +364,31 @@ export const planVenueVotes = pgTable(
   }),
 );
 
-export const planTimeProposals = pgTable("plan_time_proposals", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  planId: uuid("plan_id")
-    .notNull()
-    .references(() => plans.id, { onDelete: "cascade" }),
-  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
-  proposedBy: text("proposed_by").references(() => users.id, {
-    onDelete: "set null",
+export const planTimeProposals = pgTable(
+  "plan_time_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+    proposedBy: text("proposed_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // M24 — see proposalKind enum. Existing M22 rows back-fill to
+    // `replacement` via the column default.
+    kind: proposalKind("kind").notNull().default("replacement"),
+    // M24 — only meaningful for kind=addition; carries the sub-plan's
+    // description ("Dinner after at Bar Tartine"). Null for replacements.
+    label: text("label"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    planIdx: index("plan_time_proposals_plan_id_idx").on(table.planId),
   }),
-  // M24 — see proposalKind enum. Existing M22 rows back-fill to
-  // `replacement` via the column default.
-  kind: proposalKind("kind").notNull().default("replacement"),
-  // M24 — only meaningful for kind=addition; carries the sub-plan's
-  // description ("Dinner after at Bar Tartine"). Null for replacements.
-  label: text("label"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-    .notNull()
-    .defaultNow(),
-});
+);
 
 export const planTimeProposalVotes = pgTable(
   "plan_time_proposal_votes",
@@ -431,22 +462,30 @@ export const planRecipients = pgTable(
       table.planId,
       table.userId,
     ),
+    // Recipient EXISTS / NOT EXISTS subquery on home + my-plans visibility.
+    planIdx: index("plan_recipients_plan_id_idx").on(table.planId),
   }),
 );
 
-export const comments = pgTable("comments", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  planId: uuid("plan_id")
-    .notNull()
-    .references(() => plans.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  body: text("body").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-    .notNull()
-    .defaultNow(),
-});
+export const comments = pgTable(
+  "comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    planIdx: index("comments_plan_id_idx").on(table.planId),
+  }),
+);
 
 // ─── Relations ──────────────────────────────────────────────────────────
 

@@ -10,14 +10,16 @@ export function AppShell({
   circles,
   members,
   nowMs,
-  unreadInbox,
+  unreadInboxPromise,
+  activityPromise,
   children,
 }: {
   currentSlug: string;
   circles: SidebarCircle[];
   members: SidebarMember[];
   nowMs: number;
-  unreadInbox: number;
+  unreadInboxPromise: Promise<number>;
+  activityPromise: Promise<Map<string, Date>>;
   children: ReactNode;
 }) {
   return (
@@ -27,7 +29,8 @@ export function AppShell({
         circles={circles}
         members={members}
         nowMs={nowMs}
-        unreadInbox={unreadInbox}
+        unreadInboxPromise={unreadInboxPromise}
+        activityPromise={activityPromise}
       />
       {/* pb-[60px] keeps the mobile bottom tab bar from covering content;
           md+ has the sidebar on the side instead so no bottom inset needed. */}

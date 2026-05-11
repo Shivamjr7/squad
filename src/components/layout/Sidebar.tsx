@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense, use } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, Calendar, ClipboardList, User, Users } from "lucide-react";
@@ -44,7 +45,6 @@ export type SidebarMember = {
   userId: string;
   displayName: string;
   avatarUrl: string | null;
-  lastActiveAt: Date | null;
 };
 
 export type SidebarCircle = {
@@ -75,31 +75,40 @@ export function Sidebar({
   // ISO ms snapshot — server passes Date.now() so the client can compute
   // "active in last 30 min" without a hydration mismatch.
   nowMs,
-  unreadInbox,
+  unreadInboxPromise,
+  activityPromise,
 }: {
   currentSlug: string;
   circles: SidebarCircle[];
   members: SidebarMember[];
   nowMs: number;
-  unreadInbox: number;
+  // Promises (not awaited values) so the layout doesn't block on them —
+  // React's `use()` hook reads inside a Suspense boundary, streaming the
+  // bell badge + Around-now stack in after first paint.
+  unreadInboxPromise: Promise<number>;
+  activityPromise: Promise<Map<string, Date>>;
 }) {
-  const recentlyActive = members.filter(
-    (m) =>
-      m.lastActiveAt !== null &&
-      nowMs - m.lastActiveAt.getTime() <= RECENT_WINDOW_MS,
-  );
-
   return (
     <>
       {/* Desktop sidebar — sticky, full viewport height, transparent. */}
       <aside className="sticky top-0 hidden h-screen w-[160px] shrink-0 flex-col gap-6 px-3 py-6 md:flex">
-        <Nav slug={currentSlug} variant="desktop" unreadInbox={unreadInbox} />
+        <Suspense fallback={<Nav slug={currentSlug} variant="desktop" unreadInbox={0} />}>
+          <NavWithBadge
+            slug={currentSlug}
+            variant="desktop"
+            unreadInboxPromise={unreadInboxPromise}
+          />
+        </Suspense>
 
         <FavouritesSection circles={circles} />
 
-        {recentlyActive.length > 0 ? (
-          <AroundNow members={recentlyActive} />
-        ) : null}
+        <Suspense fallback={null}>
+          <AroundNowAsync
+            members={members}
+            nowMs={nowMs}
+            activityPromise={activityPromise}
+          />
+        </Suspense>
       </aside>
 
       {/* Mobile bottom tab bar — icon-only, the single source of truth on
@@ -109,10 +118,47 @@ export function Sidebar({
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-ink/10 bg-paper-card pb-[env(safe-area-inset-bottom)] md:hidden"
       >
-        <Nav slug={currentSlug} variant="mobile" unreadInbox={unreadInbox} />
+        <Suspense fallback={<Nav slug={currentSlug} variant="mobile" unreadInbox={0} />}>
+          <NavWithBadge
+            slug={currentSlug}
+            variant="mobile"
+            unreadInboxPromise={unreadInboxPromise}
+          />
+        </Suspense>
       </nav>
     </>
   );
+}
+
+function NavWithBadge({
+  slug,
+  variant,
+  unreadInboxPromise,
+}: {
+  slug: string;
+  variant: "desktop" | "mobile";
+  unreadInboxPromise: Promise<number>;
+}) {
+  const unreadInbox = use(unreadInboxPromise);
+  return <Nav slug={slug} variant={variant} unreadInbox={unreadInbox} />;
+}
+
+function AroundNowAsync({
+  members,
+  nowMs,
+  activityPromise,
+}: {
+  members: SidebarMember[];
+  nowMs: number;
+  activityPromise: Promise<Map<string, Date>>;
+}) {
+  const lastActiveByUser = use(activityPromise);
+  const recentlyActive = members.filter((m) => {
+    const at = lastActiveByUser.get(m.userId);
+    return at !== undefined && nowMs - at.getTime() <= RECENT_WINDOW_MS;
+  });
+  if (recentlyActive.length === 0) return null;
+  return <AroundNow members={recentlyActive} />;
 }
 
 function Nav({

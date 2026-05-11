@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { generateInvite } from "@/lib/actions/invites";
 import { addMemberDirectly } from "@/lib/actions/circles";
-import type { KnownSquadUser } from "@/lib/circles";
+import type { KnownSquadUser } from "@/lib/circle-types";
 
 export type ActiveInvite = { code: string };
 
