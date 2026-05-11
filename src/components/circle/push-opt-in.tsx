@@ -8,6 +8,10 @@ import {
 } from "@/lib/actions/push-subscriptions";
 import type { PushSubscriptionInput } from "@/lib/validation/push-subscription";
 
+function detectDeviceHint(): "mobile" | "desktop" {
+  return /Mobi|Android/i.test(navigator.userAgent) ? "mobile" : "desktop";
+}
+
 type Status =
   | "loading"
   | "unsupported"
@@ -83,7 +87,10 @@ export function PushOptIn({ initiallyOn }: { initiallyOn: boolean }) {
         }
 
         const json = sub.toJSON() as PushSubscriptionInput;
-        await setPushSubscription(json);
+        await setPushSubscription({
+          subscription: json,
+          deviceHint: detectDeviceHint(),
+        });
         setStatus("on");
         toast.success("Push notifications on");
       } catch (err) {
@@ -98,8 +105,12 @@ export function PushOptIn({ initiallyOn }: { initiallyOn: boolean }) {
       try {
         const reg = await navigator.serviceWorker.getRegistration();
         const sub = await reg?.pushManager.getSubscription();
-        if (sub) await sub.unsubscribe();
-        await clearPushSubscription();
+        if (sub) {
+          // Capture endpoint before unsubscribe — Chrome zeroes it out after.
+          const endpoint = sub.endpoint;
+          await sub.unsubscribe();
+          await clearPushSubscription({ endpoint });
+        }
         setStatus("off");
         toast.success("Push notifications off");
       } catch (err) {

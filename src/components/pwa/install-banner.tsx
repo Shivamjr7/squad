@@ -60,6 +60,15 @@ export function InstallBanner() {
     if (isStandalone()) return;
     if (readCookie(DISMISS_COOKIE)) return;
 
+    // beforeinstallprompt fires exactly once, often on the public landing
+    // before this component mounts. ServiceWorkerRegister captures it at the
+    // root layout and stashes it on window — read that first.
+    const stashed = window.__squadDeferredInstallPrompt;
+    if (stashed) {
+      setDeferredPrompt(stashed as BeforeInstallPromptEvent);
+      setStage("android");
+    }
+
     const onPrompt = (event: Event) => {
       event.preventDefault();
       setDeferredPrompt(event as BeforeInstallPromptEvent);
@@ -67,7 +76,7 @@ export function InstallBanner() {
     };
     window.addEventListener("beforeinstallprompt", onPrompt);
 
-    if (isIosSafari()) setStage("ios");
+    if (isIosSafari() && !stashed) setStage("ios");
 
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
@@ -84,6 +93,7 @@ export function InstallBanner() {
     await deferredPrompt.prompt();
     await deferredPrompt.userChoice;
     setDeferredPrompt(null);
+    window.__squadDeferredInstallPrompt = null;
     setStage("hidden");
     setDismissed();
   };

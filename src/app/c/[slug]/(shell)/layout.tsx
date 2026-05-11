@@ -7,6 +7,7 @@ import { circles, memberships, plans, votes } from "@/db/schema";
 import { getUserCircles } from "@/lib/circles";
 import { AppShell } from "@/components/layout/AppShell";
 import type { SidebarMember } from "@/components/layout/Sidebar";
+import { getUnreadCount } from "@/lib/actions/notifications";
 
 export default async function CircleShellLayout({
   children,
@@ -25,7 +26,7 @@ export default async function CircleShellLayout({
   });
   if (!circle) notFound();
 
-  const [memberRows, userCircles] = await Promise.all([
+  const [memberRows, userCircles, unreadInbox] = await Promise.all([
     db.query.memberships.findMany({
       where: eq(memberships.circleId, circle.id),
       orderBy: asc(memberships.joinedAt),
@@ -34,6 +35,10 @@ export default async function CircleShellLayout({
       },
     }),
     getUserCircles(userId),
+    // Inbox badge across all circles — read-once per nav. Tolerate a thrown
+    // requireUserId() above by returning 0; the layout has already guarded
+    // `userId` above so this only fails on transient DB hiccups.
+    getUnreadCount().catch(() => 0),
   ]);
 
   const memberIds = memberRows
@@ -97,6 +102,7 @@ export default async function CircleShellLayout({
       circles={userCircles}
       members={sidebarMembers}
       nowMs={Date.now()}
+      unreadInbox={unreadInbox}
     >
       {children}
     </AppShell>

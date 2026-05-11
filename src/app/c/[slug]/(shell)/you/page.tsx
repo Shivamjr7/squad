@@ -5,7 +5,7 @@ import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, memberships, users } from "@/db/schema";
+import { circles, memberships, pushSubscriptions, users } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { EditDisplayName } from "@/components/circle/edit-display-name";
@@ -31,9 +31,9 @@ export default async function YouPage({
   });
   if (!circle) notFound();
 
-  const [me, membership, userCircles] = await Promise.all([
+  const [me, membership, userCircles, pushRows] = await Promise.all([
     db.query.users.findFirst({
-      columns: { displayName: true, email: true, pushSubscription: true },
+      columns: { displayName: true, email: true },
       where: eq(users.id, userId),
     }),
     db.query.memberships.findFirst({
@@ -44,8 +44,14 @@ export default async function YouPage({
       ),
     }),
     getUserCircles(userId),
+    db
+      .select({ id: pushSubscriptions.id })
+      .from(pushSubscriptions)
+      .where(eq(pushSubscriptions.userId, userId))
+      .limit(1),
   ]);
   if (!me || !membership) notFound();
+  const hasPushSubscription = pushRows.length > 0;
 
   const isAdmin = membership.role === "admin";
 
@@ -133,7 +139,7 @@ export default async function YouPage({
                   default.
                 </p>
               </div>
-              <PushOptIn initiallyOn={me.pushSubscription !== null} />
+              <PushOptIn initiallyOn={hasPushSubscription} />
             </section>
 
             <section className="flex flex-col gap-3">

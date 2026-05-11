@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Calendar, ClipboardList, User, Users } from "lucide-react";
+import { Bell, Calendar, ClipboardList, User, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const RECENT_WINDOW_MS = 30 * 60_000;
@@ -59,11 +59,13 @@ const NAV: {
   label: string;
   icon: typeof Calendar;
   href: (slug: string) => string;
+  key: "home" | "plans" | "squad" | "inbox" | "you";
 }[] = [
-  { label: "Home", icon: Calendar, href: (slug) => `/c/${slug}` },
-  { label: "My plans", icon: ClipboardList, href: (slug) => `/c/${slug}/plans` },
-  { label: "Squad", icon: Users, href: (slug) => `/c/${slug}/squad` },
-  { label: "You", icon: User, href: (slug) => `/c/${slug}/you` },
+  { key: "home", label: "Home", icon: Calendar, href: (slug) => `/c/${slug}` },
+  { key: "plans", label: "My plans", icon: ClipboardList, href: (slug) => `/c/${slug}/plans` },
+  { key: "squad", label: "Squad", icon: Users, href: (slug) => `/c/${slug}/squad` },
+  { key: "inbox", label: "Inbox", icon: Bell, href: (slug) => `/c/${slug}/notifications` },
+  { key: "you", label: "You", icon: User, href: (slug) => `/c/${slug}/you` },
 ];
 
 export function Sidebar({
@@ -73,11 +75,13 @@ export function Sidebar({
   // ISO ms snapshot — server passes Date.now() so the client can compute
   // "active in last 30 min" without a hydration mismatch.
   nowMs,
+  unreadInbox,
 }: {
   currentSlug: string;
   circles: SidebarCircle[];
   members: SidebarMember[];
   nowMs: number;
+  unreadInbox: number;
 }) {
   const recentlyActive = members.filter(
     (m) =>
@@ -89,7 +93,7 @@ export function Sidebar({
     <>
       {/* Desktop sidebar — sticky, full viewport height, transparent. */}
       <aside className="sticky top-0 hidden h-screen w-[160px] shrink-0 flex-col gap-6 px-3 py-6 md:flex">
-        <Nav slug={currentSlug} variant="desktop" />
+        <Nav slug={currentSlug} variant="desktop" unreadInbox={unreadInbox} />
 
         <FavouritesSection circles={circles} />
 
@@ -105,7 +109,7 @@ export function Sidebar({
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-ink/10 bg-paper-card pb-[env(safe-area-inset-bottom)] md:hidden"
       >
-        <Nav slug={currentSlug} variant="mobile" />
+        <Nav slug={currentSlug} variant="mobile" unreadInbox={unreadInbox} />
       </nav>
     </>
   );
@@ -114,11 +118,14 @@ export function Sidebar({
 function Nav({
   slug,
   variant,
+  unreadInbox,
 }: {
   slug: string;
   variant: "desktop" | "mobile";
+  unreadInbox: number;
 }) {
   const pathname = usePathname() ?? "";
+  const badgeText = unreadInbox > 99 ? "99+" : String(unreadInbox);
   return (
     <ul
       className={cn(
@@ -131,20 +138,33 @@ function Nav({
         const href = item.href(slug);
         const active = pathname === href;
         const Icon = item.icon;
+        const showBadge = item.key === "inbox" && unreadInbox > 0;
         if (variant === "mobile") {
           return (
             <li key={item.label} className="flex-1">
               <Link
                 href={href}
-                aria-label={item.label}
+                aria-label={
+                  showBadge
+                    ? `${item.label}, ${unreadInbox} unread`
+                    : item.label
+                }
                 aria-current={active ? "page" : undefined}
                 prefetch={false}
                 className={cn(
-                  "flex items-center justify-center py-3 transition-colors",
+                  "relative flex items-center justify-center py-3 transition-colors",
                   active ? "text-ink" : "text-ink-muted",
                 )}
               >
                 <Icon className="size-5" aria-hidden />
+                {showBadge ? (
+                  <span
+                    aria-hidden
+                    className="absolute top-1.5 right-[calc(50%-14px)] flex h-4 min-w-4 items-center justify-center rounded-full bg-coral px-1 text-[10px] font-semibold leading-none text-white"
+                  >
+                    {badgeText}
+                  </span>
+                ) : null}
               </Link>
             </li>
           );
@@ -164,7 +184,14 @@ function Nav({
             >
               <Icon className="size-4 shrink-0" aria-hidden />
               <span className="truncate">{item.label}</span>
-              {/* TODO: surface real unread count once notifications track it. */}
+              {showBadge ? (
+                <span
+                  className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-coral px-1 text-[10px] font-semibold leading-none text-white"
+                  aria-hidden
+                >
+                  {badgeText}
+                </span>
+              ) : null}
             </Link>
           </li>
         );

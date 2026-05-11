@@ -1,10 +1,11 @@
-// Squad service worker (M26).
-// Goal: make the app installable as a real PWA and keep static assets fast.
+// Squad service worker (M26, push handlers added M30).
+// Goal: make the app installable as a real PWA, keep static assets fast,
+// and surface Web Push notifications when the edge function fans them out.
 // Non-goal: serving authenticated dynamic content while offline — that lives
 // in the network. We only fall back to a tiny offline shell when nav fails.
 //
 // Bump CACHE_VERSION whenever the precache list changes to invalidate.
-const CACHE_VERSION = "squad-shell-v1";
+const CACHE_VERSION = "squad-shell-v2";
 const PRECACHE = [
   "/offline",
   "/manifest.webmanifest",
@@ -76,6 +77,67 @@ async function cacheFirst(req) {
   if (res.ok) cache.put(req, res.clone());
   return res;
 }
+
+// ─── Web Push (M30) ─────────────────────────────────────────────────────
+// The edge function `send-push` posts an AES-128-GCM-encrypted payload to
+// the user's push endpoint. The browser decrypts and hands us the JSON via
+// event.data. Shape (kept in sync with lib/notifications.ts):
+//   { title, body, url, tag? }
+self.addEventListener("push", (event) => {
+  let data = { title: "Squad", body: "" };
+  try {
+    if (event.data) data = event.data.json();
+  } catch {
+    // Non-JSON payload — show a generic notification rather than swallowing.
+    data = { title: "Squad", body: event.data?.text?.() ?? "" };
+  }
+
+  const title = typeof data.title === "string" ? data.title : "Squad";
+  const body = typeof data.body === "string" ? data.body : "";
+  const url = typeof data.url === "string" ? data.url : "/";
+  const tag = typeof data.tag === "string" ? data.tag : undefined;
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag,
+      data: { url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url ?? "/";
+  event.waitUntil(
+    (async () => {
+      // If a Squad tab is already open, focus it and navigate there. Else
+      // open a fresh window.
+      const clientList = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of clientList) {
+        if ("focus" in client) {
+          await client.focus();
+          if ("navigate" in client && client.url !== url) {
+            try {
+              await client.navigate(url);
+            } catch {
+              // Cross-origin or revoked — fall through to openWindow below.
+            }
+          }
+          return;
+        }
+      }
+      if (self.clients.openWindow) {
+        await self.clients.openWindow(url);
+      }
+    })(),
+  );
+});
 
 async function networkFirstNavigation(req) {
   const cache = await caches.open(CACHE_VERSION);
