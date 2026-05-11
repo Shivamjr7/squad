@@ -7,6 +7,9 @@ const isPublicRoute = createRouteMatcher([
   "/invite/(.*)",
   "/api/webhooks/(.*)",
   "/offline",
+  // Digital Asset Links — Android fetches this unauthenticated to verify the
+  // TWA owns this domain. Without it the TWA shows a URL bar.
+  "/.well-known/(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
