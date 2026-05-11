@@ -15,17 +15,22 @@ import {
 import { sendPlanLockedEmail } from "@/lib/email";
 import { getAppUrl } from "@/lib/url";
 import { recordPlanEvent } from "@/lib/actions/plan-events";
+import { allEligibleVotersHaveVoted } from "@/lib/actions/eligibility";
 
-// M22 auto-lock. The plan flips to `confirmed` when:
-//   1. (regular path) `votes` with status = 'in' ≥ plans.lock_threshold AND a
-//      single time proposal AND a single venue option each have unique
-//      plurality, OR
-//   2. (deadline path) the cron's `decide_by` reaper passes `force=true` so
-//      the plurality requirement is relaxed — earliest-proposed wins on ties.
+// Auto-lock. The plan flips to `confirmed` when:
+//   1. M22 threshold path: `votes` with status='in' ≥ plans.lock_threshold AND
+//      a single time proposal AND a single venue option each have unique
+//      plurality.
+//   2. M22 deadline path (forced): the `decide_by` reaper passes `force=true`
+//      so the plurality requirement is relaxed — earliest-proposed wins on
+//      ties.
+//   3. M29 all-voted path: every eligible voter (per M23 recipients, falling
+//      back to full circle) has cast In/Out/Maybe. Treated like the deadline
+//      path — relaxed plurality, locks immediately regardless of threshold.
 //
-// Single source of truth so the in-app vote paths (M22) and the cron edge
-// function call the same logic; the helper does not auth-check the caller —
-// auth happens upstream.
+// Single source of truth so the in-app vote paths and the cron edge function
+// call the same logic; the helper does not auth-check the caller — auth
+// happens upstream.
 
 type LockResult = {
   locked: boolean;
@@ -42,7 +47,14 @@ export async function tryAutoLock(
   planId: string,
   opts: { force?: boolean } = {},
 ): Promise<LockResult> {
-  const force = opts.force === true;
+  let force = opts.force === true;
+  // Drives the lock event payload so M30 / the activity log can tell which
+  // gate fired. Starts as `forced` when callers pass force=true (deadline
+  // reaper); in-app paths default to `threshold` and may upgrade to
+  // `all_voted`.
+  let trigger: "threshold" | "forced" | "all_voted" = force
+    ? "forced"
+    : "threshold";
 
   const plan = await db.query.plans.findFirst({
     columns: {
@@ -60,7 +72,8 @@ export async function tryAutoLock(
   if (!plan) {
     return { locked: false, lockedNow: false, startsAt: null, location: null };
   }
-  // Open-mode plans lock via M20's slot-driven path; M22 only handles exact.
+  // Open-mode plans lock via M20's slot-driven path; this helper only handles
+  // exact-time plans.
   if (plan.timeMode !== "exact") {
     return { locked: false, lockedNow: false, startsAt: null, location: null };
   }
@@ -68,8 +81,10 @@ export async function tryAutoLock(
     return { locked: false, lockedNow: false, startsAt: null, location: null };
   }
 
-  // Threshold gate (regular path only). When forced (deadline reaper), we
-  // lock with whatever's there, including zero `in` votes.
+  // Gate selection. When forced (deadline reaper) we skip both checks. In the
+  // regular in-app path we try the M22 threshold first, then fall back to the
+  // M29 all-voted gate before giving up — so a plan with everyone voted but
+  // fewer than `lock_threshold` ins still locks.
   if (!force) {
     const [row] = await db
       .select({ n: sql<number>`count(*)::int` })
@@ -77,12 +92,17 @@ export async function tryAutoLock(
       .where(and(eq(votes.planId, planId), eq(votes.status, "in")));
     const inCount = Number(row?.n ?? 0);
     if (inCount < plan.lockThreshold) {
-      return {
-        locked: false,
-        lockedNow: false,
-        startsAt: null,
-        location: null,
-      };
+      if (await allEligibleVotersHaveVoted(planId)) {
+        force = true;
+        trigger = "all_voted";
+      } else {
+        return {
+          locked: false,
+          lockedNow: false,
+          startsAt: null,
+          location: null,
+        };
+      }
     }
   }
 
@@ -228,6 +248,7 @@ export async function tryAutoLock(
       startsAt: canonicalStartsAt.toISOString(),
       location: canonicalLocation,
       forced: force,
+      trigger,
     },
   });
 

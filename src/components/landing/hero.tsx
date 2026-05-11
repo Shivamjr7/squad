@@ -21,7 +21,7 @@ export function LandingHero() {
             A small group converges on a yes/no/maybe in a short window. WhatsApp loses decisions in scrollback — Squad keeps the current state of a plan as the source of truth.
           </p>
           <div className="flex flex-wrap items-center gap-3">
-            <SignUpButton mode="modal">
+            <SignUpButton>
               <button className="rounded-full bg-ink px-6 py-3 text-sm font-medium text-paper transition-colors hover:bg-ink/90">
                 Get Squad — free
               </button>

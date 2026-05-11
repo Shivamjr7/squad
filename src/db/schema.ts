@@ -16,6 +16,16 @@ import {
 
 export const membershipRole = pgEnum("membership_role", ["admin", "member"]);
 
+// M30 — in-app notification types. Three for v1: vote_in fans out to the
+// rest of the recipient set when someone votes IN; plan_created fans out
+// to recipients on plan creation; plan_reminder fires 30m before start_time
+// from the cron. Add new kinds at the end — Postgres enums grow forward only.
+export const notificationType = pgEnum("notification_type", [
+  "vote_in",
+  "plan_created",
+  "plan_reminder",
+]);
+
 export const planType = pgEnum("plan_type", [
   "eat",
   "play",
@@ -61,19 +71,77 @@ export const users = pgTable("users", {
   displayName: text("display_name").notNull(),
   avatarUrl: text("avatar_url"),
   hasSetDisplayName: boolean("has_set_display_name").notNull().default(false),
-  // M26 — Web Push subscription object (endpoint + keys.p256dh + keys.auth).
-  // Null = user has not opted in. Pushes are fired in M27.
-  pushSubscription: jsonb("push_subscription").$type<PushSubscriptionRecord | null>(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),
 });
 
-export type PushSubscriptionRecord = {
-  endpoint: string;
-  expirationTime: number | null;
-  keys: { p256dh: string; auth: string };
-};
+// M30 — Web Push subscriptions, one row per device. Supersedes the M26
+// `users.push_subscription` jsonb column so the same user can receive pushes
+// on phone + desktop simultaneously. Identity = `endpoint` (the push
+// service's per-subscription URL); subscribe upserts on it, unsubscribe
+// deletes by it. A 410 Gone response from the push service means delete that
+// specific row only — never wipe other rows for the same user.
+//
+// M30 delivery: query all rows WHERE user_id = ? to fan out a notification
+// to every registered device. A 410 Gone response from the push service
+// means delete that specific endpoint row.
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    // "mobile" | "desktop" | null — sniffed from the user agent at subscribe
+    // time so the You page can label which device a row came from.
+    deviceHint: text("device_hint"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
+  },
+  (table) => ({
+    endpointUnique: uniqueIndex("push_subscriptions_endpoint_unique").on(
+      table.endpoint,
+    ),
+    userIdx: index("push_subscriptions_user_idx").on(table.userId),
+  }),
+);
+
+// M30 — in-app notification feed. One row per recipient per event; the
+// payload jsonb carries the kind-specific shape so the UI can render rich
+// copy without re-querying. read_at flips when the user views the feed (or
+// the bell). type-keyed payload examples:
+//   vote_in       { planId, planTitle, circleSlug, voterName }
+//   plan_created  { planId, planTitle, circleSlug, creatorName }
+//   plan_reminder { planId, planTitle, circleSlug, startsAt, location }
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: notificationType("type").notNull(),
+    payload: jsonb("payload"),
+    readAt: timestamp("read_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    // Bell + feed both query "rows for user X, newest first" — composite
+    // index keeps that path fast as the table grows.
+    userCreatedIdx: index("notifications_user_created_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+  }),
+);
 
 export const circles = pgTable(
   "circles",
@@ -389,6 +457,25 @@ export const usersRelations = relations(users, ({ many }) => ({
   invites: many(invites),
   createdPlans: many(plans),
   createdCircles: many(circles),
+  pushSubscriptions: many(pushSubscriptions),
+  notifications: many(notifications),
+}));
+
+export const pushSubscriptionsRelations = relations(
+  pushSubscriptions,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [pushSubscriptions.userId],
+      references: [users.id],
+    }),
+  }),
+);
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
 }));
 
 export const circlesRelations = relations(circles, ({ one, many }) => ({

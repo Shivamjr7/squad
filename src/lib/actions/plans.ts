@@ -10,11 +10,16 @@ import {
   planVenues,
   plans,
   timeSlots,
+  users,
   votes,
 } from "@/db/schema";
 import { recordPlanEvent } from "@/lib/actions/plan-events";
 import { canModifyPlan, requireMembership } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
+import {
+  dispatchNotifications,
+  resolvePlanAudience,
+} from "@/lib/notifications";
 import {
   createPlanSchema,
   planIdSchema,
@@ -202,7 +207,54 @@ export async function createPlan(
     console.error("[plans.createPlan] email fanout failed", err);
   });
 
+  // M30 — drop a plan_created notification on every recipient. Same fan-out
+  // semantics as the email path (recipient set if non-empty, else full
+  // circle), and we exclude the creator since they obviously know.
+  void notifyPlanCreated({
+    planId,
+    circleId: data.circleId,
+    circleSlug: circle.slug,
+    title: data.title,
+    creatorId: userId,
+  }).catch((err) => {
+    console.error("[plans.createPlan] notify fanout failed", err);
+  });
+
   return { planId, slug: circle.slug };
+}
+
+async function notifyPlanCreated(args: {
+  planId: string;
+  circleId: string;
+  circleSlug: string;
+  title: string;
+  creatorId: string;
+}): Promise<void> {
+  const [circle, creator, audience] = await Promise.all([
+    db.query.circles.findFirst({
+      columns: { name: true },
+      where: eq(circles.id, args.circleId),
+    }),
+    db.query.users.findFirst({
+      columns: { displayName: true },
+      where: eq(users.id, args.creatorId),
+    }),
+    resolvePlanAudience(args.planId, args.circleId, args.creatorId),
+  ]);
+  if (!circle || audience.length === 0) return;
+
+  await dispatchNotifications({
+    type: "plan_created",
+    userIds: audience,
+    payload: {
+      planId: args.planId,
+      planTitle: args.title,
+      circleSlug: args.circleSlug,
+      circleName: circle.name,
+      creatorName: creator?.displayName ?? "Someone",
+      creatorId: args.creatorId,
+    },
+  });
 }
 
 // Shared auth + lookup for the three status mutations. Caller-or-admin

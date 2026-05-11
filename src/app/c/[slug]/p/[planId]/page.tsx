@@ -21,6 +21,7 @@ import {
   votes,
 } from "@/db/schema";
 import { canModifyPlan, requireDisplayNameSet } from "@/lib/auth";
+import { tryAutoLock } from "@/lib/actions/auto-lock";
 import { Button } from "@/components/ui/button";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { PlanVotes } from "@/components/votes/plan-votes";
@@ -165,13 +166,33 @@ export default async function PlanDetailPage({
   const me = memberRows.find((m) => m.userId === userId);
   if (!me) notFound();
 
-  const plan = await db.query.plans.findFirst({
+  let plan = await db.query.plans.findFirst({
     where: eq(plans.id, planId),
     with: {
       creator: { columns: { id: true, displayName: true, avatarUrl: true } },
     },
   });
   if (!plan || plan.circleId !== circle.id) notFound();
+
+  // M29 — idempotent recheck. Covers races where a vote slipped through
+  // before the all-voted gate existed, or two voters tipped a threshold
+  // simultaneously and one mutation skipped its lock attempt. tryAutoLock
+  // short-circuits when the plan isn't lockable; on a successful flip we
+  // refetch so the rendered status matches DB truth this request.
+  if (plan.status === "active" && plan.timeMode === "exact") {
+    const recheck = await tryAutoLock(planId);
+    if (recheck.lockedNow) {
+      const refreshed = await db.query.plans.findFirst({
+        where: eq(plans.id, planId),
+        with: {
+          creator: {
+            columns: { id: true, displayName: true, avatarUrl: true },
+          },
+        },
+      });
+      if (refreshed) plan = refreshed;
+    }
+  }
 
   const canMutateStatus = canModifyPlan(
     { createdBy: plan.createdBy },

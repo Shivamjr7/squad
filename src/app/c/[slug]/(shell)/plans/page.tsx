@@ -1,14 +1,17 @@
 import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, comments, memberships, plans } from "@/db/schema";
+import { circles, comments, memberships, plans, votes } from "@/db/schema";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
-import { BottomTabs } from "@/components/circle/bottom-tabs";
-import { CircleSideMenu, CircleSideMenuMobile } from "@/components/circle/circle-side-menu";
 import { MyPlansPage, type MyPlansPagePlan } from "@/components/plan/my-plans-page";
 import { getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
+import {
+  CircleVotesProvider,
+  type Member,
+  type VotersByPlan,
+} from "@/lib/realtime/use-circle-votes";
 
 export default async function MyPlansRoute({
   params,
@@ -26,7 +29,7 @@ export default async function MyPlansRoute({
   });
   if (!circle) notFound();
 
-  const [membership, userCircles] = await Promise.all([
+  const [membership, userCircles, memberRows] = await Promise.all([
     db.query.memberships.findFirst({
       columns: { role: true },
       where: and(
@@ -35,9 +38,28 @@ export default async function MyPlansRoute({
       ),
     }),
     getUserCircles(userId),
+    db.query.memberships.findMany({
+      where: eq(memberships.circleId, circle.id),
+      orderBy: asc(memberships.joinedAt),
+      with: {
+        user: { columns: { id: true, displayName: true, avatarUrl: true } },
+      },
+    }),
   ]);
 
   if (!membership) notFound();
+
+  const me = memberRows.find((m) => m.userId === userId);
+  if (!me) notFound();
+
+  const members: Record<string, Member> = {};
+  for (const m of memberRows) {
+    if (!m.user) continue;
+    members[m.user.id] = {
+      displayName: m.user.displayName,
+      avatarUrl: m.user.avatarUrl,
+    };
+  }
 
   const recipientVisibilityClause = membership.role === "admin"
     ? undefined
@@ -57,18 +79,49 @@ export default async function MyPlansRoute({
     },
   });
 
-  const commentRows = planRows.length
-    ? await db
-        .select({ planId: comments.planId, n: count() })
-        .from(comments)
-        .where(inArray(comments.planId, planRows.map((p) => p.id)))
-        .groupBy(comments.planId)
-    : [];
+  const planIds = planRows.map((p) => p.id);
+  const [commentRows, voteRows] = planIds.length
+    ? await Promise.all([
+        db
+          .select({ planId: comments.planId, n: count() })
+          .from(comments)
+          .where(inArray(comments.planId, planIds))
+          .groupBy(comments.planId),
+        db.query.votes.findMany({
+          where: inArray(votes.planId, planIds),
+          with: {
+            user: {
+              columns: { id: true, displayName: true, avatarUrl: true },
+            },
+          },
+        }),
+      ])
+    : [[], []];
 
   const counts = new Map<string, number>();
   for (const row of commentRows) {
     counts.set(row.planId, Number(row.n));
   }
+
+  const initialVoters: VotersByPlan = {};
+  for (const v of voteRows) {
+    if (!v.user) continue;
+    const list = initialVoters[v.planId] ?? [];
+    list.push({
+      userId: v.user.id,
+      displayName: v.user.displayName,
+      avatarUrl: v.user.avatarUrl,
+      status: v.status,
+      votedAt: v.votedAt.toISOString(),
+    });
+    initialVoters[v.planId] = list;
+  }
+
+  const currentUser = {
+    id: userId,
+    displayName: me.user?.displayName ?? "You",
+    avatarUrl: me.user?.avatarUrl ?? null,
+  };
 
   const planData: MyPlansPagePlan[] = planRows.map((plan) => ({
     id: plan.id,
@@ -91,26 +144,23 @@ export default async function MyPlansRoute({
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
       <header className="flex items-center justify-between gap-2 px-4 pt-3 sm:px-6">
-        <div className="flex items-center gap-2">
-          <CircleSideMenuMobile slug={circle.slug} />
-          <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
-        </div>
+        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
         <span className="shrink-0 text-sm font-medium text-ink-muted">
           My plans
         </span>
       </header>
 
-      <div className="grid gap-6 px-4 pt-6 sm:px-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="hidden lg:block">
-          <CircleSideMenu slug={circle.slug} />
-        </aside>
-
-        <div>
+      <div className="px-4 pt-6 sm:px-6">
+        <CircleVotesProvider
+          initialVoters={initialVoters}
+          members={members}
+          knownPlanIds={planIds}
+          currentUser={currentUser}
+        >
           <MyPlansPage plans={planData} slug={circle.slug} />
-        </div>
+        </CircleVotesProvider>
       </div>
 
-      <BottomTabs slug={circle.slug} />
     </main>
   );
 }

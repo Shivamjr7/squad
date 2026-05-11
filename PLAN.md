@@ -31,7 +31,7 @@ This project fails if it becomes "a side project I built but nobody uses." That 
 These are explicitly NOT in v1. Do not build them even if they seem useful or "would only take an hour":
 
 - **Calendar sync** (Google Calendar, Apple Calendar) — voting In/Out IS the calendar feature
-- **Push notifications** — email is enough for v1
+- ~~**Push notifications**~~ — promoted into scope at M26 (opt-in capture) and M30 (delivery). Email reminders dropped in M30 in favor of a single 30-min push.
 - **Place suggestions / restaurant database** — `location` is a free-text field, Maps handles the rest
 - **Recurring plans** ("every Sunday chai") — manual creation is fine
 - **Multi-circle UX** — schema supports multiple circles, UI defaults to one
@@ -141,7 +141,7 @@ The following columns are added to `plans` in M19 / M22:
 
 ### Post-M16 additions (users table)
 
-- `push_subscription` (jsonb, nullable) — M26. Web Push subscription object. Null = user has not opted in.
+- ~~`push_subscription` (jsonb, nullable) — M26.~~ Replaced in M30 by the dedicated `push_subscriptions` table so the same user can receive pushes on phone + desktop simultaneously. The column is dropped in the M30 migration.
 
 ### `time_slots` (M20)
 - `id` (uuid, PK)
@@ -191,6 +191,26 @@ The following columns are added to `plans` in M19 / M22:
 - `user_id` (text, FK users.id, **ON DELETE CASCADE**)
 - Unique constraint: (plan_id, user_id)
 - Empty set for a plan = full circle (back-compat for plans created before M23).
+
+### `push_subscriptions` (M30)
+- `id` (uuid, PK)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
+- `endpoint` (text, unique — push service URL; identity for upserts and 410-Gone cleanup)
+- `p256dh` (text — subscription's public key half, used by AES-128-GCM encryption)
+- `auth` (text — subscription's auth secret half)
+- `device_hint` (text, nullable — "mobile" | "desktop" sniffed at subscribe time)
+- `created_at` (timestamp)
+- `last_used_at` (timestamp, nullable — refreshed after every successful push)
+- One row per device. Subscribe upserts on `endpoint`; unsubscribe deletes a single row by `endpoint`. A 410 Gone from the push service deletes the row for that endpoint only — never wipes other rows for the same user.
+
+### `notifications` (M30)
+- `id` (uuid, PK)
+- `user_id` (text, FK users.id, **ON DELETE CASCADE**)
+- `type` (enum: `vote_in` | `plan_created` | `plan_reminder`)
+- `payload` (jsonb — kind-specific shape; see `src/lib/notifications.ts` `NotificationPayload`)
+- `read_at` (timestamp, nullable — null = unread, drives the bell badge)
+- `created_at` (timestamp)
+- Index: `(user_id, created_at)` so the feed query is fast at scale.
 
 ### `plan_events` (M24)
 - `id` (uuid, PK)
@@ -328,8 +348,20 @@ The M17–M27 sequence below implements everything those references show. Source
 - **M25** — Maps + calendar deep-links. "Open in Maps" button on plan-detail (A/C) and home featured card — Apple Maps URL on iOS Safari (UA-detected server-side), Google Maps URL elsewhere. "Add to calendar" route at `/api/plans/[id]/ics` generating ICS on the fly (title, `starts_at`, `+2h` end default, location, description with circle name + plan URL). Google Calendar tap-out URL as alternate. Walking-time hint under venue, computed client-side via `navigator.geolocation` if granted; silently hidden if denied. (1 evening)
 - **M26** — PWA install + Web Push opt-in. `public/manifest.webmanifest` (theme paper, icons 192/512), service worker (confirm `next-pwa` is acceptable to add — ask before installing), offline read of circle home shell, "Install Squad" dismissible banner on `/c/[slug]` (30-day cookie; uses `beforeinstallprompt` on Android Chrome, iOS share-sheet copy on iOS Safari). Web Push opt-in toggle on `/c/[slug]/you` — stores subscription to `users.push_subscription`. Firing pushes happens in M27. Lighthouse PWA = installable. (1 evening)
 - **M27** — Stats + polish + ship update. Real stats dashboard at `/c/[slug]/stats` (admin only): time-to-decision (median + P90), lock vs. expire %, squad size + active-voter count, counter-proposal rate. Wire landing-page stat blocks to global anonymized aggregates (placeholder copy fallback if < 10 plans exist). Update Resend templates (`new-plan`, `new-comment`, `plan-locked` new, `plan-cancelled`, `reminder`) to paper/ink visual. Reminder copy fix: today/tonight/tomorrow per local time of the plan vs. recipient (closes the v2-wishlist nit). Onboarding tour for first-time users: 3 dismissible tooltips on home. Lighthouse 90+ on `/`, `/c/[slug]`, `/c/[slug]/p/[id]`. WhatsApp re-announcement to friends. (1-2 evenings)
+- **M28** — UX polish bundle on `feature/notifications`. Documented retroactively from PR #1 + da74a8a. Adds the always-visible `Sidebar` + `AppShell` layout for `/c/[slug]/(shell)/*`, "My plans" page at `/c/[slug]/plans`, mobile nav refinements, weather chip + home subline on circle home, `SquadPulse` activity component, horizontal `UpcomingStrip`, `QuickNudge` CTA, featured-plan card refresh. No schema changes. (1-2 evenings, shipped)
+- **M29** — Full-quorum auto-lock + vote event signal. Two pieces, no schema changes.
+  - **All-voted lock**: third trigger in `auto-lock.ts`, complementary to M22's threshold + `decide_by` paths. New helpers `getEligibleVoters(planId)` and `allEligibleVotersHaveVoted(planId)` in `lib/actions/`. Eligibility follows M23 — `plan_recipients` rows if non-empty, else all current circle members (membership row presence implies active; deletion = inactive). "Voted" = any `votes` row with status `in`/`out`/`maybe`. Trigger fires (a) after every vote upsert, (b) as an idempotent recheck on plan-detail load to cover races. On match, flip `plans.status` → `confirmed` via the same M22 plurality path; lock timestamp is the `created_at` of the corresponding `plan_events` row.
+  - **Vote event signal**: on every successful vote upsert, write a `plan_events` row (reuses M24 table) with `kind = 'voted'` and `payload = { vote, previous_vote, in_count, out_count, maybe_count }`. Auto-locks already write `kind = 'locked'` per M22; M29 keeps that as-is. Fire-and-forget — no UI reads these yet, no emails, no pushes. M30 owns delivery + spam policy. (1 evening)
+- **M30** — Notifications: in-app feed + Web Push delivery. Three pieces.
+  - **Schema**: drop `users.push_subscription` jsonb; add `push_subscriptions` (per-device, identity = `endpoint`, with `p256dh` + `auth` + `device_hint` + `last_used_at`) and `notifications` (per-user feed rows with `type`, `payload`, `read_at`). Migration `0016_push_subs_and_notifications.sql`.
+  - **In-app**: bell tab at `/c/[slug]/notifications` with feed + unread badge in the bottom tab bar / sidebar. Server actions in `lib/actions/notifications.ts` (list, count, mark read, mark all read). Three trigger sources, all writing through `lib/notifications.ts` `dispatchNotifications`:
+    - `vote_in` — fires from `castVote` only on the IN edge (first cast as `in`, or switch from out/maybe → in). Audience = plan recipients minus voter (full circle if no recipient set).
+    - `plan_created` — fires from `createPlan`. Audience = plan recipients minus creator.
+    - `plan_reminder` — fires from the `remind-plans` edge function for confirmed plans starting within the next hour, gated by `reminder_sent_at`. Audience = in/maybe voters intersected with recipient set.
+  - **Web Push**: new `supabase/functions/send-push/` edge function uses `npm:web-push@3` with VAPID keys (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) to fan a notification ID set out to every `push_subscriptions` row for the recipient. The Next.js trigger sites call it via authed HTTP fetch (fire-and-forget); the cron does the same inline. 404/410 responses delete only the specific endpoint row. Service worker `public/sw.js` handles the `push` event (renders title/body/url) and `notificationclick` (focuses or opens the URL). PWA cache version bumped to `squad-shell-v2`.
+  - **What dropped**: the M15 Resend reminder email is gone. Lock + confirmation + cancellation emails stay — those carry text that doesn't fit a push body. Reminder window tightened from 1–2h to "within the next hour" so the cron can land closer to the 30-min target without rescheduling pg_cron. (1-2 evenings)
 
-Total active build time: ~8-10 evenings (M0-M16) + ~10-13 evenings (M17-M27). Calendar time: depends entirely on M10 observations and how many of M17-M27 still feel right post-launch.
+Total active build time: ~8-10 evenings (M0-M16) + ~10-13 evenings (M17-M27) + ~1 evening (M29; M28 documented retroactively) + ~1-2 evenings (M30). Calendar time: depends entirely on M10 observations and how many of M17+ still feel right post-launch.
 
 ## 11. What gets built in M11+ depends entirely on M10 observations
 
@@ -356,7 +388,6 @@ Park ideas here when tempted. Revisit after M10 observations. Order is not a pri
 
 - Calendar view of upcoming plans
 - Recurring plan templates ("Sunday chai")
-- Push notifications via web push
 - Place suggestions sub-feature (vote between 2-3 venues)
 - "Bring something" list per plan (one person brings chai leaves, another brings snacks)
 - Photo dump after plan marked done

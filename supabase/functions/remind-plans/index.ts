@@ -1,15 +1,22 @@
-// Supabase Edge Function (Deno). Triggered by pg_cron via net.http_post once
-// per hour. Finds confirmed plans starting 1-2h from now with no
-// reminder_sent_at, atomically claims them, then fans out one email per plan
-// to the IN voters.
+// Supabase Edge Function (Deno). Triggered by pg_cron via net.http_post.
+// Two responsibilities:
+//   1. Auto-lock decide_by-elapsed plans (both open-time and exact-time).
+//   2. Fire plan-reminder notifications (in-app rows + Web Push) for
+//      confirmed plans starting within the next hour. M30 replaced the M15
+//      Resend reminder email with an in-app + push reminder.
+//
+// Cadence: pg_cron's existing hourly schedule still works — the
+// reminder_sent_at column prevents re-sends on later ticks. If the user
+// later tightens pg_cron to every ~5-10 min, the window below stays valid
+// (and reminders just land closer to true T-30m).
 //
 // Auth: requires Authorization: Bearer <CRON_SECRET>. The anon key is public
 // and not used here — pg_cron passes the custom secret instead.
 //
 // Why no shared code with src/lib/email.ts: this runs on Deno, the Next.js
 // app runs on Node. Different runtime, different deploy unit. The email HTML
-// is small enough that a small duplication is cheaper than building a shared
-// package. Keep them in sync if the design changes.
+// for confirmation/lock is small enough that a small duplication is cheaper
+// than building a shared package. Keep them in sync if the design changes.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -87,44 +94,6 @@ function formatTimeLong(iso: string): string {
 
 const FONT_STACK =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
-
-function buildReminderEmail(args: {
-  planTitle: string;
-  circleName: string;
-  startsAt: string;
-  location: string | null;
-  whosIn: string[];
-  planUrl: string;
-}): { subject: string; html: string } {
-  const short = formatTimeShort(args.startsAt);
-  const long = formatTimeLong(args.startsAt);
-  const subject =
-    `[${args.circleName}] Tonight at ${short} — ${args.planTitle}`;
-  const whosInLine = args.whosIn.length > 0 ? args.whosIn.join(", ") : "You";
-  const preheader = `${args.planTitle} starts at ${short}`;
-  const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f8fafc;font-family:${FONT_STACK};color:#0f172a">
-  <span style="display:none!important;visibility:hidden;opacity:0;height:0;width:0;overflow:hidden">${esc(preheader)}</span>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:24px 12px">
-    <tr><td align="center">
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;border:1px solid #e2e8f0">
-        <tr><td style="padding:20px 24px 8px;font-weight:600;font-size:14px;color:#475569;letter-spacing:.02em">Squad</td></tr>
-        <tr><td style="padding:8px 24px 24px;font-size:15px;line-height:1.55">
-          <h1 style="margin:0 0 4px;font-size:20px;font-weight:600;line-height:1.3">${esc(args.planTitle)}</h1>
-          <p style="margin:0 0 8px;font-size:13px;color:#94a3b8">in ${esc(args.circleName)}</p>
-          <p style="margin:0 0 16px;color:#0f172a;font-size:15px">Starting in about an hour. See you there.</p>
-          <p style="margin:4px 0;font-size:14px;color:#475569"><span style="color:#94a3b8">When</span> ${esc(long)}</p>
-          ${args.location ? `<p style="margin:4px 0;font-size:14px;color:#475569"><span style="color:#94a3b8">Where</span> ${esc(args.location)}</p>` : ""}
-          <p style="margin:4px 0;font-size:14px;color:#475569"><span style="color:#94a3b8">Who's in</span> ${esc(whosInLine)}</p>
-          <p style="margin:20px 0 4px"><a href="${esc(args.planUrl)}" style="display:inline-block;padding:10px 18px;background:#0f172a;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">Open plan →</a></p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
-  return { subject, html };
-}
 
 async function sendOneEmail(
   to: string,
@@ -526,10 +495,94 @@ type ClaimedPlan = {
   circle_id: string;
 };
 
-type VoterJoinRow = {
-  user_id: string;
-  users: { display_name: string | null; email: string | null } | null;
-};
+type VoterRow = { user_id: string };
+
+// M30 — fan out a plan-reminder push to every recipient who's IN/MAYBE on
+// the plan. Inserts in-app notification rows, then hands the IDs to the
+// send-push edge function so subscribers also hear it on their device.
+//
+// Audience: same as the old email reminder — voters with status in/maybe,
+// intersected with the plan_recipients set if present. We don't notify
+// `out` voters or non-participants — telling someone "Karaoke at 8" when
+// they declined is noise.
+async function dispatchPlanReminder(
+  plan: ClaimedPlan,
+  circleSlug: string,
+  circleName: string,
+): Promise<number> {
+  const { data: voterRows } = await supabase
+    .from("votes")
+    .select("user_id")
+    .eq("plan_id", plan.id)
+    .in("status", ["in", "maybe"])
+    .returns<VoterRow[]>();
+  if (!voterRows || voterRows.length === 0) return 0;
+
+  const recipientFilter = await getPlanRecipientUserIds(plan.id);
+  const userIds = voterRows
+    .map((v) => v.user_id)
+    .filter((id) =>
+      recipientFilter === null ? true : recipientFilter.has(id),
+    );
+  if (userIds.length === 0) return 0;
+
+  const payload = {
+    planId: plan.id,
+    planTitle: plan.title,
+    circleSlug,
+    circleName,
+    startsAtIso: plan.starts_at,
+    location: plan.location,
+  };
+
+  const { data: inserted, error } = await supabase
+    .from("notifications")
+    .insert(
+      userIds.map((userId) => ({
+        user_id: userId,
+        type: "plan_reminder",
+        payload,
+      })),
+    )
+    .select("id")
+    .returns<{ id: string }[]>();
+  if (error) {
+    console.error("[remind-plans] notification insert failed", {
+      planId: plan.id,
+      error: error.message,
+    });
+    return 0;
+  }
+  if (!inserted || inserted.length === 0) return 0;
+
+  await invokeSendPush(inserted.map((r) => r.id));
+  return inserted.length;
+}
+
+async function invokeSendPush(notificationIds: string[]): Promise<void> {
+  if (notificationIds.length === 0) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${CRON_SECRET}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ notificationIds }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn("[remind-plans] send-push non-2xx", {
+        status: res.status,
+        body,
+      });
+    }
+  } catch (err) {
+    console.warn("[remind-plans] send-push fetch failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 Deno.serve(async (req) => {
   if (!CRON_SECRET) {
@@ -547,16 +600,19 @@ Deno.serve(async (req) => {
   }
 
   const now = new Date();
-  const lower = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
-  const upper = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
+  // M30 — reminder window is "starts within the next 60 min". With the
+  // existing hourly cron this lands the push 0-60min before start; if the
+  // pg_cron schedule is tightened to every 5-10 min, the push lands closer
+  // to true T-30m. The reminder_sent_at guard prevents re-sends.
+  const upper = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
 
   // Atomic claim. Concurrent firings see reminder_sent_at flip and skip.
   const { data: claimed, error: claimErr } = await supabase
     .from("plans")
     .update({ reminder_sent_at: now.toISOString() })
     .eq("status", "confirmed")
-    .gte("starts_at", lower)
-    .lt("starts_at", upper)
+    .lte("starts_at", upper)
+    .gte("starts_at", now.toISOString())
     .is("reminder_sent_at", null)
     .select("id, title, starts_at, location, circle_id")
     .returns<ClaimedPlan[]>();
@@ -569,25 +625,8 @@ Deno.serve(async (req) => {
     );
   }
 
-  if (!claimed || claimed.length === 0) {
-    const lockedOpen = await processOpenTimeLocks(now);
-    const lockedExact = await processExactTimeLocks(now);
-    const lockedNow = lockedOpen + lockedExact;
-    console.log("[remind-plans]", {
-      reminded: 0,
-      locked: lockedNow,
-      lockedOpen,
-      lockedExact,
-      at: now.toISOString(),
-    });
-    return new Response(
-      JSON.stringify({ reminded: 0, locked: lockedNow }),
-      { headers: { "Content-Type": "application/json" } },
-    );
-  }
-
   let reminded = 0;
-  for (const plan of claimed) {
+  for (const plan of claimed ?? []) {
     try {
       const { data: circle } = await supabase
         .from("circles")
@@ -595,43 +634,7 @@ Deno.serve(async (req) => {
         .eq("id", plan.circle_id)
         .single();
       if (!circle) continue;
-
-      const { data: voterRows } = await supabase
-        .from("votes")
-        .select("user_id, users(display_name, email)")
-        .eq("plan_id", plan.id)
-        .eq("status", "in")
-        .returns<VoterJoinRow[]>();
-
-      // M23 — defensive intersect with recipient set in case legacy
-      // votes pre-date the eligibility check.
-      const recipientFilter = await getPlanRecipientUserIds(plan.id);
-      const rows = (voterRows ?? []).filter((v) =>
-        recipientFilter === null ? true : recipientFilter.has(v.user_id),
-      );
-      const recipients = rows
-        .map((v) => v.users?.email)
-        .filter((e): e is string => Boolean(e));
-      if (recipients.length === 0) continue;
-
-      const whosIn = rows
-        .map((v) => v.users?.display_name)
-        .filter((n): n is string => Boolean(n));
-
-      const planUrl = `${APP_URL}/c/${circle.slug}/p/${plan.id}`;
-      const { subject, html } = buildReminderEmail({
-        planTitle: plan.title,
-        circleName: circle.name,
-        startsAt: plan.starts_at,
-        location: plan.location,
-        whosIn,
-        planUrl,
-      });
-
-      await Promise.all(
-        recipients.map((to) => sendOneEmail(to, subject, html)),
-      );
-      reminded += 1;
+      reminded += await dispatchPlanReminder(plan, circle.slug, circle.name);
     } catch (err) {
       console.error("[remind-plans] per-plan failed", {
         planId: plan.id,

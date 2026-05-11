@@ -5,11 +5,9 @@ import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, memberships, users } from "@/db/schema";
+import { circles, memberships, pushSubscriptions, users } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
-import { CircleSideMenu, CircleSideMenuMobile } from "@/components/circle/circle-side-menu";
-import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { EditDisplayName } from "@/components/circle/edit-display-name";
 import { LeaveCircleButton } from "@/components/circle/leave-circle-button";
 import { YouSignOutButton } from "@/components/circle/sign-out-button";
@@ -33,9 +31,9 @@ export default async function YouPage({
   });
   if (!circle) notFound();
 
-  const [me, membership, userCircles] = await Promise.all([
+  const [me, membership, userCircles, pushRows] = await Promise.all([
     db.query.users.findFirst({
-      columns: { displayName: true, email: true, pushSubscription: true },
+      columns: { displayName: true, email: true },
       where: eq(users.id, userId),
     }),
     db.query.memberships.findFirst({
@@ -46,8 +44,14 @@ export default async function YouPage({
       ),
     }),
     getUserCircles(userId),
+    db
+      .select({ id: pushSubscriptions.id })
+      .from(pushSubscriptions)
+      .where(eq(pushSubscriptions.userId, userId))
+      .limit(1),
   ]);
   if (!me || !membership) notFound();
+  const hasPushSubscription = pushRows.length > 0;
 
   const isAdmin = membership.role === "admin";
 
@@ -69,14 +73,11 @@ export default async function YouPage({
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
       <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <div className="flex items-center gap-2">
-          <CircleSideMenuMobile slug={circle.slug} />
-          <CircleSwitcher
-            currentSlug={circle.slug}
-            circles={userCircles}
-            size="sm"
-          />
-        </div>
+        <CircleSwitcher
+          currentSlug={circle.slug}
+          circles={userCircles}
+          size="sm"
+        />
         <div className="flex items-center gap-1">
           {isAdmin ? (
             <Button asChild variant="ghost" size="icon" aria-label="Settings">
@@ -89,11 +90,7 @@ export default async function YouPage({
         </div>
       </header>
 
-      <div className="grid gap-6 px-4 pt-6 sm:px-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="hidden lg:block">
-          <CircleSideMenu slug={circle.slug} />
-        </aside>
-
+      <div className="px-4 pt-6 sm:px-6">
         <div className="space-y-6">
           <div className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
@@ -142,7 +139,7 @@ export default async function YouPage({
                   default.
                 </p>
               </div>
-              <PushOptIn initiallyOn={me.pushSubscription !== null} />
+              <PushOptIn initiallyOn={hasPushSubscription} />
             </section>
 
             <section className="flex flex-col gap-3">
@@ -160,7 +157,6 @@ export default async function YouPage({
         </div>
       </div>
 
-      <BottomTabs slug={circle.slug} />
     </main>
   );
 }

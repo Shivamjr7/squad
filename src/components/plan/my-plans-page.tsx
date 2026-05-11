@@ -109,8 +109,8 @@ export function MyPlansPage({
               key={plan.id}
               plan={plan}
               slug={slug}
-              now={plan.startsAt}
-              hideVotes
+              now={now}
+              hideVotes={filter === "past"}
             />
           ))
         )}
