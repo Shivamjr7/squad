@@ -1,0 +1,12 @@
+# Supabase CLI config. Only fields we currently care about are function-level
+# JWT verification toggles — both our edge functions authenticate via
+# CRON_SECRET (a custom Bearer token), not a Supabase Auth JWT, so the
+# gateway must be told to pass the request through to the function code.
+# Without this, the gateway returns 401 UNAUTHORIZED_INVALID_JWT_FORMAT
+# before the function even runs.
+
+[functions.send-push]
+verify_jwt = false
+
+[functions.remind-plans]
+verify_jwt = false

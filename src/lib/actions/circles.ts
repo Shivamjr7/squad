@@ -10,7 +10,6 @@ import {
   createCircleSchema,
   renameCircleSchema,
   type CreateCircleInput,
-  type RenameCircleInput,
 } from "@/lib/validation/circle";
 
 export async function createCircle(
@@ -192,5 +191,3 @@ export async function leaveCircle(input: {
     revalidatePath(`/c/${circle.slug}/squad`);
   }
 }
-
-export type { CreateCircleInput, RenameCircleInput };

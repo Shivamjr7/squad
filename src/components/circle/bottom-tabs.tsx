@@ -55,7 +55,6 @@ export function BottomTabs({ slug }: { slug: string }) {
           <Link
             key={tab.label}
             href={tab.href(slug)}
-            prefetch={false}
             aria-current={active ? "page" : undefined}
             className={cn(
               "flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors md:min-w-20 md:flex-none md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm",

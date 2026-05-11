@@ -14,7 +14,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import type { UserCircle } from "@/lib/circles";
+import type { UserCircle } from "@/lib/circle-types";
 import { cn } from "@/lib/utils";
 
 type Size = "lg" | "sm";

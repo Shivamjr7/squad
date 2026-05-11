@@ -8,13 +8,15 @@ if (!process.env.DATABASE_URL) {
 
 // DATABASE_URL must be the Supavisor pooled URL (port 6543). The `prepare:
 // false` flag is required because Supavisor in transaction-pooling mode
-// doesn't support prepared statements. We cap `max` at 1 connection per
-// serverless invocation — Supavisor is the real pool, this client just holds
-// one socket per Lambda — and use a short idle timeout so we don't hold the
-// socket between requests longer than necessary.
+// doesn't support prepared statements. `max` is the local socket pool size —
+// with `max: 1`, every Promise.all query serializes over a single TCP
+// connection, defeating the parallelism. Bump to 10 so per-request parallel
+// reads actually run in parallel over the wire. Supavisor handles the
+// upstream connection limit; even on Vercel serverless this is fine because
+// idle connections close in 20s and each Lambda's pool is bounded.
 const client = postgres(process.env.DATABASE_URL, {
   prepare: false,
-  max: 1,
+  max: 10,
   idle_timeout: 20,
 });
 

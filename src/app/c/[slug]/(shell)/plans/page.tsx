@@ -1,11 +1,15 @@
 import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { and, asc, count, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, comments, memberships, plans, votes } from "@/db/schema";
+import { comments, plans, votes } from "@/db/schema";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { MyPlansPage, type MyPlansPagePlan } from "@/components/plan/my-plans-page";
-import { getUserCircles } from "@/lib/circles";
+import {
+  getCircleBySlug,
+  getCircleMembers,
+  getUserCircles,
+} from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 import {
   CircleVotesProvider,
@@ -23,29 +27,18 @@ export default async function MyPlansRoute({
   if (!userId) notFound();
   await requireDisplayNameSet(userId);
 
-  const circle = await db.query.circles.findFirst({
-    columns: { id: true, name: true, slug: true },
-    where: eq(circles.slug, slug),
-  });
+  const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
-  const [membership, userCircles, memberRows] = await Promise.all([
-    db.query.memberships.findFirst({
-      columns: { role: true },
-      where: and(
-        eq(memberships.userId, userId),
-        eq(memberships.circleId, circle.id),
-      ),
-    }),
+  // userCircles + memberRows cache-hit from shell layout. `membership` is
+  // resolved from memberRows below instead of a separate query.
+  const [userCircles, memberRows] = await Promise.all([
     getUserCircles(userId),
-    db.query.memberships.findMany({
-      where: eq(memberships.circleId, circle.id),
-      orderBy: asc(memberships.joinedAt),
-      with: {
-        user: { columns: { id: true, displayName: true, avatarUrl: true } },
-      },
-    }),
+    getCircleMembers(circle.id),
   ]);
+  const membership = memberRows.find((m) => m.userId === userId)
+    ? { role: memberRows.find((m) => m.userId === userId)!.role }
+    : undefined;
 
   if (!membership) notFound();
 
@@ -68,12 +61,15 @@ export default async function MyPlansRoute({
         sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
       );
 
+  // Cap the My-Plans feed — older plans are still reachable via direct URL
+  // and the receipt page, but the list view doesn't need every plan ever.
   const planRows = await db.query.plans.findMany({
     where: and(
       eq(plans.circleId, circle.id),
       recipientVisibilityClause,
     ),
     orderBy: [desc(plans.startsAt)],
+    limit: 100,
     with: {
       creator: { columns: { displayName: true, avatarUrl: true } },
     },

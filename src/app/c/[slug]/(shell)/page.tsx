@@ -8,8 +8,6 @@ import { Settings } from "lucide-react";
 import { and, asc, eq, gte, inArray, max, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
-  circles,
-  memberships,
   planEvents,
   planVenueVotes,
   planVenues,
@@ -38,7 +36,12 @@ import {
 } from "@/components/circle/squad-pulse";
 import { QuickNudge } from "@/components/circle/quick-nudge";
 import type { FormMember } from "@/components/plan/new-plan-form";
-import { getUserCircles } from "@/lib/circles";
+import {
+  getCircleBySlug,
+  getCircleMemberActivity,
+  getCircleMembers,
+  getUserCircles,
+} from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 import { buildMapsUrl } from "@/lib/maps";
 import {
@@ -99,22 +102,13 @@ export default async function CircleHomePage({
   if (!userId) notFound();
   await requireDisplayNameSet(userId);
 
-  const circle = await db.query.circles.findFirst({
-    columns: { id: true, name: true, slug: true },
-    where: eq(circles.slug, slug),
-  });
+  const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
+  // memberRows + userCircles are already cached at the layout level (same
+  // request), so these calls hit the cache. pushRows is page-specific.
   const [memberRows, userCircles, pushRows] = await Promise.all([
-    db.query.memberships.findMany({
-      where: eq(memberships.circleId, circle.id),
-      orderBy: asc(memberships.joinedAt),
-      with: {
-        user: {
-          columns: { id: true, displayName: true, avatarUrl: true },
-        },
-      },
-    }),
+    getCircleMembers(circle.id),
     getUserCircles(userId),
     db
       .select({ id: pushSubscriptions.id })
@@ -316,56 +310,9 @@ export default async function CircleHomePage({
   }
 
   // Squad Pulse — derive each member's last in-app activity from
-  // MAX(votes.voted_at, plans.created_at by them). All scoped to this circle.
-  const circleMemberIds = memberRows
-    .map((m) => m.user?.id)
-    .filter((id): id is string => Boolean(id));
-  const [voteActivityRows, planActivityRows] = circleMemberIds.length
-    ? await Promise.all([
-        db
-          .select({
-            userId: votes.userId,
-            at: max(votes.votedAt),
-          })
-          .from(votes)
-          .innerJoin(plans, eq(votes.planId, plans.id))
-          .where(
-            and(
-              eq(plans.circleId, circle.id),
-              inArray(votes.userId, circleMemberIds),
-            ),
-          )
-          .groupBy(votes.userId),
-        db
-          .select({
-            userId: plans.createdBy,
-            at: max(plans.createdAt),
-          })
-          .from(plans)
-          .where(
-            and(
-              eq(plans.circleId, circle.id),
-              inArray(
-                plans.createdBy,
-                circleMemberIds,
-              ),
-            ),
-          )
-          .groupBy(plans.createdBy),
-      ])
-    : [[], []];
-
-  const lastActiveByUser = new Map<string, Date>();
-  for (const r of voteActivityRows) {
-    if (!r.userId || !r.at) continue;
-    const prev = lastActiveByUser.get(r.userId);
-    if (!prev || r.at > prev) lastActiveByUser.set(r.userId, r.at);
-  }
-  for (const r of planActivityRows) {
-    if (!r.userId || !r.at) continue;
-    const prev = lastActiveByUser.get(r.userId);
-    if (!prev || r.at > prev) lastActiveByUser.set(r.userId, r.at);
-  }
+  // MAX(votes.voted_at, plans.created_at by them). The shell layout already
+  // ran this query; cache() returns the same Map without re-querying.
+  const lastActiveByUser = await getCircleMemberActivity(circle.id);
   const pulseMembers: PulseMember[] = memberRows
     .map((m) =>
       m.user

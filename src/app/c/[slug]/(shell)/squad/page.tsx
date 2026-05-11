@@ -3,14 +3,19 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { asc, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { circles, invites, memberships } from "@/db/schema";
+import { invites } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { InviteButton } from "@/components/circle/invite-button";
 import { MembersList, type ListMember } from "@/components/circle/members-list";
-import { getKnownSquadUsers, getUserCircles } from "@/lib/circles";
+import {
+  getCircleBySlug,
+  getCircleMembers,
+  getKnownSquadUsers,
+  getUserCircles,
+} from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 
 export default async function SquadPage({
@@ -23,22 +28,12 @@ export default async function SquadPage({
   if (!userId) notFound();
   await requireDisplayNameSet(userId);
 
-  const circle = await db.query.circles.findFirst({
-    columns: { id: true, name: true, slug: true },
-    where: eq(circles.slug, slug),
-  });
+  const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
+  // memberRows + userCircles cache-hit from shell layout; only `invites` runs.
   const [memberRows, activeInvites, userCircles] = await Promise.all([
-    db.query.memberships.findMany({
-      where: eq(memberships.circleId, circle.id),
-      orderBy: asc(memberships.joinedAt),
-      with: {
-        user: {
-          columns: { id: true, displayName: true, avatarUrl: true },
-        },
-      },
-    }),
+    getCircleMembers(circle.id),
     db.query.invites.findMany({
       columns: { code: true },
       where: eq(invites.circleId, circle.id),
