@@ -150,7 +150,6 @@ function Nav({
                     : item.label
                 }
                 aria-current={active ? "page" : undefined}
-                prefetch={false}
                 className={cn(
                   "relative flex items-center justify-center py-3 transition-colors",
                   active ? "text-ink" : "text-ink-muted",
@@ -173,7 +172,6 @@ function Nav({
           <li key={item.label}>
             <Link
               href={href}
-              prefetch={false}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "group flex items-center gap-2.5 rounded-md py-1.5 pl-2.5 pr-2 text-sm transition-colors",
@@ -216,7 +214,6 @@ function FavouritesSection({ circles }: { circles: SidebarCircle[] }) {
           <li key={c.id}>
             <Link
               href={`/c/${c.slug}`}
-              prefetch={false}
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
             >
               <span
