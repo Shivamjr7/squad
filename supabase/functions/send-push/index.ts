@@ -49,6 +49,12 @@ function payloadString(p: Record<string, unknown> | null, key: string): string |
   return typeof v === "string" ? v : null;
 }
 
+function planIdFromPayload(
+  p: Record<string, unknown> | null,
+): string | null {
+  return payloadString(p, "planId");
+}
+
 function renderPayload(row: NotificationRow): Payload {
   const p = row.payload ?? {};
   const slug = payloadString(p, "circleSlug");
@@ -145,7 +151,20 @@ async function fanOutForNotification(row: NotificationRow): Promise<number> {
             keys: { p256dh: sub.p256dh, auth: sub.auth },
           },
           body,
-          { TTL: 60 * 60 },
+          {
+            TTL: 60 * 60,
+            // High urgency tells FCM to wake the device from doze instead of
+            // batching the message until the next idle window. Without this
+            // header the default is "normal", which is why pushes only
+            // surface when the user opens the app on Android.
+            urgency: "high",
+            // Collapsing key — replaces older pushes for the same plan so the
+            // shade doesn't pile up multiple "Karan is in" rows. The header
+            // caps at 32 url-safe chars; UUIDs are 36 with hyphens, so strip.
+            ...(planIdFromPayload(row.payload)
+              ? { topic: planIdFromPayload(row.payload)!.replace(/-/g, "") }
+              : {}),
+          },
         );
         sent += 1;
         // Best-effort last_used_at refresh; not awaited critically.
