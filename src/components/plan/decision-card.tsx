@@ -58,8 +58,10 @@ type Props = {
   // M25 — deep links computed server-side (UA-aware maps URL); null when
   // the plan has no location yet (still wires calendar links).
   mapsUrl: string | null;
-  icsUrl: string;
-  gcalUrl: string;
+  // Callers pass null for past plans — PlanDeepLinks hides the calendar
+  // buttons accordingly. See lib/effective-status.ts.
+  icsUrl: string | null;
+  gcalUrl: string | null;
   now: Date;
 };
 

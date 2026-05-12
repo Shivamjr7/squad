@@ -62,6 +62,10 @@ type Props = {
   recipientCount: number;
   inCount: number; // server-rendered seed for "RVD x of y"
   status: "confirmed" | "done" | "cancelled";
+  // Fix 3 — when true, the vote buttons are replaced with a muted
+  // "You were In/Maybe/Out" label (or hidden if the user never voted).
+  // Past plans never offer vote changes.
+  isPast?: boolean;
   additions: ReceiptAddition[];
   events: ReceiptEvent[];
   // Slot for "+ Suggest add-on" — composed by the page.
@@ -80,6 +84,7 @@ export function Receipt({
   recipientCount,
   inCount: seedInCount,
   status,
+  isPast = false,
   additions,
   events,
   suggestAddOnSlot,
@@ -213,9 +218,22 @@ export function Receipt({
         <p className="text-center eyebrow text-ink-muted">
           {planTitle}
         </p>
-        <div className="no-print">
-          <VoteButtons selected={ownVote} onChange={onVote} size="default" />
-        </div>
+        {/* Past plans never show vote UI — effectiveStatus check (Fix 3).
+            For users who voted before the plan slipped past, surface their
+            historical vote as a muted "You were X" label. Otherwise show
+            the live vote buttons. */}
+        {isPast ? (
+          ownVote ? (
+            <p className="no-print text-center text-xs text-ink-muted">
+              You were{" "}
+              <span className="font-semibold capitalize">{ownVote}</span>.
+            </p>
+          ) : null
+        ) : (
+          <div className="no-print">
+            <VoteButtons selected={ownVote} onChange={onVote} size="default" />
+          </div>
+        )}
       </section>
     </article>
   );

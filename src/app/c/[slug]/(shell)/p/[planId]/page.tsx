@@ -543,18 +543,23 @@ export default async function PlanDetailPage({
   // M25 — UA-aware Maps + calendar deep-links. Computed once on the server
   // so client components don't need to do their own UA sniffing or URL
   // building. mapsUrl is null when the plan has no canonical location yet.
+  // Calendar links are null on past plans (Fix 3) — adding a past event
+  // to your calendar isn't useful, and PlanDeepLinks handles null by
+  // hiding the corresponding buttons.
   const ua = (await headers()).get("user-agent");
   const baseUrl = await getAppUrl();
   const planUrl = `${baseUrl}/c/${circle.slug}/p/${plan.id}`;
   const calendarDescription = `${circle.name} · Plan locked via Squad\n${planUrl}`;
   const mapsUrl = plan.location ? buildMapsUrl(plan.location, ua) : null;
-  const icsUrl = `/api/plans/${plan.id}/ics`;
-  const gcalUrl = buildGoogleCalendarUrl({
-    title: plan.title,
-    startsAt: plan.startsAt,
-    location: plan.location,
-    description: calendarDescription,
-  });
+  const icsUrl = isPastPlan ? null : `/api/plans/${plan.id}/ics`;
+  const gcalUrl = isPastPlan
+    ? null
+    : buildGoogleCalendarUrl({
+        title: plan.title,
+        startsAt: plan.startsAt,
+        location: plan.location,
+        description: calendarDescription,
+      });
 
   return (
     <CircleVotesProvider
@@ -709,6 +714,7 @@ export default async function PlanDetailPage({
             status={
               plan.status === "active" ? "confirmed" : plan.status
             }
+            isPast={isPastPlan}
             additions={additionsForTicker.map((a) => ({
               id: a.id,
               label: a.label,

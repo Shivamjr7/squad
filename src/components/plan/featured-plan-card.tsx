@@ -3,6 +3,7 @@ import { Edit, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { formatDecideBy } from "@/lib/format-decide-by";
+import { isPastPlan } from "@/lib/effective-status";
 import { FeaturedPlanVoters } from "./featured-plan-voters";
 import { PlanVotes } from "@/components/votes/plan-votes";
 
@@ -46,12 +47,20 @@ export function FeaturedPlanCard({
   mapsUrl: string | null;
 }) {
   const isConfirmed = plan.status === "confirmed";
+  // Past plans never show vote UI / calendar / change-vote — see Fix 3 /
+  // lib/effective-status.ts. The home circle query excludes startsAt<now
+  // so this is defensive; if a plan slips past while the user is viewing
+  // we still want clean degradation.
+  const past = isPastPlan(plan, now);
   const isVoting =
     !isConfirmed &&
+    !past &&
     !!plan.venueSummary &&
     plan.venueSummary.optionCount >= 2;
   const countdown =
-    plan.decideBy && !isConfirmed ? formatDecideBy(plan.decideBy, now) : null;
+    plan.decideBy && !isConfirmed && !past
+      ? formatDecideBy(plan.decideBy, now)
+      : null;
 
   const pillBase =
     "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]";
@@ -88,9 +97,10 @@ export function FeaturedPlanCard({
 
   // M25 — show Open in Maps when the plan has a real (non-voting) location
   // pinned. While venue voting is open we don't surface it because the
-  // canonical address isn't decided yet.
-  const showMaps = mapsUrl && !venueChip;
-  const showEdit = plan.canEdit ?? false;
+  // canonical address isn't decided yet. Past plans never show maps /
+  // edit (no actionable destination).
+  const showMaps = !past && mapsUrl && !venueChip;
+  const showEdit = !past && (plan.canEdit ?? false);
   const showActionRow = showMaps || showEdit;
 
   const lastEditLabel = plan.lastEditAt
@@ -172,9 +182,12 @@ export function FeaturedPlanCard({
         </div>
       </div>
 
-      <div>
-        <PlanVotes planId={plan.id} buttonSize="lg" showTally={false} />
-      </div>
+      {/* Past plans never show vote UI — effectiveStatus check */}
+      {!past ? (
+        <div>
+          <PlanVotes planId={plan.id} buttonSize="lg" showTally={false} />
+        </div>
+      ) : null}
 
       {showActionRow ? (
         <div className="flex flex-wrap gap-2">

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlanType } from "@/lib/validation/plan";
+import { isPastPlan } from "@/lib/effective-status";
 import { PlanMeta } from "./plan-meta";
 import { PlanVotes } from "@/components/votes/plan-votes";
 import { StatusPill } from "./status-pill";
@@ -35,7 +36,12 @@ export function PlanCard({
 }) {
   const isCancelled = plan.status === "cancelled";
   const isConfirmed = plan.status === "confirmed";
-  const showVotes = !hideVotes && (plan.status === "active" || plan.status === "confirmed");
+  // Past plans never show vote UI — effectiveStatus check (see
+  // lib/effective-status.ts). Stored status may still be 'active' for a
+  // plan whose startsAt has slipped past until pg_cron flips it.
+  const past = isPastPlan(plan, now);
+  const showVotes =
+    !hideVotes && !past && (plan.status === "active" || plan.status === "confirmed");
 
   return (
     <article

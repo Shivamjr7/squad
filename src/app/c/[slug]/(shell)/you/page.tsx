@@ -12,6 +12,7 @@ import { EditDisplayName } from "@/components/circle/edit-display-name";
 import { LeaveCircleButton } from "@/components/circle/leave-circle-button";
 import { YouSignOutButton } from "@/components/circle/sign-out-button";
 import { PushOptIn } from "@/components/circle/push-opt-in";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { getCircleBySlug, getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 
@@ -113,6 +114,13 @@ export default async function YouPage({
                 </span>
                 <span className="truncate text-sm text-ink">{me.email}</span>
               </div>
+            </section>
+
+            <section className="flex flex-col gap-3">
+              <h2 className="eyebrow text-ink-muted">
+                Preferences
+              </h2>
+              <ThemeToggle variant="row" />
             </section>
 
             <section className="flex flex-col gap-3">

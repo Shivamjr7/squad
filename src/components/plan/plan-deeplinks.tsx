@@ -38,8 +38,10 @@ const TONES: Record<
 
 export type PlanDeepLinksProps = {
   mapsUrl: string | null;
-  icsUrl: string;
-  gcalUrl: string;
+  // Callers pass null when the plan is past (effectiveStatus === 'past') —
+  // adding a past event to the calendar isn't useful, see Fix 3.
+  icsUrl: string | null;
+  gcalUrl: string | null;
   location: string | null;
   tone?: Tone;
 };
@@ -52,6 +54,10 @@ export function PlanDeepLinks({
   tone = "light",
 }: PlanDeepLinksProps) {
   const t = TONES[tone];
+  const showCalendar = !!icsUrl;
+  const showGcal = !!gcalUrl;
+  // Nothing to render — avoid an empty action row.
+  if (!mapsUrl && !showCalendar && !showGcal) return null;
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-2">
@@ -66,21 +72,25 @@ export function PlanDeepLinks({
             Open in Maps
           </a>
         ) : null}
-        <a href={icsUrl} className={cn(baseBtn, t.secondary)}>
-          <CalendarPlus className="size-3.5" aria-hidden />
-          Add to calendar
-        </a>
-        <a
-          href={gcalUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            "text-xs underline-offset-2 hover:underline",
-            t.muted,
-          )}
-        >
-          Google Calendar
-        </a>
+        {showCalendar ? (
+          <a href={icsUrl!} className={cn(baseBtn, t.secondary)}>
+            <CalendarPlus className="size-3.5" aria-hidden />
+            Add to calendar
+          </a>
+        ) : null}
+        {showGcal ? (
+          <a
+            href={gcalUrl!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              "text-xs underline-offset-2 hover:underline",
+              t.muted,
+            )}
+          >
+            Google Calendar
+          </a>
+        ) : null}
       </div>
       <WalkingTimeHint location={location} className={cn("text-[11px]", t.hint)} />
     </div>

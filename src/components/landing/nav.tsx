@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SignInButton, SignUpButton } from "@clerk/nextjs";
 import { SquadLogo } from "@/components/brand/squad-logo";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 
 export function LandingNav() {
   return (
@@ -18,6 +19,7 @@ export function LandingNav() {
           <a href="#how-it-works" className="hover:text-ink">How it works</a>
           <a href="#features" className="hover:text-ink">Features</a>
           <a href="#why" className="hover:text-ink">Why</a>
+          <ThemeToggle />
           <SignInButton>
             <button className="hover:text-ink">Sign in</button>
           </SignInButton>
@@ -27,7 +29,8 @@ export function LandingNav() {
             </button>
           </SignUpButton>
         </div>
-        <div className="flex items-center gap-3 text-sm md:hidden">
+        <div className="flex items-center gap-2 text-sm md:hidden">
+          <ThemeToggle />
           <SignInButton>
             <button className="text-ink-muted">Sign in</button>
           </SignInButton>
