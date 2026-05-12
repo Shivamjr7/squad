@@ -11,17 +11,16 @@ type Props = {
 type Display = "upcoming" | "confirmed" | "done" | "cancelled";
 
 const STYLE: Record<Display, string> = {
-  upcoming:
-    "bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-900",
-  // Green is reserved for `confirmed` so it's the loudest, most positive
-  // signal. `done` was previously green; it's now slate so the colors
-  // don't collide.
-  confirmed:
-    "bg-green-50 text-green-700 ring-1 ring-green-200 dark:bg-green-950/40 dark:text-green-300 dark:ring-green-900",
-  done:
-    "bg-slate-100 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:ring-slate-800",
-  cancelled:
-    "bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900",
+  // Coral = "still being decided" (matches the home featured-card "Deciding"
+  // pill so the visual language is consistent across surfaces).
+  upcoming: "bg-coral-soft text-coral-strong ring-1 ring-coral-soft",
+  // --in reserved for the loudest positive signal (locked in).
+  confirmed: "bg-in-soft text-in-strong ring-1 ring-in-soft",
+  // Past plans go quiet — slightly lifted card surface so they don't
+  // disappear into the body on the dark theme.
+  done: "bg-paper-card text-ink-muted ring-1 ring-ink-subtle",
+  // --out for cancelled — same red the Out vote button uses.
+  cancelled: "bg-out-soft text-out-strong ring-1 ring-out-soft",
 };
 
 const LABEL: Record<Display, string> = {

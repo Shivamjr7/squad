@@ -41,9 +41,9 @@ function VenueVoteInner({ canSuggest }: { canSuggest: boolean }) {
   if (venues.length === 0) return null;
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.10)]">
+    <section className="flex flex-col gap-3 rounded-2xl bg-paper-card p-5 shadow-card">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+        <span className="eyebrow text-ink-muted">
           Where to?
         </span>
         {totalVoters > 0 ? (
@@ -95,7 +95,7 @@ function VenueVoteInner({ canSuggest }: { canSuggest: boolean }) {
                   </div>
                   {mine ? (
                     <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-coral px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-paper-card"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-coral px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white"
                       aria-label="You voted for this"
                     >
                       <Check className="size-2.5" aria-hidden />

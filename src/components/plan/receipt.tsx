@@ -62,6 +62,10 @@ type Props = {
   recipientCount: number;
   inCount: number; // server-rendered seed for "RVD x of y"
   status: "confirmed" | "done" | "cancelled";
+  // Fix 3 — when true, the vote buttons are replaced with a muted
+  // "You were In/Maybe/Out" label (or hidden if the user never voted).
+  // Past plans never offer vote changes.
+  isPast?: boolean;
   additions: ReceiptAddition[];
   events: ReceiptEvent[];
   // Slot for "+ Suggest add-on" — composed by the page.
@@ -80,6 +84,7 @@ export function Receipt({
   recipientCount,
   inCount: seedInCount,
   status,
+  isPast = false,
   additions,
   events,
   suggestAddOnSlot,
@@ -148,12 +153,7 @@ export function Receipt({
 
   return (
     <article
-      className="plan-receipt rounded-2xl bg-[#f4eedb] px-6 pt-7 pb-8 text-ink shadow-[0_8px_24px_-12px_rgba(20,15,10,0.12)]"
-      style={
-        {
-          ["--paper-card" as string]: "#ece4cc",
-        } as React.CSSProperties
-      }
+      className="plan-receipt rounded-2xl border border-ink-subtle bg-paper-elevated px-6 pt-7 pb-8 text-ink shadow-card-raised"
     >
       <header className="flex flex-col items-center gap-1 pb-5 text-center">
         <h2 className="font-serif text-3xl font-semibold text-ink">
@@ -208,19 +208,32 @@ export function Receipt({
 
       <section className="mt-6 flex flex-col gap-3 border-t border-dashed border-ink/25 pt-5">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          <span className="eyebrow text-ink-muted">
             Status
           </span>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink">
+          <span className="eyebrow text-ink">
             {statusLabel(status)}
           </span>
         </div>
-        <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+        <p className="text-center eyebrow text-ink-muted">
           {planTitle}
         </p>
-        <div className="no-print">
-          <VoteButtons selected={ownVote} onChange={onVote} size="default" />
-        </div>
+        {/* Past plans never show vote UI — effectiveStatus check (Fix 3).
+            For users who voted before the plan slipped past, surface their
+            historical vote as a muted "You were X" label. Otherwise show
+            the live vote buttons. */}
+        {isPast ? (
+          ownVote ? (
+            <p className="no-print text-center text-xs text-ink-muted">
+              You were{" "}
+              <span className="font-semibold capitalize">{ownVote}</span>.
+            </p>
+          ) : null
+        ) : (
+          <div className="no-print">
+            <VoteButtons selected={ownVote} onChange={onVote} size="default" />
+          </div>
+        )}
       </section>
     </article>
   );
@@ -229,7 +242,7 @@ export function Receipt({
 function ReceiptRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+      <dt className="eyebrow-sm text-ink-muted">
         {label}
       </dt>
       <dd className="truncate text-right text-ink">{value}</dd>

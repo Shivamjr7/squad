@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Source_Serif_4, Instrument_Serif } from "next/font/g
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import { ThemeProvider } from "@/components/theme/theme-provider";
 // @ts-expect-error -- unstable_ViewTransition is provided by the experimental React channel that Next swaps in when experimental.viewTransition is enabled
 import { unstable_ViewTransition as ViewTransition } from "react";
 import "./globals.css";
@@ -53,14 +54,19 @@ export const metadata: Metadata = {
 
 // viewportFit:cover unlocks env(safe-area-inset-*) on iOS — without it the
 // FAB and comment composer's safe-area padding both collapse to 0 and sit
-// behind the home indicator. colorScheme pins light mode (next-themes is
-// installed but unwired); revisit if real dark-mode lands in v2.
+// behind the home indicator. colorScheme = "light dark" tells the browser
+// both schemes are supported; next-themes' inline script sets the actual
+// data-theme attribute before paint so there's no FOUC. themeColor pair
+// covers both schemes for the iOS status bar / Android URL bar tint.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  colorScheme: "light",
-  themeColor: "#F5F0EA",
+  colorScheme: "light dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F8EFDF" },
+    { media: "(prefers-color-scheme: dark)", color: "#15151C" },
+  ],
 };
 
 export default function RootLayout({
@@ -72,12 +78,23 @@ export default function RootLayout({
     <ClerkProvider>
       <html
         lang="en"
+        // suppressHydrationWarning is required by next-themes: the inline
+        // script may flip the data-theme attribute before React hydrates,
+        // and React would otherwise warn about the mismatch.
+        suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} ${instrumentSerif.variable} h-full antialiased`}
       >
         <body className="min-h-full flex flex-col" suppressHydrationWarning>
-          <ViewTransition>{children}</ViewTransition>
-          <Toaster richColors closeButton />
-          <ServiceWorkerRegister />
+          <ThemeProvider
+            attribute="data-theme"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <ViewTransition>{children}</ViewTransition>
+            <Toaster richColors closeButton />
+            <ServiceWorkerRegister />
+          </ThemeProvider>
         </body>
       </html>
     </ClerkProvider>

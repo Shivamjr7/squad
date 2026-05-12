@@ -32,12 +32,13 @@ function initialFor(name: string): string {
 
 function colorForUser(userId: string): string {
   // Deterministic small palette so the same person always gets the same hue.
+  // Bright text variants for the dark theme — see Sidebar.tsx for rationale.
   const palette = [
     "bg-coral/20 text-coral",
     "bg-in/15 text-in",
-    "bg-maybe/25 text-amber-700",
-    "bg-blue-500/15 text-blue-700",
-    "bg-purple-500/15 text-purple-700",
+    "bg-maybe/25 text-maybe",
+    "bg-blue-500/15 text-blue-300",
+    "bg-purple-500/15 text-purple-300",
   ];
   let hash = 0;
   for (let i = 0; i < userId.length; i += 1) {

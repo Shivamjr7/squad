@@ -3,7 +3,7 @@ export const dynamic = "force-static";
 export default function OfflinePage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-3 px-6 text-center">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+      <span className="eyebrow text-ink-muted">
         Offline
       </span>
       <h1 className="font-serif text-[34px] leading-[1.1] font-semibold text-ink">

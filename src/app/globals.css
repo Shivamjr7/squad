@@ -1,54 +1,138 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* Tailwind v4 dark variant — wired to next-themes' data-theme attribute
+   instead of the legacy .dark class. shadcn's button/input components
+   ship with `dark:` utilities; without this they'd never match because
+   ThemeProvider sets data-theme, not a class. */
+@custom-variant dark (&:where([data-theme="dark"] *, [data-theme="dark"]));
 
 :root {
-  /* Paper-and-ink base — warm cream page, white cards, warm-tinted text */
-  --paper: oklch(0.957 0.013 80);
-  --paper-card: oklch(1 0 0);
-  --ink: oklch(0.20 0.02 60);
-  --ink-muted: oklch(0.55 0.02 60);
+  /* Light theme — Sunset Editorial. Warm cream paper, near-white cards
+     (intentionally not pure #fff — pure white feels harsh against the
+     warm hero italics), jet ink, deeper coral that sings against the
+     cream. This is the SSR fallback before next-themes resolves; if
+     the resolved theme is dark, [data-theme="dark"] overrides below. */
+  color-scheme: light;
+  --paper: oklch(0.965 0.025 78);
+  --paper-card: oklch(0.99 0.005 80);
+  --paper-elevated: oklch(1 0 0);
+  --ink: oklch(0.14 0.02 50);
+  --ink-muted: oklch(0.48 0.02 50);
+  --ink-subtle: oklch(0.88 0.015 75);
 
-  /* Coral accent — italic "squad?" + DECIDING pill */
-  --coral: oklch(0.70 0.15 25);
-  --coral-soft: oklch(0.93 0.05 25);
+  --coral: oklch(0.64 0.22 28);
+  --coral-soft: oklch(0.92 0.08 28);
+  --coral-strong: oklch(0.48 0.20 28);
 
-  /* Vote / status semantic */
-  --in: oklch(0.66 0.16 145);
-  --in-soft: oklch(0.94 0.06 145);
-  --maybe: oklch(0.83 0.15 85);
-  --maybe-soft: oklch(0.95 0.06 85);
-  --out: oklch(0.65 0.18 25);
-  --out-soft: oklch(0.94 0.06 25);
+  --in: oklch(0.60 0.20 148);
+  --in-soft: oklch(0.93 0.08 148);
+  --in-strong: oklch(0.40 0.16 148);
+  --maybe: oklch(0.80 0.18 78);
+  --maybe-soft: oklch(0.95 0.08 78);
+  --maybe-strong: oklch(0.46 0.14 75);
+  --out: oklch(0.58 0.23 28);
+  --out-soft: oklch(0.94 0.08 28);
+  --out-strong: oklch(0.46 0.20 28);
 
-  /* Plan-type bars (compact upcoming list) */
-  --type-eat: #4CAF50;
-  --type-play: #2196F3;
-  --type-chai: #FF9800;
-  --type-stay-in: #9E9E9E;
-  --type-other: #9E9E9E;
+  /* Plan-type bars — deeper on cream so the type-color ribbons aren't
+     pastel mush. */
+  --type-eat: #2E8B3E;
+  --type-play: #1F6FE8;
+  --type-chai: #E07B00;
+  --type-stay-in: #6B7280;
+  --type-other: #6B7280;
+
+  /* Elevation — soft warm shadows on light. */
+  --shadow-card:
+    0 1px 2px rgba(20, 12, 5, 0.05),
+    0 8px 24px -12px rgba(20, 12, 5, 0.14);
+  --shadow-card-raised:
+    0 1px 2px rgba(20, 12, 5, 0.06),
+    0 12px 32px -14px rgba(20, 12, 5, 0.20);
+  --shadow-card-hero:
+    0 2px 4px rgba(20, 12, 5, 0.06),
+    0 28px 56px -28px rgba(20, 12, 5, 0.25);
+  --shadow-float: 0 10px 28px -10px rgba(20, 12, 5, 0.25);
+  --shadow-glow-coral:
+    0 0 0 1px oklch(0.64 0.22 28 / 0.20),
+    0 0 24px -4px oklch(0.64 0.22 28 / 0.35);
 
   --background: var(--paper);
   --foreground: var(--ink);
   --card: var(--paper-card);
   --card-foreground: var(--ink);
-  --popover: var(--paper-card);
+  --popover: var(--paper-elevated);
   --popover-foreground: var(--ink);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--paper-card);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-card);
   --muted-foreground: var(--ink-muted);
   --accent: var(--coral-soft);
-  --accent-foreground: var(--coral);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.92 0.01 80);
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.704 0.04 256.788);
+  --accent-foreground: var(--coral-strong);
+  --destructive: var(--out);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: var(--ink-subtle);
+  --input: var(--paper-card);
+  --ring: var(--coral);
   --radius: 0.625rem;
+}
+
+/* Explicit light selector — redundant with :root, but acts as a stronger
+   signal when next-themes flips data-theme="light" → ensures the cascade
+   has a positive match (not just an :root fallback). */
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  /* Midnight Squad — dark overrides. Component code references the
+     semantic token names (--paper, --ink, etc.); only the underlying
+     values flip. Brighter chroma on accents so they cut through
+     midnight without needing a glow. */
+  color-scheme: dark;
+  --paper: oklch(0.155 0.015 280);
+  --paper-card: oklch(0.205 0.014 280);
+  --paper-elevated: oklch(0.245 0.012 280);
+  --ink: oklch(0.965 0.006 95);
+  --ink-muted: oklch(0.68 0.012 95);
+  --ink-subtle: oklch(0.30 0.012 280);
+
+  --coral: oklch(0.74 0.22 28);
+  --coral-soft: oklch(0.30 0.10 28);
+  --coral-strong: oklch(0.85 0.18 28);
+
+  --in: oklch(0.74 0.22 148);
+  --in-soft: oklch(0.28 0.10 148);
+  --in-strong: oklch(0.82 0.16 148);
+  --maybe: oklch(0.84 0.18 80);
+  --maybe-soft: oklch(0.32 0.12 78);
+  --maybe-strong: oklch(0.88 0.16 80);
+  --out: oklch(0.68 0.25 25);
+  --out-soft: oklch(0.30 0.12 25);
+  --out-strong: oklch(0.82 0.20 25);
+
+  --type-eat: oklch(0.72 0.18 145);
+  --type-play: oklch(0.72 0.17 248);
+  --type-chai: oklch(0.78 0.18 65);
+  --type-stay-in: oklch(0.66 0.012 280);
+  --type-other: oklch(0.66 0.012 280);
+
+  --shadow-card:
+    0 1px 2px rgba(0, 0, 0, 0.30),
+    0 8px 24px -12px rgba(0, 0, 0, 0.45);
+  --shadow-card-raised:
+    0 1px 2px rgba(0, 0, 0, 0.40),
+    0 16px 40px -16px rgba(0, 0, 0, 0.55);
+  --shadow-card-hero:
+    0 2px 6px rgba(0, 0, 0, 0.40),
+    0 32px 64px -32px rgba(0, 0, 0, 0.65);
+  --shadow-float: 0 10px 28px -10px rgba(0, 0, 0, 0.55);
+  --shadow-glow-coral:
+    0 0 0 1px oklch(0.74 0.22 28 / 0.25),
+    0 0 28px -4px oklch(0.74 0.22 28 / 0.45);
 }
 
 @theme inline {
@@ -79,24 +163,115 @@
   --color-coral-soft: var(--coral-soft);
   --color-in: var(--in);
   --color-in-soft: var(--in-soft);
+  --color-in-strong: var(--in-strong);
   --color-maybe: var(--maybe);
   --color-maybe-soft: var(--maybe-soft);
+  --color-maybe-strong: var(--maybe-strong);
   --color-out: var(--out);
   --color-out-soft: var(--out-soft);
+  --color-out-strong: var(--out-strong);
+  --color-coral-strong: var(--coral-strong);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-type-eat: var(--type-eat);
+  --color-type-play: var(--type-play);
+  --color-type-chai: var(--type-chai);
+  --color-type-stay-in: var(--type-stay-in);
+  --color-type-other: var(--type-other);
+  --color-paper-elevated: var(--paper-elevated);
   --font-serif: var(--font-serif);
   --font-instrument-serif: var(--font-instrument-serif);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --shadow-card: var(--shadow-card);
+  --shadow-card-raised: var(--shadow-card-raised);
+  --shadow-card-hero: var(--shadow-card-hero);
+  --shadow-float: var(--shadow-float);
+  --shadow-glow-coral: var(--shadow-glow-coral);
+  --animate-pulse-soft: pulse-soft 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-badge-pulse: badge-pulse 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+}
+
+/* A quieter pulse than Tailwind's default (which dips to 0.5 opacity) —
+   reads as "alive but not nagging" on the Deciding dot. Respects reduced
+   motion by collapsing to a static state. */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* One-shot pulse used by the notifications bell badge — calls attention
+   to a non-zero badge on mount without ongoing animation noise. Scales
+   from 0.85 → 1.05 → 1, runs once. */
+@keyframes badge-pulse {
+  0% { transform: scale(0.85); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-soft,
+  .animate-badge-pulse {
+    animation: none;
+  }
+}
+
+/* Eyebrow — the small uppercase label used above sections, cards, and
+   chips. Two sizes converge on the dominant patterns previously copied
+   inline ~40 places. Color intentionally NOT baked in — pair with
+   text-ink-muted, text-coral, text-in, etc. so callers can change tone
+   without specificity battles. */
+@utility eyebrow {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+@utility eyebrow-sm {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 @layer base {
   * {
     border-color: var(--border);
   }
+  /* Body — atmospheric radial glows that suggest soft lighting on the
+     paper (light) or evening (dark). background-attachment: fixed
+     keeps the lighting still while content scrolls. */
   body {
     background-color: var(--background);
     color: var(--foreground);
+    background-image:
+      radial-gradient(
+        ellipse 80% 60% at 100% 0%,
+        oklch(0.95 0.04 28 / 0.5),
+        transparent 45%
+      ),
+      radial-gradient(
+        ellipse 70% 50% at 0% 100%,
+        oklch(0.95 0.04 148 / 0.35),
+        transparent 50%
+      );
+    background-attachment: fixed;
+  }
+  [data-theme="dark"] body {
+    background-image:
+      radial-gradient(
+        ellipse 80% 60% at 100% 0%,
+        oklch(0.45 0.20 28 / 0.30),
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 70% 50% at 0% 100%,
+        oklch(0.35 0.15 270 / 0.35),
+        transparent 60%
+      );
   }
 }

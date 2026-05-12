@@ -357,12 +357,9 @@ export default async function CircleHomePage({
       >
         <div className="flex flex-col gap-4 px-4 pt-4 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-8">
           <div className="flex flex-col gap-6 lg:order-1">
-            <InstallBanner />
-            <EnablePushBanner hasAnySubscription={hasAnyPushSubscription} />
-
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+                <span className="eyebrow text-ink-muted">
                   {dateLabel}
                 </span>
                 <WeatherChip />
@@ -443,6 +440,12 @@ export default async function CircleHomePage({
               ) : (
                 <NoUpcomingState />
               )}
+
+              {/* Setup nudges live below the act-now content — they're useful
+                  one-time prompts but should never push the featured card
+                  below the fold on a 380px viewport. */}
+              <InstallBanner />
+              <EnablePushBanner hasAnySubscription={hasAnyPushSubscription} />
 
               {/* Mobile-only Quick Nudge — desktop sees it in the right rail. */}
               <div className="lg:hidden">
@@ -533,7 +536,7 @@ export default async function CircleHomePage({
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-2 px-1">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+      <span className="eyebrow text-ink-muted">
         {label}
       </span>
       {hint ? (
@@ -545,9 +548,12 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
 
 function NoUpcomingState() {
   return (
-    <div className="rounded-xl border border-dashed border-ink/15 bg-paper-card/40 px-6 py-8 text-center">
-      <p className="text-sm text-ink-muted">
-        Nothing scheduled. Tap + to propose tonight.
+    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-6 py-10 text-center">
+      <span className="eyebrow text-ink-muted">Nothing scheduled</span>
+      <p className="font-serif text-lg text-ink">
+        Tap{" "}
+        <em className="font-serif italic font-normal text-coral">+</em>{" "}
+        to propose tonight.
       </p>
     </div>
   );
