@@ -78,9 +78,9 @@ function HeatmapInner({
   }, [slots, count]);
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.10)]">
+    <section className="flex flex-col gap-3 rounded-2xl bg-paper-card p-5 shadow-card">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+        <span className="eyebrow text-ink-muted">
           Pick the hours you&apos;re free
         </span>
         {totalVoters > 0 ? (
@@ -115,7 +115,7 @@ function HeatmapInner({
               className={cn(
                 "flex aspect-[3/4] min-h-16 flex-col items-center justify-between rounded-lg border px-1 py-2 text-center transition-colors",
                 isTop
-                  ? "border-coral bg-coral text-paper-card"
+                  ? "border-coral bg-coral text-white"
                   : c > 0
                     ? "border-ink/15 text-ink"
                     : "border-ink/10 text-ink-muted",
@@ -151,7 +151,7 @@ function HeatmapInner({
         })}
       </div>
 
-      <p className="pt-1 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+      <p className="pt-1 text-center eyebrow text-ink-muted">
         Plan locks if {lockThreshold}+ converge on one hour
       </p>
     </section>

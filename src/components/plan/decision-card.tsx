@@ -99,8 +99,8 @@ export function DecisionCard({
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl bg-paper-card p-5 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_8px_24px_-12px_rgba(20,15,10,0.10)]">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+    <section className="flex flex-col gap-4 rounded-2xl bg-paper-card p-5 shadow-card">
+      <span className="eyebrow text-ink-muted">
         Current plan
       </span>
       <div className="flex items-baseline gap-2">

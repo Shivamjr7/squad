@@ -90,7 +90,7 @@ export default async function YouPage({
       <div className="px-4 pt-6 sm:px-6">
         <div className="space-y-6">
           <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+            <span className="eyebrow text-ink-muted">
               You
             </span>
             <h1 className="font-serif text-[32px] leading-[1.1] font-semibold text-ink sm:text-[36px]">
@@ -103,7 +103,7 @@ export default async function YouPage({
 
           <div className="flex flex-col gap-8 px-0 sm:px-0">
             <section className="flex flex-col gap-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+              <h2 className="eyebrow text-ink-muted">
                 Profile
               </h2>
               <EditDisplayName initialName={me.displayName} />
@@ -116,7 +116,7 @@ export default async function YouPage({
             </section>
 
             <section className="flex flex-col gap-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+              <h2 className="eyebrow text-ink-muted">
                 Notifications
               </h2>
               <div className="flex flex-col gap-2 rounded-lg border border-ink/10 bg-paper-card/40 px-4 py-3">
@@ -140,7 +140,7 @@ export default async function YouPage({
             </section>
 
             <section className="flex flex-col gap-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+              <h2 className="eyebrow text-ink-muted">
                 Account
               </h2>
               <YouSignOutButton />

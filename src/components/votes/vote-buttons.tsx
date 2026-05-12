@@ -12,31 +12,31 @@ type Props = {
 
 const ORDER: VoteStatus[] = ["in", "maybe", "out"];
 
-// Equal-weight palette: same height, same pill radius across all three. None
-// of the three should dominate when nothing is selected. When a vote is cast,
-// that button shifts to the solid variant; the other two stay in their soft
-// variants. Selection is reinforced with a focus ring on the picked option.
+// Equal-weight palette built on the --in/--maybe/--out semantic tokens
+// (globals.css). Selected = solid fill, unselected = soft tint with the
+// -strong text variant for AA contrast on pale backgrounds. None dominates
+// when nothing is picked; selection adds a tinted focus ring on press.
 const STYLE: Record<
   VoteStatus,
   { label: string; selected: string; unselected: string; ring: string }
 > = {
   in: {
     label: "In",
-    selected: "bg-green-500 text-white border border-green-500",
-    unselected: "bg-green-50 text-green-700 border border-green-200",
-    ring: "focus-visible:ring-green-500",
+    selected: "bg-in text-white border border-in",
+    unselected: "bg-in-soft text-in-strong border border-in-soft",
+    ring: "focus-visible:ring-in",
   },
   maybe: {
     label: "Maybe",
-    selected: "bg-amber-400 text-amber-950 border border-amber-400",
-    unselected: "bg-amber-50 text-amber-600 border border-amber-200",
-    ring: "focus-visible:ring-amber-400",
+    selected: "bg-maybe text-ink border border-maybe",
+    unselected: "bg-maybe-soft text-maybe-strong border border-maybe-soft",
+    ring: "focus-visible:ring-maybe",
   },
   out: {
     label: "Out",
-    selected: "bg-red-500 text-white border border-red-500",
-    unselected: "bg-red-50 text-red-500 border border-red-200",
-    ring: "focus-visible:ring-red-500",
+    selected: "bg-out text-white border border-out",
+    unselected: "bg-out-soft text-out-strong border border-out-soft",
+    ring: "focus-visible:ring-out",
   },
 };
 

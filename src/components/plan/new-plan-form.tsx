@@ -586,7 +586,7 @@ export function NewPlanForm({
               className={cn(
                 "rounded-full border px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral",
                 canSubmit
-                  ? "border-coral bg-coral text-paper-card hover:bg-coral/90"
+                  ? "border-coral bg-coral text-white hover:bg-coral/90"
                   : "cursor-not-allowed border-ink/15 bg-paper-card text-ink-muted/60",
               )}
             >

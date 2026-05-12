@@ -53,14 +53,14 @@ export const metadata: Metadata = {
 
 // viewportFit:cover unlocks env(safe-area-inset-*) on iOS — without it the
 // FAB and comment composer's safe-area padding both collapse to 0 and sit
-// behind the home indicator. colorScheme pins light mode (next-themes is
-// installed but unwired); revisit if real dark-mode lands in v2.
+// behind the home indicator. colorScheme pinned to dark (Midnight Squad
+// theme); next-themes is installed but unwired — auto-light is a v2 ask.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  colorScheme: "light",
-  themeColor: "#F5F0EA",
+  colorScheme: "dark",
+  themeColor: "#15151C",
 };
 
 export default function RootLayout({

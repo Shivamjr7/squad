@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, Calendar, ClipboardList, User, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SquadLogo } from "@/components/brand/squad-logo";
 
 const RECENT_WINDOW_MS = 30 * 60_000;
 
@@ -25,12 +26,15 @@ function dotForCircle(id: string): string {
   return DOT_PALETTE[hash % DOT_PALETTE.length]!;
 }
 
+// Bright text variants — readable on the /15-/25 chip backgrounds against
+// the midnight bg. Tailwind palette colors (amber-300 etc.) are kept for
+// the non-semantic slots; the in/coral slots use our brand tokens.
 const AVATAR_PALETTE = [
   "bg-coral/20 text-coral",
   "bg-in/15 text-in",
-  "bg-maybe/25 text-amber-700",
-  "bg-blue-500/15 text-blue-700",
-  "bg-purple-500/15 text-purple-700",
+  "bg-maybe/25 text-maybe",
+  "bg-blue-500/15 text-blue-300",
+  "bg-purple-500/15 text-purple-300",
 ];
 
 function colorForUser(userId: string): string {
@@ -91,7 +95,18 @@ export function Sidebar({
   return (
     <>
       {/* Desktop sidebar — sticky, full viewport height, transparent. */}
-      <aside className="sticky top-0 hidden h-screen w-[160px] shrink-0 flex-col gap-6 px-3 py-6 md:flex">
+      <aside className="sticky top-0 hidden h-screen w-[176px] shrink-0 flex-col gap-6 px-3 py-6 md:flex">
+        {/* Brandmark — anchors the authed app to the Squad identity.
+            Coral dots + uppercase wordmark, same pairing as landing nav. */}
+        <Link
+          href={`/c/${currentSlug}`}
+          aria-label="Squad"
+          className="flex items-center gap-2 px-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink transition-opacity hover:opacity-80"
+        >
+          <SquadLogo className="size-[18px] text-coral" />
+          SQUAD
+        </Link>
+
         <Suspense fallback={<Nav slug={currentSlug} variant="desktop" unreadInbox={0} />}>
           <NavWithBadge
             slug={currentSlug}
@@ -251,7 +266,7 @@ function FavouritesSection({ circles }: { circles: SidebarCircle[] }) {
     <section aria-labelledby="sidebar-favourites">
       <h2
         id="sidebar-favourites"
-        className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted"
+        className="px-2 eyebrow text-ink-muted"
       >
         Favourites
       </h2>
@@ -286,7 +301,7 @@ function AroundNow({ members }: { members: SidebarMember[] }) {
     <section aria-labelledby="sidebar-around-now" className="mt-auto">
       <h2
         id="sidebar-around-now"
-        className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted"
+        className="px-2 eyebrow text-ink-muted"
       >
         Around now
       </h2>

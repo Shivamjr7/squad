@@ -58,7 +58,6 @@ import type {
   SlotMember,
 } from "@/lib/realtime/use-slot-votes";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
-import { BottomTabs } from "@/components/circle/bottom-tabs";
 import { PlanDeepLinks } from "@/components/plan/plan-deeplinks";
 import { buildMapsUrl } from "@/lib/maps";
 import { buildGoogleCalendarUrl } from "@/lib/calendar";
@@ -360,7 +359,7 @@ export default async function PlanDetailPage({
           </div>
         </header>
         <section className="mt-12 flex flex-col items-center gap-4 px-4 text-center">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          <span className="eyebrow text-ink-muted">
             Private plan
           </span>
           <h1 className="font-serif text-2xl font-semibold text-ink sm:text-3xl">
@@ -371,7 +370,6 @@ export default async function PlanDetailPage({
             you&rsquo;d like to join.
           </p>
         </section>
-        <BottomTabs slug={circle.slug} />
       </main>
     );
   }
@@ -599,14 +597,25 @@ export default async function PlanDetailPage({
         <section className="flex flex-col gap-3">
           <span
             className={
-              "text-[11px] font-semibold uppercase tracking-[0.18em] " +
+              "inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 eyebrow tracking-[0.12em] " +
               (status.tone === "confirmed"
-                ? "text-in"
+                ? "bg-in-soft text-in-strong"
                 : status.tone === "deciding"
-                  ? "text-coral"
-                  : "text-ink-muted")
+                  ? "bg-coral-soft text-coral-strong"
+                  : "bg-paper text-ink-muted ring-1 ring-ink-subtle")
             }
           >
+            {status.tone === "deciding" ? (
+              // Same pulsing live-dot as the featured card so the visual
+              // language for "decision in progress" is consistent across
+              // surfaces. Plain check for confirmed; nothing for done/cancelled.
+              <span
+                aria-hidden
+                className="size-1.5 rounded-full bg-coral animate-pulse-soft"
+              />
+            ) : status.tone === "confirmed" ? (
+              <span aria-hidden>✓</span>
+            ) : null}
             {status.label}
           </span>
           <h1
@@ -614,6 +623,7 @@ export default async function PlanDetailPage({
               "font-serif text-3xl font-semibold leading-tight text-ink sm:text-4xl " +
               (plan.status === "cancelled" ? "line-through opacity-60" : "")
             }
+            style={{ viewTransitionName: `plan-title-${plan.id}` }}
           >
             {plan.title}
           </h1>
@@ -818,7 +828,7 @@ export default async function PlanDetailPage({
         />
 
         <section className="flex flex-1 flex-col gap-3 border-t border-ink/10 pt-6">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          <h2 className="eyebrow text-ink-muted">
             Discussion
           </h2>
           <Suspense fallback={<PlanCommentsSkeleton />}>
@@ -830,7 +840,6 @@ export default async function PlanDetailPage({
             />
           </Suspense>
         </section>
-        <BottomTabs slug={circle.slug} />
       </main>
     </CircleVotesProvider>
   );
@@ -838,10 +847,16 @@ export default async function PlanDetailPage({
 
 function NotInvitedNote({ creatorName }: { creatorName: string | null }) {
   return (
-    <p className="rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-4 py-3 text-sm text-ink-muted">
-      You weren&rsquo;t invited to this one — ask{" "}
-      {creatorName ?? "the creator"} to add you.
-    </p>
+    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-6 py-8 text-center">
+      <span className="eyebrow text-ink-muted">Not on the list</span>
+      <p className="font-serif text-lg text-ink">
+        Ask{" "}
+        <em className="font-serif italic font-normal text-coral">
+          {creatorName ?? "the creator"}
+        </em>{" "}
+        to add you.
+      </p>
+    </div>
   );
 }
 
@@ -857,7 +872,7 @@ function DecisionAdditions({
   });
   return (
     <section className="flex flex-col gap-2">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+      <span className="eyebrow text-ink-muted">
         Plus
       </span>
       <ul className="flex flex-col divide-y divide-ink/5 rounded-xl border border-ink/10 bg-paper-card/40">
@@ -925,7 +940,7 @@ function LockFooter({
     label = `Plan locks when ${lockThreshold}+ are in`;
   }
   return (
-    <p className="pt-1 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+    <p className="pt-1 text-center eyebrow text-ink-muted">
       {label}
     </p>
   );

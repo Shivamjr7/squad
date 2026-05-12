@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { SignInButton, SignUpButton } from "@clerk/nextjs";
+import { SquadLogo } from "@/components/brand/squad-logo";
 
 export function LandingNav() {
   return (
-    <header className="sticky top-0 z-40 border-b border-ink/8 bg-paper/85 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-ink-subtle bg-paper/80 backdrop-blur-md">
       <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5">
-        <Link href="/" className="flex items-center gap-2 font-serif text-lg font-semibold text-ink">
-          <span aria-hidden className="inline-block size-2 rounded-full bg-coral" />
-          Squad
+        <Link
+          href="/"
+          aria-label="Squad — home"
+          className="flex items-center gap-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-ink transition-opacity hover:opacity-80"
+        >
+          <SquadLogo className="size-5 text-coral" />
+          SQUAD
         </Link>
         <div className="hidden items-center gap-7 text-sm text-ink-muted md:flex">
           <a href="#how-it-works" className="hover:text-ink">How it works</a>

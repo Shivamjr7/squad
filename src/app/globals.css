@@ -4,50 +4,84 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Paper-and-ink base — warm cream page, white cards, warm-tinted text */
-  --paper: oklch(0.957 0.013 80);
-  --paper-card: oklch(1 0 0);
-  --ink: oklch(0.20 0.02 60);
-  --ink-muted: oklch(0.55 0.02 60);
+  /* Midnight Squad — dark-first theme. "Paper" is now midnight; cards
+     are lifted dark surfaces; "ink" is bright off-white. Tokens keep
+     their semantic names so component code doesn't need to relearn
+     the language — only the values flipped. */
+  --paper: oklch(0.155 0.015 280);
+  --paper-card: oklch(0.205 0.014 280);     /* lifted card surface */
+  --paper-elevated: oklch(0.245 0.012 280); /* popovers, sheets, overlays */
+  --ink: oklch(0.965 0.006 95);             /* bright off-white text */
+  --ink-muted: oklch(0.68 0.012 95);        /* dim grey body text */
+  --ink-subtle: oklch(0.30 0.012 280);      /* hairline borders, visible on dark */
 
-  /* Coral accent — italic "squad?" + DECIDING pill */
-  --coral: oklch(0.70 0.15 25);
-  --coral-soft: oklch(0.93 0.05 25);
+  /* Coral accent — electric on dark. Brighter + more chroma than the
+     light theme so it cuts through midnight without needing a glow. */
+  --coral: oklch(0.74 0.22 28);
+  --coral-soft: oklch(0.30 0.10 28);        /* dim coral chip bg on dark */
+  --coral-strong: oklch(0.85 0.18 28);      /* readable on --coral-soft */
 
-  /* Vote / status semantic */
-  --in: oklch(0.66 0.16 145);
-  --in-soft: oklch(0.94 0.06 145);
-  --maybe: oklch(0.83 0.15 85);
-  --maybe-soft: oklch(0.95 0.06 85);
-  --out: oklch(0.65 0.18 25);
-  --out-soft: oklch(0.94 0.06 25);
+  /* Vote / status semantic — bright on midnight bg; -soft = dim chip bg
+     against dark; -strong = bright text on -soft. White on base passes
+     WCAG large-text 3:1; dark text on bright base (maybe) is high
+     contrast and intentional. */
+  --in: oklch(0.74 0.22 148);
+  --in-soft: oklch(0.28 0.10 148);
+  --in-strong: oklch(0.82 0.16 148);
+  --maybe: oklch(0.84 0.18 80);
+  --maybe-soft: oklch(0.32 0.12 78);
+  --maybe-strong: oklch(0.88 0.16 80);
+  --out: oklch(0.68 0.25 25);
+  --out-soft: oklch(0.30 0.12 25);
+  --out-strong: oklch(0.82 0.20 25);
 
-  /* Plan-type bars (compact upcoming list) */
-  --type-eat: #4CAF50;
-  --type-play: #2196F3;
-  --type-chai: #FF9800;
-  --type-stay-in: #9E9E9E;
-  --type-other: #9E9E9E;
+  /* Plan-type bars — bright variants so they read on the upcoming-strip
+     row against the midnight bg. */
+  --type-eat: oklch(0.72 0.18 145);
+  --type-play: oklch(0.72 0.17 248);
+  --type-chai: oklch(0.78 0.18 65);
+  --type-stay-in: oklch(0.66 0.012 280);
+  --type-other: oklch(0.66 0.012 280);
+
+  /* Elevation scale — dark theme uses depth via darker shadows + a
+     subtle inner highlight. Cards lift via shadow + a border-ink/5
+     hairline so the edge catches light. */
+  --shadow-card:
+    0 1px 2px rgba(0, 0, 0, 0.30),
+    0 8px 24px -12px rgba(0, 0, 0, 0.45);
+  --shadow-card-raised:
+    0 1px 2px rgba(0, 0, 0, 0.40),
+    0 16px 40px -16px rgba(0, 0, 0, 0.55);
+  --shadow-card-hero:
+    0 2px 6px rgba(0, 0, 0, 0.40),
+    0 32px 64px -32px rgba(0, 0, 0, 0.65);
+  --shadow-float: 0 10px 28px -10px rgba(0, 0, 0, 0.55);
+
+  /* Coral glow — used on the featured card focus state and the FAB,
+     gives the "electric brand" feel without animation cost. */
+  --shadow-glow-coral:
+    0 0 0 1px oklch(0.74 0.22 28 / 0.25),
+    0 0 28px -4px oklch(0.74 0.22 28 / 0.45);
 
   --background: var(--paper);
   --foreground: var(--ink);
   --card: var(--paper-card);
   --card-foreground: var(--ink);
-  --popover: var(--paper-card);
+  --popover: var(--paper-elevated);
   --popover-foreground: var(--ink);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--paper-card);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-card);
   --muted-foreground: var(--ink-muted);
   --accent: var(--coral-soft);
-  --accent-foreground: var(--coral);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.92 0.01 80);
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.704 0.04 256.788);
+  --accent-foreground: var(--coral-strong);
+  --destructive: var(--out);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: var(--ink-subtle);
+  --input: var(--paper-card);
+  --ring: var(--coral);
   --radius: 0.625rem;
 }
 
@@ -79,24 +113,90 @@
   --color-coral-soft: var(--coral-soft);
   --color-in: var(--in);
   --color-in-soft: var(--in-soft);
+  --color-in-strong: var(--in-strong);
   --color-maybe: var(--maybe);
   --color-maybe-soft: var(--maybe-soft);
+  --color-maybe-strong: var(--maybe-strong);
   --color-out: var(--out);
   --color-out-soft: var(--out-soft);
+  --color-out-strong: var(--out-strong);
+  --color-coral-strong: var(--coral-strong);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-type-eat: var(--type-eat);
+  --color-type-play: var(--type-play);
+  --color-type-chai: var(--type-chai);
+  --color-type-stay-in: var(--type-stay-in);
+  --color-type-other: var(--type-other);
+  --color-paper-elevated: var(--paper-elevated);
   --font-serif: var(--font-serif);
   --font-instrument-serif: var(--font-instrument-serif);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --shadow-card: var(--shadow-card);
+  --shadow-card-raised: var(--shadow-card-raised);
+  --shadow-card-hero: var(--shadow-card-hero);
+  --shadow-float: var(--shadow-float);
+  --shadow-glow-coral: var(--shadow-glow-coral);
+  --animate-pulse-soft: pulse-soft 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* A quieter pulse than Tailwind's default (which dips to 0.5 opacity) —
+   reads as "alive but not nagging" on the Deciding dot. Respects reduced
+   motion by collapsing to a static state. */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-soft { animation: none; }
+}
+
+/* Eyebrow — the small uppercase label used above sections, cards, and
+   chips. Two sizes converge on the dominant patterns previously copied
+   inline ~40 places. Color intentionally NOT baked in — pair with
+   text-ink-muted, text-coral, text-in, etc. so callers can change tone
+   without specificity battles. */
+@utility eyebrow {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+@utility eyebrow-sm {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 @layer base {
   * {
     border-color: var(--border);
   }
+  /* Body — midnight base + two atmospheric radial glows that suggest
+     evening light. Coral at top-right (the brand evening sun), deep
+     indigo at bottom-left (the night settling in). background-attachment:
+     fixed keeps the lighting still while content scrolls. */
   body {
     background-color: var(--background);
+    background-image:
+      radial-gradient(
+        ellipse 80% 60% at 100% 0%,
+        oklch(0.45 0.20 28 / 0.30),
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 70% 50% at 0% 100%,
+        oklch(0.35 0.15 270 / 0.35),
+        transparent 60%
+      );
+    background-attachment: fixed;
     color: var(--foreground);
   }
 }

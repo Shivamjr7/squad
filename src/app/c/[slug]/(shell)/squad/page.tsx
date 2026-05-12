@@ -83,7 +83,7 @@ export default async function SquadPage({
       <div className="px-4 pt-6 sm:px-6">
         <div className="space-y-6">
           <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+            <span className="eyebrow text-ink-muted">
               Squad
             </span>
             <h1 className="font-serif text-[32px] leading-[1.1] font-semibold text-ink sm:text-[36px]">

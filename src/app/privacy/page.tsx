@@ -15,7 +15,7 @@ export default function PrivacyPage() {
       </h1>
       <p className="text-base leading-relaxed text-ink">
         We store your name, email, and avatar from Google. We store the plans, votes, and comments you create. We don’t share data with anyone. Email{" "}
-        <a href="mailto:shivam@squad.app" className="text-coral underline-offset-2 hover:underline">
+        <a href="mailto:shivam@squad.app" className="text-coral-strong underline-offset-2 hover:underline">
           shivam@squad.app
         </a>{" "}
         to delete your account.

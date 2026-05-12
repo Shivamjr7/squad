@@ -11,7 +11,19 @@
   .no-print {
     display: none !important;
   }
+  /* Override the dark-theme tokens within the receipt during print so the
+     "ticket stub" prints as black ink on white paper, not bright ink on
+     transparent card. Cascading via CSS custom props means every
+     `text-ink` / `text-ink-muted` / `bg-paper-card` inside the receipt
+     flips for free. */
   .plan-receipt {
+    --ink: #15151c;
+    --ink-muted: #5a5a66;
+    --ink-subtle: rgba(0, 0, 0, 0.18);
+    --paper-card: #ffffff;
+    --paper-elevated: #ffffff;
+    background: #ffffff !important;
+    color: #15151c !important;
     box-shadow: none !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
     margin: 0 auto;
