@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { PerformanceDashboard } from "@/components/optimized/performance-dashboard";
 // @ts-expect-error -- unstable_ViewTransition is provided by the experimental React channel that Next swaps in when experimental.viewTransition is enabled
 import { unstable_ViewTransition as ViewTransition } from "react";
 import "./globals.css";
@@ -94,6 +95,7 @@ export default function RootLayout({
             <ViewTransition>{children}</ViewTransition>
             <Toaster richColors closeButton />
             <ServiceWorkerRegister />
+            <PerformanceDashboard />
           </ThemeProvider>
         </body>
       </html>

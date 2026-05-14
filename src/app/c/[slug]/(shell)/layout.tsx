@@ -6,8 +6,9 @@ import {
   getCircleMemberActivity,
   getCircleMembers,
   getUserCircles,
+  type CircleMemberRow,
 } from "@/lib/circles";
-import { AppShell } from "@/components/layout/AppShell";
+import { OptimizedAppShell } from "@/components/optimized/optimized-app-shell";
 import type { SidebarMember } from "@/components/layout/Sidebar";
 import { getUnreadCount } from "@/lib/actions/notifications";
 
@@ -25,19 +26,8 @@ export default async function CircleShellLayout({
   const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
-  // Critical path: members + userCircles (Sidebar needs identities + the
-  // circle switcher needs the list). These two block layout render.
-  const [memberRows, userCircles] = await Promise.all([
-    getCircleMembers(circle.id),
-    getUserCircles(userId),
-  ]);
-
-  // Non-critical: bell badge count + recent-activity stamps. Pass as
-  // promises so they stream into the Sidebar via React's `use()` +
-  // Suspense, not blocking layout render. .catch() on unread keeps
-  // transient DB hiccups from blowing up the whole layout.
-  const unreadInboxPromise = getUnreadCount().catch(() => 0);
-  const activityPromise = getCircleMemberActivity(circle.id);
+  // Critical path: members (Sidebar needs identities). This blocks layout render.
+  const memberRows = await getCircleMembers(circle.id) as CircleMemberRow[];
 
   const sidebarMembers: SidebarMember[] = memberRows
     .map((m) =>
@@ -52,15 +42,13 @@ export default async function CircleShellLayout({
     .filter((m): m is SidebarMember => m !== null);
 
   return (
-    <AppShell
+    <OptimizedAppShell
       currentSlug={slug}
-      circles={userCircles}
+      userId={userId}
       members={sidebarMembers}
       nowMs={Date.now()}
-      unreadInboxPromise={unreadInboxPromise}
-      activityPromise={activityPromise}
     >
       {children}
-    </AppShell>
+    </OptimizedAppShell>
   );
 }

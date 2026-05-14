@@ -9,6 +9,7 @@ import {
   getCircleBySlug,
   getCircleMembers,
   getUserCircles,
+  type CircleMemberRow,
 } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 import {
@@ -34,7 +35,7 @@ export default async function MyPlansRoute({
   // resolved from memberRows below instead of a separate query.
   const [userCircles, memberRows] = await Promise.all([
     getUserCircles(userId),
-    getCircleMembers(circle.id),
+    getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
   ]);
   const membership = memberRows.find((m) => m.userId === userId)
     ? { role: memberRows.find((m) => m.userId === userId)!.role }

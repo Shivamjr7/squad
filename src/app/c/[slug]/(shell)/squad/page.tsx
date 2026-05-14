@@ -15,6 +15,7 @@ import {
   getCircleMembers,
   getKnownSquadUsers,
   getUserCircles,
+  type CircleMemberRow,
 } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 
@@ -33,7 +34,7 @@ export default async function SquadPage({
 
   // memberRows + userCircles cache-hit from shell layout; only `invites` runs.
   const [memberRows, activeInvites, userCircles] = await Promise.all([
-    getCircleMembers(circle.id),
+    getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
     db.query.invites.findMany({
       columns: { code: true },
       where: eq(invites.circleId, circle.id),
@@ -57,7 +58,11 @@ export default async function SquadPage({
       displayName: m.user!.displayName,
       avatarUrl: m.user!.avatarUrl,
       role: m.role,
-      joinedAt: m.joinedAt.toISOString(),
+      joinedAt: m.joinedAt
+        ? typeof m.joinedAt === "string"
+          ? m.joinedAt
+          : m.joinedAt.toISOString()
+        : new Date().toISOString(),
     }));
 
   return (

@@ -70,6 +70,7 @@ import {
   getCircleBySlug,
   getCircleMembers,
   getUserCircles,
+  type CircleMemberRow,
 } from "@/lib/circles";
 import {
   CircleVotesProvider,
@@ -165,7 +166,7 @@ export default async function PlanDetailPage({
   if (!initialPlan || initialPlan.circleId !== circle.id) notFound();
 
   // Members are layout-cached so this is request-scoped free.
-  const memberRows = await getCircleMembers(circle.id);
+  const memberRows = await getCircleMembers(circle.id) as CircleMemberRow[];
   const me = memberRows.find((m) => m.userId === userId);
   if (!me) notFound();
 

@@ -41,6 +41,8 @@ import {
   getCircleMemberActivity,
   getCircleMembers,
   getUserCircles,
+  type CircleMemberRow,
+  type UserCircle,
 } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 import { buildMapsUrl } from "@/lib/maps";
@@ -108,8 +110,8 @@ export default async function CircleHomePage({
   // memberRows + userCircles are already cached at the layout level (same
   // request), so these calls hit the cache. pushRows is page-specific.
   const [memberRows, userCircles, pushRows] = await Promise.all([
-    getCircleMembers(circle.id),
-    getUserCircles(userId),
+    getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
+    getUserCircles(userId) as Promise<UserCircle[]>,
     db
       .select({ id: pushSubscriptions.id })
       .from(pushSubscriptions)
@@ -320,7 +322,9 @@ export default async function CircleHomePage({
             userId: m.user.id,
             displayName: m.user.displayName,
             avatarUrl: m.user.avatarUrl,
-            lastActiveAt: lastActiveByUser.get(m.user.id) ?? null,
+            lastActiveAt: lastActiveByUser[m.user.id]
+              ? new Date(lastActiveByUser[m.user.id])
+              : null,
           }
         : null,
     )
