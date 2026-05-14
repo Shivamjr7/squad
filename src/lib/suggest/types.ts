@@ -1,0 +1,210 @@
+// Suggest Plan — pure type definitions for the recommendation pipeline.
+// Compile-time only; no runtime side effects. See docs/specs/suggest-plan/
+// 04-domain-model.md for the source of truth.
+
+// ─── Literal-union sources (also re-used by validation/suggest.ts) ──────
+
+export const ACTIVITY_CATEGORIES = [
+  "restaurant",
+  "cafe",
+  "movie",
+  "event",
+  "indoor",
+  "outdoor",
+  "short_trip",
+] as const;
+export type ActivityCategory = (typeof ACTIVITY_CATEGORIES)[number];
+
+export const PRICE_TIERS = ["$", "$$", "$$$", "$$$$"] as const;
+export type PriceTier = (typeof PRICE_TIERS)[number];
+
+// Budget tier is the client-supplied subset of PriceTier — $$$$ is provider-
+// labelled only, not user-selectable.
+export const BUDGET_TIERS = ["$", "$$", "$$$"] as const;
+export type BudgetTier = (typeof BUDGET_TIERS)[number];
+
+export const CONFIDENCE_LEVELS = ["high", "medium", "low"] as const;
+export type Confidence = (typeof CONFIDENCE_LEVELS)[number];
+
+export const WEATHER_SENSITIVITY = ["indoor", "outdoor", "either"] as const;
+export type WeatherSensitivity = (typeof WEATHER_SENSITIVITY)[number];
+
+export const WEATHER_CONDITIONS = [
+  "clear",
+  "cloudy",
+  "rain",
+  "storm",
+  "snow",
+  "hot",
+  "cold",
+  "mild",
+] as const;
+export type WeatherConditions = (typeof WEATHER_CONDITIONS)[number];
+
+// Mirrors the SuggestionFeedback union in 04-domain-model.md. `won` and
+// `cancelled` are server-written only (see 05-api-contracts.md §recordFeedback).
+export const SUGGESTION_FEEDBACK = [
+  "add",
+  "reject",
+  "refresh",
+  "won",
+  "cancelled",
+] as const;
+export type SuggestionFeedback = (typeof SUGGESTION_FEEDBACK)[number];
+
+// ─── Domain shapes ──────────────────────────────────────────────────────
+
+/** Weekly opening hours keyed by ISO weekday (1=Mon..7=Sun). */
+export type OpeningHours = {
+  weekly: Record<number, Array<{ open: string; close: string }>>;
+  timeZone: string;
+};
+
+/** Normalized, provider-agnostic activity record. */
+export type Activity = {
+  /** Provider-stable opaque id, prefixed: 'gp:…', 'tmdb:…', 'evb:…'. */
+  id: string;
+  provider: string;
+  category: ActivityCategory;
+  name: string;
+  description?: string;
+  url?: string;
+  geo?: { lat: number; lng: number };
+  address?: string;
+  /** Computed in pipeline normalize step; providers leave it undefined. */
+  distanceMeters?: number;
+  priceTier?: PriceTier;
+  rating?: { score: number; count: number };
+  openingHours?: OpeningHours;
+  imageUrl?: string;
+  tags?: string[];
+  weatherSensitivity?: WeatherSensitivity;
+  family?: {
+    /** ISO timestamps. */
+    showtimes?: string[];
+    venue?: string;
+  };
+};
+
+export type WeatherSnapshot = {
+  conditions: WeatherConditions;
+  tempC: number;
+  precipitationMm: number;
+  source: string;
+  /** ISO timestamp. */
+  fetchedAt: string;
+};
+
+export type GroupPreferenceProfile = {
+  circleId: string;
+  /** Subset of recipientUserIds the aggregation considered. */
+  cohort: string[];
+  /** Affinity values in [-1, 1]; 0 = neutral. */
+  cuisineAffinity: Record<string, number>;
+  categoryAffinity: Partial<Record<ActivityCategory, number>>;
+  priceAffinity: Partial<Record<PriceTier, number>>;
+  /** Anti-signal: venues/categories recently used. */
+  recentVenueLabels: Array<{ label: string; lastUsedAt: string }>;
+  /** Hard exclusions — only populated if explicitly set (v2-shaped). */
+  hardExclusions?: string[];
+  /** ISO timestamp. */
+  computedAt: string;
+};
+
+/** Pulled out of SuggestionContext so ProviderSearchInput can reference the
+ * same definition without cross-type indexing. */
+export type TimeWindow = {
+  /** ISO. */
+  startsAtUtc: string;
+  /** ISO. */
+  endsAtUtc: string;
+  isApproximate: boolean;
+  timeZone: string;
+};
+
+export type SuggestionContext = {
+  circleId: string;
+  /** Requester. */
+  userId: string;
+  /** Mirrors PLAN.md plan_type enum. */
+  planType: "eat" | "play" | "chai" | "stay-in" | "other";
+  /** Resolved server-side from planType. */
+  categories: ActivityCategory[];
+  timeWindow: TimeWindow;
+  geo?: { lat: number; lng: number; accuracyMeters?: number };
+  circleCentroid?: { lat: number; lng: number };
+  distanceKmCap: number;
+  budgetTier?: BudgetTier;
+  excludeIds: string[];
+  /** [] = whole circle (M23 back-compat). */
+  recipientUserIds: string[];
+  weather?: WeatherSnapshot;
+  groupPreferences: GroupPreferenceProfile;
+  /** Idempotency key; client-generated uuid v4. */
+  requestNonce: string;
+};
+
+export type ScoreBreakdown = {
+  distance: number;
+  preference: number;
+  weather: number;
+  recency: number;
+  budget: number;
+  hours: number;
+  popularity: number;
+  /** Pre-clamp weighted sum, for debugging. */
+  raw: number;
+};
+
+export type RankedResult = {
+  /** `suggestion_log_items.id` (our uuid) — NOT `Activity.id`. */
+  id: string;
+  activity: Activity;
+  /** Normalized 0..1. */
+  score: number;
+  breakdown: ScoreBreakdown;
+  /** One-line, user-facing string generated by the explain step. */
+  explanation: string;
+  confidence: Confidence;
+  /** Provider name; mirrors Activity.provider. */
+  provider: string;
+};
+
+export type RecommendationResult = {
+  suggestionLogId: string;
+  /** ISO. */
+  generatedAt: string;
+  results: RankedResult[];
+  degraded?: Array<{ provider: string; reason: string }>;
+};
+
+// ─── Provider abstractions ──────────────────────────────────────────────
+
+export type ProviderSearchInput = {
+  categories: ActivityCategory[];
+  centroid: { lat: number; lng: number };
+  radiusMeters: number;
+  timeWindow: TimeWindow;
+  budgetTier?: BudgetTier;
+  excludeIds?: string[];
+  /** Soft cap; provider may return fewer. */
+  limit: number;
+};
+
+export type ProviderHealth = "ok" | "degraded" | "down";
+
+export interface SuggestionProvider {
+  readonly name: string;
+  readonly categories: ActivityCategory[];
+  search(input: ProviderSearchInput, signal: AbortSignal): Promise<Activity[]>;
+  health?(): Promise<ProviderHealth>;
+}
+
+export interface WeatherProvider {
+  readonly name: string;
+  forecast(
+    at: { lat: number; lng: number },
+    timeWindow: TimeWindow,
+    signal: AbortSignal,
+  ): Promise<WeatherSnapshot | null>;
+}
