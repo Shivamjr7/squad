@@ -4,7 +4,8 @@ export type ActionErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "INVALID"
-  | "EXPIRED";
+  | "EXPIRED"
+  | "RATE_LIMITED";
 
 export class ActionError extends Error {
   constructor(
