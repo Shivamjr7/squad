@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -152,6 +153,13 @@ export const circles = pgTable(
     createdBy: text("created_by").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Suggest Plan S1 — persistent "home area" used as circleCentroid fallback
+    // when the user denies geolocation. All nullable / defaulted; existing
+    // circles keep working with no centroid until an admin sets one.
+    homeLocationText: text("home_location_text"),
+    homeLat: doublePrecision("home_lat"),
+    homeLng: doublePrecision("home_lng"),
+    homeRadiusKm: integer("home_radius_km").notNull().default(5),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -333,6 +341,17 @@ export const planVenues = pgTable(
     suggestedBy: text("suggested_by").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Suggest Plan S1 — provenance + provider link. `source='suggestion'`
+    // lights up the sparkle marker on the venue chip and ties the row back
+    // into suggestion_log_items for won/cancelled feedback writes (S7).
+    source: text("source").notNull().default("manual"),
+    suggestionItemId: uuid("suggestion_item_id").references(
+      () => suggestionLogItems.id,
+      { onDelete: "set null" },
+    ),
+    externalId: text("external_id"),
+    externalUrl: text("external_url"),
+    externalGeo: jsonb("external_geo").$type<{ lat: number; lng: number } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -487,6 +506,125 @@ export const comments = pgTable(
   }),
 );
 
+// ─── Suggest Plan (S1) ──────────────────────────────────────────────────
+
+// Aggregated taste / behavior signal per circle. Source of truth for the
+// `GroupPreferenceProfile` view in the suggestion pipeline. Updated lazily —
+// not real-time. `weight` is stored scaled ×1000 so we can keep it as an
+// indexable int while preserving 3-decimal precision (range ±1000 for
+// affinities, 0..1000 for recency).
+export const circlePreferenceSignals = pgTable(
+  "circle_preference_signals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    circleId: uuid("circle_id")
+      .notNull()
+      .references(() => circles.id, { onDelete: "cascade" }),
+    signalKind: text("signal_kind").notNull(),
+    signalKey: text("signal_key").notNull(),
+    weight: integer("weight").notNull(),
+    cohort: jsonb("cohort").$type<string[] | null>(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    kindKeyUnique: uniqueIndex("circle_pref_kind_key_idx").on(
+      table.circleId,
+      table.signalKind,
+      table.signalKey,
+    ),
+  }),
+);
+
+// One row per getSuggestions call. Full reproducibility — the stored context
+// snapshot lets us re-rank offline without re-hitting providers. PII is
+// scrubbed before insert (lat/lng → geohash-6) in the pipeline; this table
+// trusts that contract.
+export const suggestionLogs = pgTable(
+  "suggestion_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    circleId: uuid("circle_id")
+      .notNull()
+      .references(() => circles.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // Set lazily when a plan is eventually created from the suggestion. Plan
+    // deletion nullifies (not cascades) so feedback history survives.
+    planId: uuid("plan_id").references(() => plans.id, { onDelete: "set null" }),
+    requestNonce: uuid("request_nonce").notNull(),
+    context: jsonb("context").notNull(),
+    weights: jsonb("weights").notNull(),
+    degraded: jsonb("degraded"),
+    outcome: text("outcome").notNull().default("served"),
+    generatedAt: timestamp("generated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userNonceUnique: uniqueIndex("suggestion_logs_user_nonce_unique").on(
+      table.userId,
+      table.requestNonce,
+    ),
+    circleCreatedIdx: index("suggestion_logs_circle_created_idx").on(
+      table.circleId,
+      table.generatedAt,
+    ),
+  }),
+);
+
+// One row per surfaced result. `score` is stored scaled ×1000 to match
+// `circle_preference_signals.weight`.
+export const suggestionLogItems = pgTable(
+  "suggestion_log_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    logId: uuid("log_id")
+      .notNull()
+      .references(() => suggestionLogs.id, { onDelete: "cascade" }),
+    rank: integer("rank").notNull(),
+    activity: jsonb("activity").notNull(),
+    breakdown: jsonb("breakdown").notNull(),
+    score: integer("score").notNull(),
+    // 'add' | 'reject' | 'refresh' | 'won' | 'cancelled'
+    feedback: text("feedback"),
+    feedbackAt: timestamp("feedback_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+  },
+  (table) => ({
+    logRankIdx: index("suggestion_log_items_log_rank_idx").on(
+      table.logId,
+      table.rank,
+    ),
+    feedbackIdx: index("suggestion_log_items_feedback_idx").on(table.feedback),
+  }),
+);
+
+// Provider response cache. `key` is sha256(provider + canonical(input)).
+// `value` stores the normalized payload only — never raw provider JSON.
+// `metadata` carries the coarse daily call counter used for cost capping.
+export const providerCache = pgTable(
+  "provider_cache",
+  {
+    key: text("key").primaryKey(),
+    provider: text("provider").notNull(),
+    value: jsonb("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" })
+      .notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    expiresIdx: index("provider_cache_expires_idx").on(table.expiresAt),
+  }),
+);
+
 // ─── Relations ──────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -525,6 +663,8 @@ export const circlesRelations = relations(circles, ({ one, many }) => ({
   memberships: many(memberships),
   invites: many(invites),
   plans: many(plans),
+  preferenceSignals: many(circlePreferenceSignals),
+  suggestionLogs: many(suggestionLogs),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -599,6 +739,10 @@ export const planVenuesRelations = relations(planVenues, ({ one, many }) => ({
     references: [users.id],
   }),
   votes: many(planVenueVotes),
+  suggestionItem: one(suggestionLogItems, {
+    fields: [planVenues.suggestionItemId],
+    references: [suggestionLogItems.id],
+  }),
 }));
 
 export const planVenueVotesRelations = relations(planVenueVotes, ({ one }) => ({
@@ -681,3 +825,42 @@ export const commentsRelations = relations(comments, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+export const circlePreferenceSignalsRelations = relations(
+  circlePreferenceSignals,
+  ({ one }) => ({
+    circle: one(circles, {
+      fields: [circlePreferenceSignals.circleId],
+      references: [circles.id],
+    }),
+  }),
+);
+
+export const suggestionLogsRelations = relations(
+  suggestionLogs,
+  ({ one, many }) => ({
+    circle: one(circles, {
+      fields: [suggestionLogs.circleId],
+      references: [circles.id],
+    }),
+    user: one(users, {
+      fields: [suggestionLogs.userId],
+      references: [users.id],
+    }),
+    plan: one(plans, {
+      fields: [suggestionLogs.planId],
+      references: [plans.id],
+    }),
+    items: many(suggestionLogItems),
+  }),
+);
+
+export const suggestionLogItemsRelations = relations(
+  suggestionLogItems,
+  ({ one }) => ({
+    log: one(suggestionLogs, {
+      fields: [suggestionLogItems.logId],
+      references: [suggestionLogs.id],
+    }),
+  }),
+);
