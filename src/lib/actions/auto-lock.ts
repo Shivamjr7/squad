@@ -10,6 +10,7 @@ import {
   planVenueVotes,
   planVenues,
   plans,
+  suggestionLogItems,
   votes,
 } from "@/db/schema";
 import { sendPlanLockedEmail } from "@/lib/email";
@@ -172,12 +173,18 @@ export async function tryAutoLock(
       id: planVenues.id,
       label: planVenues.label,
       createdAt: planVenues.createdAt,
+      source: planVenues.source,
+      suggestionItemId: planVenues.suggestionItemId,
     })
     .from(planVenues)
     .where(eq(planVenues.planId, planId))
     .orderBy(asc(planVenues.createdAt));
 
   let canonicalLocation = plan.location;
+  // S7 — track the winning venue row across the if-block so the post-flip
+  // hook can write feedback='won' on its suggestion item. Single-venue
+  // (plans.location-only) plans leave this null and skip the hook.
+  let winningVenue: (typeof venueRows)[number] | null = null;
   if (venueRows.length > 0) {
     const venueCounts = await db
       .select({
@@ -215,6 +222,7 @@ export async function tryAutoLock(
       };
     }
     canonicalLocation = leader.label;
+    winningVenue = leader;
   }
 
   // ─── Atomic flip ──────────────────────────────────────────────────────
@@ -251,6 +259,23 @@ export async function tryAutoLock(
       trigger,
     },
   });
+
+  // S7 — if the winning venue came from a suggestion, close the loop on
+  // the corresponding suggestion_log_item. Best-effort: a failed write
+  // must not break the lock-confirmation fanout below.
+  if (winningVenue?.source === "suggestion" && winningVenue.suggestionItemId) {
+    const itemId = winningVenue.suggestionItemId;
+    void (async () => {
+      try {
+        await db
+          .update(suggestionLogItems)
+          .set({ feedback: "won", feedbackAt: new Date() })
+          .where(eq(suggestionLogItems.id, itemId));
+      } catch (err) {
+        console.error("[auto-lock] suggestion feedback=won failed", err);
+      }
+    })();
+  }
 
   const circle = await db.query.circles.findFirst({
     columns: { slug: true },

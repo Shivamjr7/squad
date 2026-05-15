@@ -34,7 +34,7 @@ import {
   SquadPulseInline,
   type PulseMember,
 } from "@/components/circle/squad-pulse";
-import { QuickNudge } from "@/components/circle/quick-nudge";
+import { SuggestPanel } from "@/components/circle/suggest-panel";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import {
   getCircleBySlug,
@@ -447,9 +447,15 @@ export default async function CircleHomePage({
               <InstallBanner />
               <EnablePushBanner hasAnySubscription={hasAnyPushSubscription} />
 
-              {/* Mobile-only Quick Nudge — desktop sees it in the right rail. */}
+              {/* Mobile-only Suggest panel — desktop sees it in the right rail.
+                  Replaces the M28 QuickNudge with the S6 suggest drawer entry. */}
               <div className="lg:hidden">
-                <QuickNudge />
+                <SuggestPanel
+                  circleId={circle.id}
+                  slug={circle.slug}
+                  members={formMembers}
+                  currentUserId={userId}
+                />
               </div>
 
               {restUpcoming.length > 0 ? (
@@ -514,7 +520,12 @@ export default async function CircleHomePage({
 
           <aside className="hidden flex-col gap-4 lg:order-2 lg:flex">
             <SquadPulse members={pulseMembers} now={now} />
-            <QuickNudge />
+            <SuggestPanel
+              circleId={circle.id}
+              slug={circle.slug}
+              members={formMembers}
+              currentUserId={userId}
+            />
           </aside>
         </div>
       </CircleVotesProvider>

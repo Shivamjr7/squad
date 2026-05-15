@@ -10,7 +10,9 @@ export type PlanEventKind =
   | "proposed_venue"
   | "added_member"
   | "locked"
-  | "cancelled";
+  | "cancelled"
+  | "suggestion_added"
+  | "suggestion_rejected";
 
 // Append one row to plan_events. Best-effort: failures are swallowed and
 // logged because the activity log is secondary — losing an event must not

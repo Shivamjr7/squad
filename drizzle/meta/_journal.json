@@ -127,6 +127,20 @@
       "when": 1778600000000,
       "tag": "0017_perf_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1778759644299,
+      "tag": "0018_flat_mulholland_black",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1778813067348,
+      "tag": "0019_wooden_random",
+      "breakpoints": true
     }
   ]
 }

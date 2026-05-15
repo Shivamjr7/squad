@@ -220,13 +220,86 @@ The following columns are added to `plans` in M19 / M22:
 - `payload` (jsonb — details, e.g. `{"vote": "in"}` or `{"time": "8:30 PM"}`)
 - `created_at` (timestamp)
 
+### Suggest Plan additions — S1 (circles table)
+
+Persistent geo + radius for the circle's "home" area. Powers `circleCentroid` fallback in the suggestion pipeline when the user denies geolocation. All nullable / defaulted — back-compat for existing circles.
+
+- `home_location_text` (text, nullable) — human label, e.g. "Banjara Hills"
+- `home_lat` (double precision, nullable)
+- `home_lng` (double precision, nullable)
+- `home_radius_km` (int, default 5)
+
+### Suggest Plan additions — S1 (plan_venues table)
+
+Tracks venue provenance so we can distinguish manually-typed venues from suggestion-sourced ones, and close the feedback loop when a suggestion-sourced venue wins / gets cancelled.
+
+- `source` (text, default `manual`) — `manual` | `suggestion`
+- `suggestion_item_id` (uuid, FK suggestion_log_items.id, **ON DELETE SET NULL**) — feedback target for `won` / `cancelled` writes
+- `external_id` (text, nullable) — provider-stable id, e.g. `gp:ChIJ…`
+- `external_url` (text, nullable)
+- `external_geo` (jsonb, nullable) — `{ lat, lng }`
+
+### `circle_preference_signals` (Suggest Plan S1)
+
+Aggregated taste / behavior signal per circle. Source of truth for the `GroupPreferenceProfile` view. Updated lazily on `plan_venues` writes, vote events, and post-lock outcomes — not real-time.
+
+- `id` (uuid, PK)
+- `circle_id` (uuid, FK circles.id, **ON DELETE CASCADE**)
+- `signal_kind` (text — `cuisine` | `category` | `price` | `recent_venue` | `hard_exclusion`)
+- `signal_key` (text — kind-specific key, e.g. `south_indian`, `cafe`, `$$`, venue label)
+- `weight` (int — scaled ×1000 for precision; `−1000..1000` for affinities, `0..1000` for recency)
+- `cohort` (jsonb, nullable — subset of user ids the aggregation considered; null = whole circle)
+- `updated_at` (timestamp)
+- Unique constraint: (circle_id, signal_kind, signal_key)
+
+### `suggestion_logs` (Suggest Plan S1)
+
+One row per `getSuggestions` call. Full reproducibility — every result can be re-ranked offline from the stored snapshot.
+
+- `id` (uuid, PK)
+- `circle_id` (uuid, FK circles.id, **ON DELETE CASCADE**)
+- `user_id` (text, FK users.id, **ON DELETE SET NULL**)
+- `plan_id` (uuid, FK plans.id, **ON DELETE SET NULL** — set lazily when a plan is created from the suggestion)
+- `request_nonce` (uuid — client-generated; idempotency key)
+- `context` (jsonb — PII-scrubbed `SuggestionContext` snapshot, lat/lng quantized to geohash-6)
+- `weights` (jsonb — ranking weights used)
+- `degraded` (jsonb, nullable — `[{ provider, reason }]`)
+- `outcome` (text, default `served` — `served` | `refreshed` | `empty` | `errored`)
+- `generated_at` (timestamp)
+- Unique constraint: (user_id, request_nonce)
+
+### `suggestion_log_items` (Suggest Plan S1)
+
+One row per surfaced result. Carries the normalized `Activity` and `ScoreBreakdown` for offline replay + admin debugging.
+
+- `id` (uuid, PK)
+- `log_id` (uuid, FK suggestion_logs.id, **ON DELETE CASCADE**)
+- `rank` (int — 1..limit)
+- `activity` (jsonb — normalized Activity)
+- `breakdown` (jsonb — ScoreBreakdown)
+- `score` (int — scaled ×1000, 0..1000)
+- `feedback` (text, nullable — `add` | `reject` | `refresh` | `won` | `cancelled`)
+- `feedback_at` (timestamp, nullable)
+
+### `provider_cache` (Suggest Plan S1)
+
+Keyed cache for provider responses + a coarse daily call counter. No Redis — Postgres is enough at friend-group scale.
+
+- `key` (text, PK — sha256 of `provider + canonicalJson(input)`)
+- `provider` (text)
+- `value` (jsonb — normalized payload, NOT raw provider JSON)
+- `expires_at` (timestamp)
+- `metadata` (jsonb, nullable — e.g. `{ dailyCount, day }`)
+- `created_at` (timestamp)
+- A daily pg_cron job deletes expired rows (added in S9).
+
 ### Cascade summary
 
-Deleting a **user** cascades to: `memberships`, `votes`, `comments`, `invites` (created by them). It nullifies `created_by` on `circles` and `plans` they created — those records persist as orphans.
+Deleting a **user** cascades to: `memberships`, `votes`, `comments`, `invites` (created by them). It nullifies `created_by` on `circles` and `plans` they created, plus `user_id` on `suggestion_logs` — those records persist as orphans.
 
-Deleting a **circle** cascades to: `memberships`, `invites`, `plans` → and through plans to `votes` and `comments`.
+Deleting a **circle** cascades to: `memberships`, `invites`, `plans` → and through plans to `votes` and `comments`. Also cascades to `circle_preference_signals` and `suggestion_logs` → and through logs to `suggestion_log_items`.
 
-Deleting a **plan** cascades to: `votes`, `comments`.
+Deleting a **plan** cascades to: `votes`, `comments`. It nullifies `plan_id` on `suggestion_logs` so suggestion-feedback history survives.
 
 ## 6. v1 user flows
 

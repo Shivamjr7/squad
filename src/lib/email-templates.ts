@@ -180,6 +180,73 @@ export function planLockedTemplate(args: {
   };
 }
 
+// S8 — weekly admin summary of Suggest adoption per
+// docs/specs/suggest-plan/11-observability.md §Alerts. Plain layout
+// reuses the shared shell so we don't fork a second visual style for a
+// once-a-week informational email. All numeric inputs come pre-formatted
+// from the caller (suggest-stats route), keeping this template a pure
+// shape function.
+export function suggestStatsEmail(args: {
+  circleName: string;
+  windowLabel: string;
+  acceptanceRate: string;
+  rejectRate: string;
+  emptyRate: string;
+  lowConfidenceRate: string;
+  impressions: number;
+  adds: number;
+  rejects: number;
+  topCategories: Array<{ label: string; impressions: number; adds: number }>;
+  degradedByProvider: Array<{ provider: string; count: number }>;
+  statsUrl: string;
+  manageUrl: string;
+}): EmailContent {
+  const subject = `[${args.circleName}] Suggest summary — ${args.windowLabel}`;
+
+  const categoriesBlock =
+    args.topCategories.length === 0
+      ? `<p style="margin:8px 0;font-size:13px;color:#94a3b8">No categories surfaced.</p>`
+      : `<ul style="margin:6px 0 0;padding:0 0 0 18px;font-size:14px;color:#475569">${args.topCategories
+          .map(
+            (c) =>
+              `<li style="margin:2px 0">${esc(c.label)} — ${c.impressions} impressions, ${c.adds} adds</li>`,
+          )
+          .join("")}</ul>`;
+
+  const degradedBlock =
+    args.degradedByProvider.length === 0
+      ? `<p style="margin:8px 0;font-size:13px;color:#16a34a">All providers healthy this week.</p>`
+      : `<ul style="margin:6px 0 0;padding:0 0 0 18px;font-size:14px;color:#475569">${args.degradedByProvider
+          .map(
+            (d) =>
+              `<li style="margin:2px 0"><span style="font-family:ui-monospace,SFMono-Regular,monospace">${esc(d.provider)}</span> — ${d.count} fetches</li>`,
+          )
+          .join("")}</ul>`;
+
+  const body = `
+    <h1 style="margin:0 0 4px;font-size:20px;font-weight:600;line-height:1.3">Suggest — ${esc(args.windowLabel)}</h1>
+    ${circleContext(args.circleName)}
+    <p style="margin:0 0 16px;color:#475569;font-size:14px">${args.impressions.toLocaleString()} suggestion${args.impressions === 1 ? "" : "s"} surfaced. ${args.adds} added, ${args.rejects} rejected.</p>
+    ${metaLine("Acceptance", args.acceptanceRate)}
+    ${metaLine("Rejected", args.rejectRate)}
+    ${metaLine("Empty results", args.emptyRate)}
+    ${metaLine("Low-confidence picks", args.lowConfidenceRate)}
+    <p style="margin:18px 0 4px;font-size:13px;color:#94a3b8">Top categories</p>
+    ${categoriesBlock}
+    <p style="margin:18px 0 4px;font-size:13px;color:#94a3b8">Provider health</p>
+    ${degradedBlock}
+    <p style="margin:24px 0 4px">${ctaButton(args.statsUrl, "Open stats →")}</p>
+  `;
+  return {
+    subject,
+    html: shell({
+      preheader: `${args.impressions.toLocaleString()} suggestions, ${args.adds} added`,
+      bodyHtml: body,
+      manageUrl: args.manageUrl,
+    }),
+  };
+}
+
 export function planCancelledTemplate(args: {
   cancellerName: string;
   planTitle: string;
