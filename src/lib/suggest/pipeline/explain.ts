@@ -1,6 +1,16 @@
 // Stage 7 — explain. One-line, user-facing string per ranked result.
-// Template-based and deterministic (same inputs → same string). A future
-// phase can swap to an LLM-backed strategy without changing the call site.
+// Template-based and deterministic (same inputs → same string).
+//
+// S10 — Strategy seam. The call site (pipeline/index.ts and the action
+// layer's loadExistingLog) now goes through `runExplainStrategy()` instead
+// of calling the template directly. The default `templateExplanationStrategy`
+// preserves the v1 behavior exactly; a v2 LLM-backed strategy registers
+// itself the same way the providers do and overrides the default.
+//
+// Why the indirection: both `explain` and `rank` are single-call sites
+// today, but if either grows a second caller the swap surface multiplies.
+// Locking the seam now keeps the v2 AI plan to "register a new strategy"
+// — no edits to the orchestrator, no edits to the action layer.
 
 import type {
   Activity,
@@ -8,6 +18,55 @@ import type {
   ScoreBreakdown,
   SuggestionContext,
 } from "@/lib/suggest/types";
+
+// ─── Strategy interface + registry ──────────────────────────────────────
+
+export interface ExplanationStrategy {
+  readonly name: string;
+  /**
+   * Returns the one-line user-facing explanation. Allowed to return a
+   * Promise so an LLM-backed implementation can await an API call — the
+   * pipeline always awaits the result. The default template strategy is
+   * synchronous and returns a plain string.
+   */
+  generate(
+    activity: Activity,
+    breakdown: ScoreBreakdown,
+    ctx: SuggestionContext,
+  ): string | Promise<string>;
+}
+
+let activeStrategy: ExplanationStrategy | null = null;
+
+export function registerExplanationStrategy(strategy: ExplanationStrategy): void {
+  activeStrategy = strategy;
+}
+
+export function getExplanationStrategy(): ExplanationStrategy {
+  return activeStrategy ?? templateExplanationStrategy;
+}
+
+/** Test-only override; throws outside NODE_ENV=test. */
+export function setExplanationStrategy(
+  strategy: ExplanationStrategy | null,
+): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("setExplanationStrategy() is test-only.");
+  }
+  activeStrategy = strategy;
+}
+
+/**
+ * Pipeline-facing facade. Awaits the active strategy so both sync (template)
+ * and async (LLM) implementations route through the same call site.
+ */
+export async function runExplainStrategy(
+  activity: Activity,
+  breakdown: ScoreBreakdown,
+  ctx: SuggestionContext,
+): Promise<string> {
+  return getExplanationStrategy().generate(activity, breakdown, ctx);
+}
 
 type ComponentKey = Exclude<keyof ScoreBreakdown, "raw">;
 
@@ -31,6 +90,12 @@ const CATEGORY_NOUN: Record<ActivityCategory, string> = {
   short_trip: "Day trip",
 };
 
+/**
+ * Default template-driven explanation. Synchronous, deterministic, no I/O.
+ * Exported for direct unit-testing — the pipeline calls
+ * `runExplainStrategy()` instead so a registered alternate (LLM, etc.) can
+ * intercept.
+ */
 export function explain(
   activity: Activity,
   breakdown: ScoreBreakdown,
@@ -145,3 +210,18 @@ function openTillLabel(activity: Activity): string | null {
 function humanizeTag(tag: string): string {
   return tag.replace(/_/g, " ");
 }
+
+// ─── Default strategy registration ──────────────────────────────────────
+
+/**
+ * Built-in template strategy. Registered eagerly at module load so the
+ * pipeline has a working default even if no one ever calls
+ * `registerExplanationStrategy()`. A v2 LLM strategy can override by
+ * calling `registerExplanationStrategy(llmStrategy)` at app boot.
+ */
+export const templateExplanationStrategy: ExplanationStrategy = {
+  name: "template",
+  generate: explain,
+};
+
+registerExplanationStrategy(templateExplanationStrategy);

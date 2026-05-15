@@ -66,11 +66,31 @@ const SUPPORTED_CATEGORIES: ActivityCategory[] = [
 
 // ─── Category → Google place type mapping ───────────────────────────────
 
+// Sports facility types share `outdoor` because the planType→category
+// map sends `play` to `[indoor, outdoor, event]` — adding them under
+// outdoor surfaces cricket/football turfs and stadium bookings when the
+// user picks "Play." Pure-indoor sports (bowling, ice rink) stay under
+// indoor so a "stay-in" plan with indoor selected doesn't pull in a
+// neighborhood cricket ground.
 const CATEGORY_TO_TYPES: Record<ActivityCategory, string[]> = {
   restaurant: ["restaurant"],
   cafe: ["cafe"],
-  indoor: ["museum", "art_gallery", "bowling_alley", "shopping_mall"],
-  outdoor: ["park"],
+  indoor: [
+    "museum",
+    "art_gallery",
+    "bowling_alley",
+    "shopping_mall",
+    "ice_skating_rink",
+  ],
+  outdoor: [
+    "park",
+    "stadium",
+    "sports_complex",
+    "sports_club",
+    "playground",
+    "golf_course",
+    "swimming_pool",
+  ],
   short_trip: ["tourist_attraction"],
   // Categories this provider does not serve — left empty so the pipeline can
   // ask for any category without us having to filter upstream.
@@ -78,13 +98,23 @@ const CATEGORY_TO_TYPES: Record<ActivityCategory, string[]> = {
   event: [],
 };
 
+// Resolution order when a Place carries multiple types. Sports facility
+// types win over generic `park`/`playground` so a "Cricket Turf Foo" inside
+// a park complex maps to outdoor-sports rather than a generic park.
 const TYPE_PRIORITY: Array<{ type: string; category: ActivityCategory }> = [
   { type: "cafe", category: "cafe" },
   { type: "restaurant", category: "restaurant" },
   { type: "museum", category: "indoor" },
   { type: "art_gallery", category: "indoor" },
   { type: "bowling_alley", category: "indoor" },
+  { type: "ice_skating_rink", category: "indoor" },
   { type: "shopping_mall", category: "indoor" },
+  { type: "sports_complex", category: "outdoor" },
+  { type: "sports_club", category: "outdoor" },
+  { type: "stadium", category: "outdoor" },
+  { type: "golf_course", category: "outdoor" },
+  { type: "swimming_pool", category: "outdoor" },
+  { type: "playground", category: "outdoor" },
   { type: "park", category: "outdoor" },
   { type: "tourist_attraction", category: "short_trip" },
 ];
@@ -331,6 +361,13 @@ async function performSearch(
   const body = {
     includedTypes,
     maxResultCount: Math.min(20, Math.max(1, input.limit)),
+    // Pulled in explicitly even though POPULARITY is the documented
+    // default — Google has flipped defaults before, and our scoring
+    // weights now lean hard on popularity, so we want the candidate pool
+    // ordered by fame before our own ranker runs. DISTANCE is the
+    // alternative; we don't use it because the in-pipeline distance
+    // score already enforces proximity preference.
+    rankPreference: "POPULARITY",
     locationRestriction: {
       circle: {
         center: {

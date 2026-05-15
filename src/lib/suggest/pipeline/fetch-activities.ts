@@ -22,6 +22,20 @@ const HARD_TIMEOUT_MS = 3_000;
  *  choices to balance. */
 const PROVIDER_FETCH_LIMIT = 20;
 
+/**
+ * Two-tier fetch threshold. When the user's selected radius exceeds this,
+ * we additionally fetch at `LOCAL_BOOST_RADIUS_KM` and union the results.
+ *
+ * Why: Google Places returns top-20 by POPULARITY *within the search
+ * circle*. At 10km radius, the 20 most popular spots are typically in
+ * dense commercial areas — local-but-loved cafes that ranked top-20
+ * within 3km can fall out of the candidate pool before our scoring ever
+ * sees them. The local boost re-injects those spots. Cost: one extra
+ * Places API call per "widen" action; cache absorbs repeats.
+ */
+const LOCAL_BOOST_TRIGGER_KM = 3;
+const LOCAL_BOOST_RADIUS_KM = 2;
+
 export type FetchResult = {
   activities: Activity[];
   degraded: Array<{ provider: string; reason: string }>;
@@ -64,29 +78,48 @@ export async function fetchActivities(
 
   const radiusMeters = Math.round(ctx.distanceKmCap * 1000);
 
+  // Two-tier radius plan. When the user widens past LOCAL_BOOST_TRIGGER_KM,
+  // we also fetch at LOCAL_BOOST_RADIUS_KM so local favorites survive the
+  // popularity re-rank that happens inside Google's response. Both radii
+  // are cached independently — a repeat request with the same widening
+  // doesn't re-hit Google.
+  const radiiMeters: number[] = [radiusMeters];
+  if (ctx.distanceKmCap > LOCAL_BOOST_TRIGGER_KM) {
+    radiiMeters.push(LOCAL_BOOST_RADIUS_KM * 1000);
+  }
+
   // Promise.all on individually-isolated tasks: each task swallows its own
   // failure into `degraded` and returns []. The outer await never rejects.
+  // A single provider may run multiple sub-fetches (one per radius tier);
+  // the union is deduped downstream in pipeline/normalize.ts.
   const tasks = Array.from(byProvider.values()).map(
     async ({ provider, categories }) => {
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), HARD_TIMEOUT_MS);
-      const input: ProviderSearchInput = {
-        categories,
-        centroid,
-        radiusMeters,
-        timeWindow: ctx.timeWindow,
-        budgetTier: ctx.budgetTier,
-        excludeIds: ctx.excludeIds,
-        limit: PROVIDER_FETCH_LIMIT,
-      };
       try {
-        return await cacheThrough(provider, input, ac.signal);
-      } catch (err) {
-        degraded.push({
-          provider: provider.name,
-          reason: errorReason(err),
+        const subFetches = radiiMeters.map((r) => {
+          const input: ProviderSearchInput = {
+            categories,
+            centroid,
+            radiusMeters: r,
+            timeWindow: ctx.timeWindow,
+            budgetTier: ctx.budgetTier,
+            excludeIds: ctx.excludeIds,
+            limit: PROVIDER_FETCH_LIMIT,
+          };
+          return cacheThrough(provider, input, ac.signal).catch((err) => {
+            // One tier failed — record but let the other tier surface
+            // whatever it got. Avoid duplicate degraded entries by
+            // tagging the radius in the reason.
+            degraded.push({
+              provider: provider.name,
+              reason: `${errorReason(err)}@${Math.round(r / 1000)}km`,
+            });
+            return [] as Activity[];
+          });
         });
-        return [];
+        const results = await Promise.all(subFetches);
+        return results.flat();
       } finally {
         clearTimeout(timer);
       }

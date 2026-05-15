@@ -6,8 +6,16 @@
 //   - opening hours intersect window (skip if isApproximate)
 //   - hardExclusions (v2-shaped but enforced if present)
 //   - excludeIds final pass
+//   - per-category rating + review-count threshold (quality.ts)
+//
+// The quality threshold is the lever that prevents low-rated nearby places
+// from beating famous places further away. Activities without rating data
+// (Eventbrite, low-coverage areas) pass through; rank.ts already has a
+// threshold-fallback path that surfaces top-3 by raw score when everything
+// is below the soft bar, so this filter cannot starve the result set.
 
 import type { Activity, SuggestionContext } from "@/lib/suggest/types";
+import { loadQualityThresholds, meetsQuality } from "@/lib/suggest/quality";
 import { hoursOverlapMinutes } from "./hours";
 import { effectiveCentroid } from "./normalize";
 
@@ -20,6 +28,7 @@ export function filter(
   const excluded = new Set(ctx.excludeIds);
   const allowedCategories = new Set(ctx.categories);
   const hardExclusions = new Set(ctx.groupPreferences.hardExclusions ?? []);
+  const qualityThresholds = loadQualityThresholds();
 
   return activities.filter((a) => {
     if (excluded.has(a.id)) return false;
@@ -43,6 +52,8 @@ export function filter(
         return false;
       }
     }
+
+    if (!meetsQuality(a, qualityThresholds)) return false;
 
     return true;
   });

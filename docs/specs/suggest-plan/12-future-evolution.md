@@ -2,6 +2,58 @@
 
 The v1 shape is intentionally boring so the v2 swaps are mechanical. Each block below names the v1 hook it plugs into.
 
+## Strategy seams (S10)
+
+Two single-call sites in the pipeline are now strategy-mediated. Both default to the v1 implementation; a v2 strategy registers itself at app boot and overrides without touching the orchestrator or the action layer.
+
+### `ExplanationStrategy` — `src/lib/suggest/pipeline/explain.ts`
+```ts
+interface ExplanationStrategy {
+  readonly name: string;
+  generate(
+    activity: Activity,
+    breakdown: ScoreBreakdown,
+    ctx: SuggestionContext,
+  ): string | Promise<string>;
+}
+```
+- **Default:** `templateExplanationStrategy` — the deterministic template renderer from S4.
+- **Swap point:** Register an LLM-backed strategy from a side-effect import (mirror the provider boot pattern in `providers/index.ts`):
+  ```ts
+  // src/lib/suggest/pipeline/explain-llm.ts
+  registerExplanationStrategy({
+    name: "claude",
+    async generate(activity, breakdown, ctx) {
+      // Anthropic call here; return one-line string.
+    },
+  });
+  ```
+- **Where it's used:** Two call sites — `pipeline/index.ts` (fresh runs) and `actions/suggest-plan.ts:loadExistingLog` (idempotent replays). Both go through `runExplainStrategy()` which awaits the strategy.
+- **Constraints:** Strategy must return ≤ 1 line of plain text. No HTML, no markdown — the drawer renders it as text only.
+
+### `RankStrategy` — `src/lib/suggest/pipeline/rank.ts`
+```ts
+interface RankStrategy {
+  readonly name: string;
+  rank(scored: Scored[], limit: number): RankOutput | Promise<RankOutput>;
+}
+```
+- **Default:** `heuristicRankStrategy` — sort + tie-break + diversity cap + threshold fallback from S4.
+- **Swap point:** An LLM scoring strategy receives the heuristic-scored list and can rerank, drop, or re-score before returning the same `RankOutput` shape:
+  ```ts
+  registerRankStrategy({
+    name: "llm-rerank",
+    async rank(scored, limit) {
+      // Send `scored` to an LLM, get a reordered top-N back.
+      // Must still return { results, lowConfidenceFallback }.
+    },
+  });
+  ```
+- **Determinism note:** `suggestion_logs` stores the raw breakdown + score per item (×1000 int). When an LLM strategy is active, the stored breakdown is still the heuristic baseline; the LLM's re-rank is reflected in the row order (`rank` column) and the chosen subset. This keeps offline replays meaningful even after a strategy swap.
+
+### Why these are seams, not just functions
+Today both call sites are single-line invocations — refactoring to a strategy is mechanically trivial. But every additional call site multiplies the swap surface. The seams are in place **before** the second caller appears, so a v2 LLM trial is "register a strategy" rather than "find every callsite of `explain()` and migrate them."
+
 ## Embeddings
 - **Goal:** Replace tag-based `cuisineAffinity` matching with semantic similarity.
 - **Hook:** `pipeline/score.ts` `preferenceScore`. Today it sums tag affinities; in v2, it queries an `activity_embeddings` table and computes cosine similarity against the circle's averaged "taste vector."

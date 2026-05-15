@@ -11,8 +11,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Home,
   MapPin,
+  Navigation,
   RotateCcw,
+  Search,
   Sparkles,
   X,
 } from "lucide-react";
@@ -31,6 +34,18 @@ import type {
   GetSuggestionsInput,
 } from "@/lib/validation/suggest";
 import type { RankedResult } from "@/lib/suggest/types";
+import {
+  getCachedSuggestions,
+  invalidateSuggestions,
+  makeCacheKey,
+  setCachedSuggestions,
+} from "@/lib/suggest/client-cache";
+import {
+  geocodeLocation,
+  getCircleHome,
+  type CircleHome,
+  type GeocodeResult,
+} from "@/lib/actions/suggest-location";
 
 const DESKTOP_QUERY = "(min-width: 768px)";
 
@@ -94,6 +109,17 @@ type GeoState =
   | { kind: "unavailable" }
   | { kind: "unsupported" }
   | { kind: "ok"; coords: GeoCoords };
+
+// Three-mode anchor for the suggestion search. "here" defers to device
+// geolocation (the existing path); "home" uses circles.home_lat/lng if
+// the admin has set it; "custom" geocodes a free-text query via the
+// Places searchText endpoint (server action keeps the key secret).
+type LocationMode = "here" | "home" | "custom";
+type CustomLocation = {
+  label: string;
+  address?: string;
+  coords: GeoCoords;
+};
 
 // Request device geolocation. Caches off (`maximumAge: 0`) so re-opens get
 // fresh coords. Branches the rejection reason so the UI can distinguish
@@ -215,9 +241,27 @@ function SuggestDrawerBody({
 
   const [planType, setPlanType] =
     useState<GetSuggestionsInput["planType"]>("eat");
-  const [distanceTierIdx, setDistanceTierIdx] = useState(1); // start at 3km
+  // Start at 5km — 3km was too tight in low-density areas and was the
+  // primary cause of "famous places never show up." Users can still narrow
+  // via the radius chips above the result list.
+  const [distanceTierIdx, setDistanceTierIdx] = useState(2);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [geoState, setGeoState] = useState<GeoState>({ kind: "idle" });
+
+  // Pass 2 — location-mode state. Default to "here" so the first-time UX
+  // matches the previous behavior. Switching mode invalidates the client
+  // cache implicitly because the cache key includes the geo bucket, and
+  // each mode produces different coords.
+  const [locationMode, setLocationMode] = useState<LocationMode>("here");
+  const [circleHome, setCircleHome] = useState<CircleHome>(null);
+  const [homeLoadedFor, setHomeLoadedFor] = useState<string | null>(null);
+  const [customLocation, setCustomLocation] = useState<CustomLocation | null>(
+    null,
+  );
+  const [customQuery, setCustomQuery] = useState("");
+  const [customStatus, setCustomStatus] = useState<
+    { kind: "idle" } | { kind: "searching" } | { kind: "errored"; message: string }
+  >({ kind: "idle" });
   // Suggestions the user has explicitly rejected or already seen via refresh.
   // Both go into the pool because Flow H records ignored sets as soft excludes
   // (telemetry only on the server, hard-suppressed locally to keep UX honest).
@@ -237,6 +281,89 @@ function SuggestDrawerBody({
     void requestGeolocation().then(setGeoState);
   }, []);
 
+  // Lazy-load circle home once per drawer mount. We don't need this until
+  // the user picks the Home chip, but a single quiet DB read is cheaper
+  // than waiting on the first chip tap to show the spinner. Cached per
+  // circleId so a reopen on the same circle doesn't refetch.
+  useEffect(() => {
+    if (!open) return;
+    if (homeLoadedFor === circleId) return;
+    let cancelled = false;
+    void getCircleHome({ circleId })
+      .then((result) => {
+        if (cancelled) return;
+        setCircleHome(result);
+        setHomeLoadedFor(circleId);
+      })
+      .catch(() => {
+        // Silent — Home chip just stays hidden.
+        if (!cancelled) setHomeLoadedFor(circleId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, circleId, homeLoadedFor]);
+
+  // Submit handler for the custom-location text input. Geocodes the
+  // query via the server action (which uses the same Places key,
+  // server-side only) and stores the resolved coords + label.
+  const handleCustomSearch = useCallback(async () => {
+    const trimmed = customQuery.trim();
+    if (trimmed.length < 2) {
+      setCustomStatus({ kind: "errored", message: "Type at least 2 characters." });
+      return;
+    }
+    setCustomStatus({ kind: "searching" });
+    try {
+      const result: GeocodeResult = await geocodeLocation({
+        circleId,
+        query: trimmed,
+      });
+      setCustomLocation({
+        label: result.label,
+        address: result.address,
+        coords: { lat: result.lat, lng: result.lng },
+      });
+      setCustomStatus({ kind: "idle" });
+    } catch (err) {
+      const message = isActionError(err)
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : "Couldn't find that location.";
+      setCustomStatus({ kind: "errored", message });
+    }
+  }, [circleId, customQuery]);
+
+  /**
+   * Resolve the effective anchor coords + a UI label for the current
+   * locationMode. Returns null when the mode isn't usable yet (geo not
+   * resolved / home missing / custom not searched). The fetch effect
+   * gates on this returning non-null.
+   */
+  const resolvedAnchor = useMemo<{
+    coords: GeoCoords;
+    label: string | null;
+  } | null>(() => {
+    if (locationMode === "here") {
+      if (geoState.kind !== "ok") return null;
+      return { coords: geoState.coords, label: null };
+    }
+    if (locationMode === "home") {
+      if (!circleHome) return null;
+      return {
+        coords: { lat: circleHome.lat, lng: circleHome.lng },
+        label: circleHome.label,
+      };
+    }
+    // custom
+    if (!customLocation) return null;
+    return {
+      coords: customLocation.coords,
+      label: customLocation.label,
+    };
+  }, [locationMode, geoState, circleHome, customLocation]);
+
   // S8 — fire `suggest_open` once per mount. SuggestDrawerBody is unmounted
   // when the host Sheet/Dialog closes (radix default), so each open is a
   // fresh mount and a fresh event. planType reflects the user's last choice
@@ -248,13 +375,14 @@ function SuggestDrawerBody({
     track("suggest_open", { planType });
   }, [open, planType]);
 
-  // Always request fresh geo on each drawer-open. We never reuse a cached
-  // reading from a previous session — keeps the "show me what's near where
-  // I am right now" promise honest.
+  // Always request fresh geo on each drawer-open (only when the user is
+  // in "here" mode — no point asking for GPS if they're searching by
+  // home or a custom location). Re-requests on mode-switch back to here.
   useEffect(() => {
     if (!open) return;
+    if (locationMode !== "here") return;
     requestGeoNow();
-  }, [open, requestGeoNow]);
+  }, [open, locationMode, requestGeoNow]);
 
   const fetchSuggestions = useCallback(
     async (opts: {
@@ -262,8 +390,53 @@ function SuggestDrawerBody({
       distanceKmCap: number;
       excludeIds: string[];
       geo: GeoCoords;
+      /** When true, bypass the client cache and refetch. Refresh-tap path. */
+      forceFresh?: boolean;
     }) => {
       const seq = ++fetchSeq.current;
+
+      // Client cache (5-min TTL) — only consult when excludeIds is empty,
+      // because a non-empty excludeIds means the user has rejected items
+      // or hit refresh, which already represents a "give me different
+      // results" intent. Keying on excludeIds would make the cache useless
+      // (every reject mints a new key); ignoring it means rejects continue
+      // to hide locally without re-fetching, which matches the existing UX.
+      const cacheKey = makeCacheKey({
+        circleId,
+        planType: opts.planType,
+        distanceKmCap: opts.distanceKmCap,
+        startsAtLocal,
+        timeZone: tz,
+        geo: { lat: opts.geo.lat, lng: opts.geo.lng },
+      });
+      const canUseCache = !opts.forceFresh && opts.excludeIds.length === 0;
+      if (canUseCache) {
+        const cached = getCachedSuggestions(cacheKey);
+        if (cached) {
+          const degraded = cached.degraded ?? [];
+          if (cached.results.length === 0) {
+            const nonWeather = degraded.filter(
+              (d) => d.reason !== "weather_unavailable",
+            );
+            const reason: "providers_down" | "empty" =
+              nonWeather.length > 0 ? "providers_down" : "empty";
+            setStatus({
+              kind: "empty",
+              reason,
+              logId: cached.suggestionLogId,
+            });
+            return;
+          }
+          setStatus({
+            kind: "ready",
+            results: cached.results,
+            logId: cached.suggestionLogId,
+            degraded,
+          });
+          return;
+        }
+      }
+
       setStatus({ kind: "loading" });
 
       try {
@@ -279,10 +452,20 @@ function SuggestDrawerBody({
           distanceKmCap: opts.distanceKmCap,
           excludeIds: opts.excludeIds,
           recipientUserIds: [],
-          limit: 5,
+          // 8 keeps the drawer scrollable on mobile without feeling thin;
+          // ranker's diversity cap (ceil(limit/2)=4 per category) means
+          // chai/eat plans show up to 4 cafes, not 3 like before.
+          limit: 8,
           requestNonce,
         });
         if (seq !== fetchSeq.current) return;
+
+        // Only cache the "fresh, no rejects" path. Refresh / reject-driven
+        // refetches are intentionally narrowed by excludeIds and shouldn't
+        // poison the baseline cache.
+        if (opts.excludeIds.length === 0) {
+          setCachedSuggestions(cacheKey, result);
+        }
 
         const degraded = result.degraded ?? [];
         if (result.results.length === 0) {
@@ -321,20 +504,21 @@ function SuggestDrawerBody({
     [circleId, startsAtLocal, tz],
   );
 
-  // Fetch when geo is ready and on any planType / distance change. Geo is
-  // the gate — until it resolves to "ok", we don't hit the server.
+  // Fetch when the resolved anchor is ready, and on any planType / distance
+  // / location-mode change. The anchor gate replaces the previous geo-only
+  // gate so home / custom modes don't have to wait on GPS.
   useEffect(() => {
     if (!open) return;
-    if (geoState.kind !== "ok") return;
+    if (!resolvedAnchor) return;
     fetchSuggestions({
       planType,
       distanceKmCap: DISTANCE_TIERS[distanceTierIdx],
       excludeIds: [],
-      geo: geoState.coords,
+      geo: resolvedAnchor.coords,
     });
     setExcludeIds([]);
     setHiddenItemIds(new Set());
-  }, [open, geoState, planType, distanceTierIdx, fetchSuggestions]);
+  }, [open, resolvedAnchor, planType, distanceTierIdx, fetchSuggestions]);
 
   const visibleResults =
     status.kind === "ready"
@@ -402,19 +586,34 @@ function SuggestDrawerBody({
       remainingCount:
         status.kind === "ready" ? visibleResults.length : 0,
     });
-    if (geoState.kind !== "ok") {
-      // Geo isn't usable — refresh re-requests it instead of pretending to
-      // fetch. Browser will silently fail if user previously blocked; the
-      // empty state guides them through resetting the permission.
-      requestGeoNow();
+    if (!resolvedAnchor) {
+      // Anchor isn't usable — re-request geo if we're in here-mode; for
+      // home/custom there's nothing to retry from the refresh button.
+      if (locationMode === "here") requestGeoNow();
       return;
     }
+    const anchorCoords = resolvedAnchor.coords;
+
+    // Refresh always bypasses the client cache (user-intent: "give me
+    // something different"). Drop the baseline cache entry so the next
+    // open-with-same-inputs also starts fresh.
+    const key = makeCacheKey({
+      circleId,
+      planType,
+      distanceKmCap: DISTANCE_TIERS[distanceTierIdx],
+      startsAtLocal,
+      timeZone: tz,
+      geo: { lat: anchorCoords.lat, lng: anchorCoords.lng },
+    });
+    invalidateSuggestions(key);
+
     if (status.kind !== "ready") {
       fetchSuggestions({
         planType,
         distanceKmCap: DISTANCE_TIERS[distanceTierIdx],
         excludeIds,
-        geo: geoState.coords,
+        geo: anchorCoords,
+        forceFresh: true,
       });
       return;
     }
@@ -434,7 +633,8 @@ function SuggestDrawerBody({
       planType,
       distanceKmCap: DISTANCE_TIERS[distanceTierIdx],
       excludeIds: merged,
-      geo: geoState.coords,
+      geo: anchorCoords,
+      forceFresh: true,
     });
   }
 
@@ -447,15 +647,19 @@ function SuggestDrawerBody({
   }
 
   // Render priority:
-  //   geo not ok → geo empty state (only header + body chrome show)
-  //   geo ok + fetch loading → skeleton
-  //   geo ok + status ready → results
-  //   geo ok + status empty/errored → respective empty
+  //   here-mode + geo not ok → geo empty state (only header + body chrome)
+  //   anchor ready + fetch loading → skeleton
+  //   anchor ready + status ready → results
+  //   anchor ready + status empty/errored → respective empty
+  //   home-mode without home / custom-mode without query → mode prompt
   const showGeoState =
-    geoState.kind === "requesting" ||
-    geoState.kind === "denied" ||
-    geoState.kind === "unavailable" ||
-    geoState.kind === "unsupported";
+    locationMode === "here" &&
+    (geoState.kind === "requesting" ||
+      geoState.kind === "denied" ||
+      geoState.kind === "unavailable" ||
+      geoState.kind === "unsupported");
+  const showModePrompt =
+    !resolvedAnchor && !showGeoState && locationMode !== "here";
 
   return (
     <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] bg-paper">
@@ -537,6 +741,22 @@ function SuggestDrawerBody({
             })}
           </div>
 
+          <LocationModeRow
+            mode={locationMode}
+            onChangeMode={setLocationMode}
+            home={circleHome}
+            custom={customLocation}
+            customQuery={customQuery}
+            onChangeCustomQuery={setCustomQuery}
+            customStatus={customStatus}
+            onSubmitCustom={handleCustomSearch}
+            onClearCustom={() => {
+              setCustomLocation(null);
+              setCustomQuery("");
+              setCustomStatus({ kind: "idle" });
+            }}
+          />
+
           <div
             role="tablist"
             aria-label="Search radius"
@@ -571,40 +791,47 @@ function SuggestDrawerBody({
             <GeoEmptyState state={geoState} onRetry={requestGeoNow} />
           ) : null}
 
-          {!showGeoState && status.kind === "loading" ? (
+          {showModePrompt ? (
+            <ModePromptEmptyState
+              mode={locationMode}
+              hasHome={circleHome !== null}
+            />
+          ) : null}
+
+          {!showGeoState && !showModePrompt && status.kind === "loading" ? (
             <LoadingSkeleton />
           ) : null}
 
-          {!showGeoState && status.kind === "errored" ? (
+          {!showGeoState && !showModePrompt && status.kind === "errored" ? (
             <EmptyState
               title="Couldn't load suggestions"
               body={status.message}
               ctaLabel="Try again"
               onCta={() => {
-                if (geoState.kind !== "ok") return;
+                if (!resolvedAnchor) return;
                 fetchSuggestions({
                   planType,
                   distanceKmCap: DISTANCE_TIERS[distanceTierIdx],
                   excludeIds,
-                  geo: geoState.coords,
+                  geo: resolvedAnchor.coords,
                 });
               }}
             />
           ) : null}
 
-          {!showGeoState && status.kind === "empty" ? (
+          {!showGeoState && !showModePrompt && status.kind === "empty" ? (
             status.reason === "providers_down" ? (
               <EmptyState
                 title="Suggest isn't reachable right now"
                 body="Type a venue manually instead, or try again in a moment."
                 ctaLabel="Try again"
                 onCta={() => {
-                  if (geoState.kind !== "ok") return;
+                  if (!resolvedAnchor) return;
                   fetchSuggestions({
                     planType,
                     distanceKmCap: DISTANCE_TIERS[distanceTierIdx],
                     excludeIds,
-                    geo: geoState.coords,
+                    geo: resolvedAnchor.coords,
                   });
                 }}
               />
@@ -631,6 +858,7 @@ function SuggestDrawerBody({
           ) : null}
 
           {!showGeoState &&
+          !showModePrompt &&
           status.kind === "ready" &&
           visibleResults.length === 0 ? (
             <EmptyState
@@ -642,6 +870,7 @@ function SuggestDrawerBody({
           ) : null}
 
           {!showGeoState &&
+          !showModePrompt &&
           status.kind === "ready" &&
           visibleResults.length > 0 ? (
             <ul className="flex flex-col gap-3">
@@ -709,6 +938,7 @@ function SuggestDrawerBody({
           ) : null}
 
           {!showGeoState &&
+          !showModePrompt &&
           status.kind === "ready" &&
           status.degraded.length > 0 ? (
             <p className="text-[11px] text-ink-muted">
@@ -784,6 +1014,172 @@ function GeoEmptyState({
       </button>
     </div>
   );
+}
+
+// Location-mode chip group + inline custom-search input. Stays compact so
+// it sits comfortably above the plan-type / distance chip rows on a 380px
+// viewport. The custom-input row only renders when mode === "custom" so
+// the chrome doesn't bloat the "Here / Home" common path.
+function LocationModeRow({
+  mode,
+  onChangeMode,
+  home,
+  custom,
+  customQuery,
+  onChangeCustomQuery,
+  customStatus,
+  onSubmitCustom,
+  onClearCustom,
+}: {
+  mode: LocationMode;
+  onChangeMode: (m: LocationMode) => void;
+  home: CircleHome;
+  custom: CustomLocation | null;
+  customQuery: string;
+  onChangeCustomQuery: (q: string) => void;
+  customStatus:
+    | { kind: "idle" }
+    | { kind: "searching" }
+    | { kind: "errored"; message: string };
+  onSubmitCustom: () => void;
+  onClearCustom: () => void;
+}) {
+  const chip = (active: boolean) =>
+    cn(
+      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+      active
+        ? "border-ink bg-ink text-paper-card"
+        : "border-ink/15 bg-paper-card/40 text-ink hover:bg-paper-card",
+    );
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        role="tablist"
+        aria-label="Search around"
+        className="flex flex-wrap items-center gap-1.5"
+      >
+        <span className="text-[11px] uppercase tracking-[0.14em] text-ink-muted">
+          Around
+        </span>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "here"}
+          onClick={() => onChangeMode("here")}
+          className={chip(mode === "here")}
+        >
+          <Navigation className="size-3" aria-hidden />
+          Here
+        </button>
+        {home ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "home"}
+            onClick={() => onChangeMode("home")}
+            className={chip(mode === "home")}
+          >
+            <Home className="size-3" aria-hidden />
+            {home.label ?? "Home"}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "custom"}
+          onClick={() => onChangeMode("custom")}
+          className={chip(mode === "custom")}
+        >
+          <MapPin className="size-3" aria-hidden />
+          {custom ? custom.label : "Other…"}
+        </button>
+      </div>
+      {mode === "custom" ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={customQuery}
+              onChange={(e) => onChangeCustomQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onSubmitCustom();
+                }
+              }}
+              placeholder="Indiranagar Bangalore, MG Road…"
+              aria-label="Search a place"
+              className="flex-1 rounded-full border border-ink/15 bg-paper-card px-3 py-1.5 text-xs text-ink placeholder:text-ink-muted/70 focus:border-coral focus:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+            />
+            <button
+              type="button"
+              onClick={onSubmitCustom}
+              disabled={customStatus.kind === "searching"}
+              className="inline-flex size-9 items-center justify-center rounded-full bg-ink text-paper-card transition hover:bg-ink/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral disabled:opacity-50"
+              aria-label="Search"
+            >
+              <Search className="size-3.5" aria-hidden />
+            </button>
+            {custom ? (
+              <button
+                type="button"
+                onClick={onClearCustom}
+                className="inline-flex size-9 items-center justify-center rounded-full border border-ink/15 text-ink transition hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+                aria-label="Clear location"
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            ) : null}
+          </div>
+          {customStatus.kind === "searching" ? (
+            <p className="text-[11px] text-ink-muted">Looking up…</p>
+          ) : null}
+          {customStatus.kind === "errored" ? (
+            <p className="text-[11px] text-coral">{customStatus.message}</p>
+          ) : null}
+          {custom?.address && customStatus.kind === "idle" ? (
+            <p className="text-[11px] text-ink-muted">{custom.address}</p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Empty state when the user has picked Home but the circle has no centroid
+// set, or picked Other but hasn't searched yet. Distinct from the geo
+// empty states (which only apply to Here mode).
+function ModePromptEmptyState({
+  mode,
+  hasHome,
+}: {
+  mode: LocationMode;
+  hasHome: boolean;
+}) {
+  if (mode === "home" && !hasHome) {
+    return (
+      <div className="flex flex-col items-start gap-2 rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-5 py-6">
+        <p className="font-serif text-lg text-ink">No home set for this circle</p>
+        <p className="text-xs text-ink-muted">
+          An admin can set the home location in{" "}
+          <strong>Settings → Home area</strong>. In the meantime, use
+          <strong> Here</strong> or <strong>Other</strong>.
+        </p>
+      </div>
+    );
+  }
+  if (mode === "custom") {
+    return (
+      <div className="flex flex-col items-start gap-2 rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-5 py-6">
+        <p className="font-serif text-lg text-ink">Pick a place to search around</p>
+        <p className="text-xs text-ink-muted">
+          Type a neighborhood, landmark, or address above and we&apos;ll find
+          spots nearby.
+        </p>
+      </div>
+    );
+  }
+  return null;
 }
 
 function LoadingSkeleton() {

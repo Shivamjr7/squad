@@ -18,8 +18,8 @@ import { fetchActivities } from "./fetch-activities";
 import { normalize } from "./normalize";
 import { filter } from "./filter";
 import { scoreActivity } from "./score";
-import { rank, confidenceLabel } from "./rank";
-import { explain } from "./explain";
+import { runRankStrategy, confidenceLabel } from "./rank";
+import { runExplainStrategy } from "./explain";
 
 export type RunPipelineOptions = {
   /** Max RankedResult count returned. Default 5; client may request 1..10. */
@@ -49,28 +49,37 @@ export async function runPipeline(
     return { activity, score, breakdown };
   });
 
-  // 5. Rank + diversity cap.
-  const { results: ranked, lowConfidenceFallback } = rank(scored, limit);
+  // 5. Rank + diversity cap (S10: via strategy facade — default heuristic
+  //    preserves v1 ordering, LLM strategy can register at boot).
+  const { results: ranked, lowConfidenceFallback } = await runRankStrategy(
+    scored,
+    limit,
+  );
 
   // 6. Explanations + assemble final shape. Ids are minted now and re-used
   //    by the action layer when it writes suggestion_log_items.
-  const results: RankedResult[] = ranked.map((r) => {
-    // When the threshold fell back, force the confidence label to `low`
-    // even if the raw score happens to land above the medium cutoff —
-    // the user-facing UI should reflect the fallback honestly.
-    const confidence = lowConfidenceFallback
-      ? "low"
-      : confidenceLabel(r.score);
-    return {
-      id: randomUUID(),
-      activity: r.activity,
-      score: r.score,
-      breakdown: r.breakdown,
-      explanation: explain(r.activity, r.breakdown, ctx),
-      confidence,
-      provider: r.activity.provider,
-    };
-  });
+  //    Explanations come from the active ExplanationStrategy (S10). The
+  //    default template strategy is sync; Promise.all is the seam that
+  //    lets an LLM strategy fan out without changing this code.
+  const results: RankedResult[] = await Promise.all(
+    ranked.map(async (r) => {
+      // When the threshold fell back, force the confidence label to `low`
+      // even if the raw score happens to land above the medium cutoff —
+      // the user-facing UI should reflect the fallback honestly.
+      const confidence = lowConfidenceFallback
+        ? "low"
+        : confidenceLabel(r.score);
+      return {
+        id: randomUUID(),
+        activity: r.activity,
+        score: r.score,
+        breakdown: r.breakdown,
+        explanation: await runExplainStrategy(r.activity, r.breakdown, ctx),
+        confidence,
+        provider: r.activity.provider,
+      };
+    }),
+  );
 
   return {
     suggestionLogId: randomUUID(),

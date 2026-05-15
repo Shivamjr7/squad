@@ -1,6 +1,12 @@
 // Stage 6 — rank. Sort, tie-break, diversity cap, threshold fallback. Pure
 // function over the score outputs. Determinism is load-bearing — the log
 // row stored in S5+ replays bit-identical results from the same inputs.
+//
+// S10 — Strategy seam. The pipeline calls `runRankStrategy()` instead of
+// `rank()` directly. The default `heuristicRankStrategy` preserves the v1
+// ordering exactly; a v2 LLM-backed rank strategy can register itself the
+// same way the providers do and replace the heuristic without touching the
+// orchestrator.
 
 import type {
   Activity,
@@ -46,6 +52,52 @@ export type RankOutput = {
   lowConfidenceFallback: boolean;
 };
 
+// ─── Strategy interface + registry ──────────────────────────────────────
+
+export interface RankStrategy {
+  readonly name: string;
+  /**
+   * Takes the scored candidate list and returns the final ranked slice +
+   * confidence fallback flag. Allowed to return a Promise so an LLM-backed
+   * re-ranker can await an API call — the pipeline always awaits.
+   */
+  rank(scored: Scored[], limit: number): RankOutput | Promise<RankOutput>;
+}
+
+let activeStrategy: RankStrategy | null = null;
+
+export function registerRankStrategy(strategy: RankStrategy): void {
+  activeStrategy = strategy;
+}
+
+export function getRankStrategy(): RankStrategy {
+  return activeStrategy ?? heuristicRankStrategy;
+}
+
+/** Test-only override; throws outside NODE_ENV=test. */
+export function setRankStrategy(strategy: RankStrategy | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("setRankStrategy() is test-only.");
+  }
+  activeStrategy = strategy;
+}
+
+/**
+ * Pipeline-facing facade. Awaits the active strategy so both sync
+ * (heuristic) and async (LLM) implementations share one call site.
+ */
+export async function runRankStrategy(
+  scored: Scored[],
+  limit: number,
+): Promise<RankOutput> {
+  return getRankStrategy().rank(scored, limit);
+}
+
+/**
+ * Default heuristic ranker. Synchronous, deterministic. Exported for
+ * direct unit-testing — the pipeline goes through `runRankStrategy()`
+ * instead so a registered alternate can intercept.
+ */
 export function rank(scored: Scored[], limit: number): RankOutput {
   if (scored.length === 0) {
     return { results: [], lowConfidenceFallback: false };
@@ -121,6 +173,21 @@ export function confidenceLabel(score: number): Confidence {
   if (score >= 0.55) return "medium";
   return "low";
 }
+
+// ─── Default strategy registration ──────────────────────────────────────
+
+/**
+ * Built-in heuristic strategy. Registered eagerly at module load so the
+ * pipeline has a working default even if no one ever calls
+ * `registerRankStrategy()`. A v2 LLM strategy can override by calling
+ * `registerRankStrategy(llmStrategy)` at app boot.
+ */
+export const heuristicRankStrategy: RankStrategy = {
+  name: "heuristic",
+  rank,
+};
+
+registerRankStrategy(heuristicRankStrategy);
 
 // Exported for tests only.
 export const __internals = { tieBreak, SCORE_THRESHOLD, TIE_EPSILON };

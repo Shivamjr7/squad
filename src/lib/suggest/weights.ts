@@ -17,14 +17,28 @@ export type WeightKey = (typeof WEIGHT_KEYS)[number];
 
 export type Weights = Record<WeightKey, number>;
 
+// Tuned to favor famous-and-still-relevant over closest-but-obscure.
+// Popularity is the single biggest lever (it carries Google's
+// review-count + rating into the ranker); distance gets dialed back so a
+// well-known spot 1km out beats a forgettable one at 200m. Preference
+// drops because the neutral default profile (no signals yet) was getting
+// too much weight at 0.25 — once circle_preference_signals starts
+// hydrating the profile in v2, this can climb back up via the env knob.
+//   distance:   0.20 → 0.12
+//   preference: 0.25 → 0.20
+//   weather:    0.10 → 0.08
+//   popularity: 0.10 → 0.25
+//   recency / budget / hours unchanged
+// Sum stays at 1.00. Override via SUGGEST_WEIGHTS_JSON for A/B without
+// redeploy.
 export const DEFAULT_WEIGHTS: Weights = {
-  distance: 0.2,
-  preference: 0.25,
-  weather: 0.1,
+  distance: 0.12,
+  preference: 0.2,
+  weather: 0.08,
   recency: 0.1,
   budget: 0.1,
   hours: 0.15,
-  popularity: 0.1,
+  popularity: 0.25,
 };
 
 const weightsSchema = z.object({

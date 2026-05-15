@@ -31,7 +31,7 @@ import {
   gatherContext,
   runPipeline,
 } from "@/lib/suggest/pipeline";
-import { explain } from "@/lib/suggest/pipeline/explain";
+import { runExplainStrategy } from "@/lib/suggest/pipeline/explain";
 import { confidenceLabel } from "@/lib/suggest/pipeline/rank";
 import { effectiveCentroid } from "@/lib/suggest/pipeline/normalize";
 import { getWeatherProvider } from "@/lib/suggest/providers/weather-registry";
@@ -318,21 +318,25 @@ async function loadExistingLog(
 
   // Re-derive explanation/confidence from stored breakdown+activity.
   // Explanation is intentionally NOT persisted (09-data-model.md §indexes
-  // budget) since the explain step is pure and cheap to replay.
-  const results: RankedResult[] = items.map((row) => {
-    const activity = row.activity as Activity;
-    const breakdown = row.breakdown as ScoreBreakdown;
-    const normalized = row.score / 1000;
-    return {
-      id: row.id,
-      activity,
-      score: normalized,
-      breakdown,
-      explanation: explain(activity, breakdown, ctxStored),
-      confidence: confidenceLabel(normalized),
-      provider: activity.provider,
-    };
-  });
+  // budget) since the explain step is pure and cheap to replay. The
+  // active ExplanationStrategy (S10) handles dispatch — default is sync,
+  // LLM strategy would await.
+  const results: RankedResult[] = await Promise.all(
+    items.map(async (row) => {
+      const activity = row.activity as Activity;
+      const breakdown = row.breakdown as ScoreBreakdown;
+      const normalized = row.score / 1000;
+      return {
+        id: row.id,
+        activity,
+        score: normalized,
+        breakdown,
+        explanation: await runExplainStrategy(activity, breakdown, ctxStored),
+        confidence: confidenceLabel(normalized),
+        provider: activity.provider,
+      };
+    }),
+  );
 
   return {
     suggestionLogId: existing.id,
