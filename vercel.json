@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/vacuum-provider-cache",
-      "schedule": "0 * * * *"
+      "schedule": "0 4 * * *"
     },
     {
       "path": "/api/cron/vacuum-suggestion-logs",

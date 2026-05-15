@@ -7,8 +7,10 @@ import { providerCache } from "@/db/schema";
 // expiresAt), but stale entries still consume disk + slow the `expiresAt`
 // index over time. This job deletes anything past its TTL.
 //
-// Cadence: hourly via Vercel cron (vercel.json). The provider_cache
-// `expires_idx` makes the WHERE cheap; volume is friend-group scale.
+// Cadence: daily at 04:00 UTC via Vercel cron (vercel.json). Vercel Hobby
+// caps cron frequency to once per day; the worst case is ~24h of expired
+// rows sitting in the table, which is negligible at friend-group scale.
+// The `expires_idx` makes the WHERE cheap regardless of stale rows.
 //
 // Spec: docs/specs/suggest-plan/09-data-model.md §provider_cache and
 //       11-observability.md §Privacy & retention.
