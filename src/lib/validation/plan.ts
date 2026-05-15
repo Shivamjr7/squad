@@ -74,6 +74,28 @@ export const createPlanSchema = z.object({
     .max(200, "Too many recipients")
     .optional()
     .default([]),
+  // Suggest Plan — venue provenance for rows picked from the Suggest
+  // drawer. Each entry becomes a `plan_venues` row with
+  // `source='suggestion'` and `suggestion_item_id` set; createPlan also
+  // patches `suggestion_logs.planId` so the receipt timeline + lifecycle
+  // hooks (auto-lock 'won', cancelPlan 'cancelled') fire. Optional and
+  // defaults to []; existing call sites (FAB / header trigger) never set
+  // this and keep their plain-string venue flow.
+  suggestions: z
+    .array(
+      z.object({
+        label: z
+          .string()
+          .trim()
+          .min(1, "Suggestion label required")
+          .max(100, "Venue must be 100 characters or fewer"),
+        suggestionLogId: z.string().uuid(),
+        itemId: z.string().uuid(),
+      }),
+    )
+    .max(8, "Up to 8 suggestion venues")
+    .optional()
+    .default([]),
 });
 
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;

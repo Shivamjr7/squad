@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { Plus, X } from "lucide-react";
+import { Plus, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Form,
@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { createPlan } from "@/lib/actions/plans";
+import { SuggestDrawer } from "@/components/plan/suggest-drawer";
 import {
   createPlanSchema,
   type CreatePlanInput,
@@ -153,18 +154,38 @@ const PRESETS: { value: DecideByPreset; label: string }[] = [
   { value: "tomorrow", label: "Tomorrow" },
 ];
 
+export type InitialSuggestion = {
+  label: string;
+  suggestionLogId: string;
+  itemId: string;
+};
+
 export function NewPlanForm({
   circleId,
   slug,
   members,
   currentUserId,
   onDone,
+  initialLocation,
+  initialStartsAtLocal,
+  initialSuggestion,
 }: {
   circleId: string;
   slug: string;
   members: FormMember[];
   currentUserId: string;
   onDone?: () => void;
+  // S6 — when the suggest drawer dispatches "Add", the host opens this form
+  // with the venue label pre-filled in the WHERE field. Same prop seam is
+  // used for `startsAtLocal` so the drawer's "tonight 8pm" assumption flows
+  // through.
+  initialLocation?: string;
+  initialStartsAtLocal?: string;
+  // Suggest Plan (Option A wiring) — provenance for the pre-filled location.
+  // When the WHERE field at submit-time still matches `initialSuggestion.label`
+  // verbatim, the venue is shipped as a suggestion to createPlan; if the user
+  // has edited the field, we drop provenance and treat it as manual.
+  initialSuggestion?: InitialSuggestion;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -176,10 +197,11 @@ export function NewPlanForm({
   const form = useForm<FormValues>({
     defaultValues: {
       title: "",
-      startsAtLocal: toDateTimeLocal(defaultStartsAt(now)),
+      startsAtLocal:
+        initialStartsAtLocal ?? toDateTimeLocal(defaultStartsAt(now)),
       timeMode: "exact",
       decidePreset: "2h",
-      location: "",
+      location: initialLocation ?? "",
       extraLocations: [],
     },
     mode: "onChange",
@@ -207,6 +229,25 @@ export function NewPlanForm({
   const selectedCount = members.length - excluded.size;
   const allSelected = excluded.size === 0;
 
+  // Suggest Plan — runtime adds from the in-form Suggest button. The Path 1
+  // initialSuggestion (from the home-page drawer) flows in through the
+  // matchesSuggestion check at submit. Path 2 (Suggest button below)
+  // appends here. Dedup by itemId on add so spam-tapping the same row in
+  // the drawer can't double-write.
+  const [addedSuggestions, setAddedSuggestions] = useState<
+    InitialSuggestion[]
+  >([]);
+  const [suggestDrawerOpen, setSuggestDrawerOpen] = useState(false);
+
+  function appendSuggestion(s: InitialSuggestion) {
+    setAddedSuggestions((prev) =>
+      prev.some((p) => p.itemId === s.itemId) ? prev : [...prev, s],
+    );
+  }
+  function removeSuggestion(itemId: string) {
+    setAddedSuggestions((prev) => prev.filter((s) => s.itemId !== itemId));
+  }
+
   function toggleRecipient(userId: string) {
     if (userId === currentUserId) return; // creator is always in
     setExcluded((prev) => {
@@ -231,6 +272,28 @@ export function NewPlanForm({
           .map((m) => m.userId)
           .filter((id) => !excluded.has(id));
 
+    // Path 1 (home drawer): if WHERE still matches the pre-filled suggestion
+    // label verbatim, ship provenance to the server. Any edit drops it and
+    // falls back to a plain manual location.
+    const trimmedLocation = values.location.trim();
+    const matchesSuggestion =
+      initialSuggestion != null &&
+      trimmedLocation.length > 0 &&
+      trimmedLocation === initialSuggestion.label.trim();
+
+    // Merge Path 1 + Path 2 suggestions, dedup by itemId (Path 1's row
+    // could also be in addedSuggestions if the user re-picked the same
+    // venue from the in-form drawer). createPlan re-dedups by label too.
+    const allSuggestions: InitialSuggestion[] = [];
+    if (matchesSuggestion && initialSuggestion) {
+      allSuggestions.push(initialSuggestion);
+    }
+    for (const s of addedSuggestions) {
+      if (!allSuggestions.some((x) => x.itemId === s.itemId)) {
+        allSuggestions.push(s);
+      }
+    }
+
     const input: CreatePlanInput = {
       circleId,
       title: values.title,
@@ -240,12 +303,18 @@ export function NewPlanForm({
       timeZone: getBrowserTimeZone(),
       isApproximate: false,
       decideByLocal,
-      location: values.location.trim() || null,
+      // Keep `plans.location` set even when the venue is a suggestion: email
+      // / maps / receipt all read the column directly and a `null` would
+      // regress single-venue plans. createPlan also writes a plan_venues
+      // row with source='suggestion' so the lock-time feedback='won' hook
+      // has a target to update.
+      location: trimmedLocation || null,
       extraVenues: values.extraLocations
         .map((v) => v.trim())
         .filter((v) => v.length > 0),
       maxPeople: null,
       recipientUserIds,
+      suggestions: allSuggestions,
     };
 
     const parsed = createPlanSchema.safeParse(input);
@@ -409,20 +478,54 @@ export function NewPlanForm({
                       </button>
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      form.setValue(
-                        "extraLocations",
-                        [...extraLocations, ""],
-                        { shouldDirty: true },
-                      );
-                    }}
-                    className="self-start text-xs font-medium text-coral transition-colors hover:text-coral/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-                  >
-                    + Add another option
-                  </button>
-                  {extraLocations.length > 0 ? (
+                  {/* Suggestion chips: rendered as locked rows with the
+                      sparkle marker per spec G §6. Tap the X to drop. */}
+                  {addedSuggestions.map((s) => (
+                    <div
+                      key={s.itemId}
+                      className="flex items-center gap-2 rounded-full border border-coral/30 bg-coral-soft/30 px-3 py-1.5 text-sm text-ink"
+                    >
+                      <Sparkles
+                        className="size-3.5 shrink-0 text-coral"
+                        aria-hidden
+                      />
+                      <span className="min-w-0 flex-1 truncate">
+                        {s.label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeSuggestion(s.itemId)}
+                        className="text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+                        aria-label={`Remove ${s.label}`}
+                      >
+                        <X className="size-4" aria-hidden />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        form.setValue(
+                          "extraLocations",
+                          [...extraLocations, ""],
+                          { shouldDirty: true },
+                        );
+                      }}
+                      className="text-xs font-medium text-coral transition-colors hover:text-coral/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+                    >
+                      + Add another option
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSuggestDrawerOpen(true)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-coral transition-colors hover:text-coral/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+                    >
+                      <Sparkles className="size-3.5" aria-hidden />
+                      Suggest
+                    </button>
+                  </div>
+                  {extraLocations.length + addedSuggestions.length > 0 ? (
                     <p className="text-[11px] text-ink-muted">
                       Squad will vote on the venue.
                     </p>
@@ -595,6 +698,19 @@ export function NewPlanForm({
           </div>
         </footer>
       </form>
+      {/* In-form Suggest entry. Nested inside the Sheet/Dialog that hosts
+          this form; Radix layers a second overlay on top. Picking a venue
+          appends to addedSuggestions and closes the drawer — the form
+          stays mounted underneath so all prior input survives. */}
+      <SuggestDrawer
+        open={suggestDrawerOpen}
+        onOpenChange={setSuggestDrawerOpen}
+        circleId={circleId}
+        onPickVenue={({ label, itemId, suggestionLogId }) => {
+          appendSuggestion({ label, itemId, suggestionLogId });
+          setSuggestDrawerOpen(false);
+        }}
+      />
     </Form>
   );
 }

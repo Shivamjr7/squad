@@ -19,9 +19,14 @@ import {
   suggestionLogs,
 } from "@/db/schema";
 import { ActionError } from "@/lib/actions/errors";
+import { recordPlanEvent } from "@/lib/actions/plan-events";
 import { requireMembership, requireUserId } from "@/lib/auth";
 import { isValidTimeZone, zonedWallClockToUtc } from "@/lib/tz";
 import { takeToken } from "@/lib/suggest/rate-limit";
+// Side-effect import: registers every available provider into the registry
+// at first action invocation. Without this, getProvider() returns null and
+// every category degrades with reason='no_provider'.
+import "@/lib/suggest/providers";
 import {
   gatherContext,
   runPipeline,
@@ -54,11 +59,17 @@ const GEO_QUANTIZE_DECIMALS = 3;
 const CENTROID_FALLBACK_VENUE_LIMIT = 10;
 
 // Drop client-supplied geo if accuracy is worse than this (per
-// 10-edge-cases.md §Privacy). The walking-time hint may still surface a
-// softer message; the pipeline just stops treating the point as trusted.
-const GEO_ACCURACY_CUTOFF_M = 1000;
+// 10-edge-cases.md §Privacy). Tuned to 50 km so desktop wifi-based geo
+// (commonly 1–20 km accurate) is trusted instead of silently falling
+// back to the circle centroid — the drawer's UX is "show me what's near
+// where I actually am." Mobile/GPS readings come in well under this.
+const GEO_ACCURACY_CUTOFF_M = 50_000;
 
-export type { GetSuggestionsInput, RecordFeedbackInput };
+// Types are intentionally NOT re-exported here. Files with the "use server"
+// directive may only export async functions at runtime — type-only re-exports
+// survive TS but blow up under turbopack as `undefined` value exports. Import
+// `GetSuggestionsInput` / `RecordFeedbackInput` directly from
+// `@/lib/validation/suggest` instead.
 
 // ─── getSuggestions ─────────────────────────────────────────────────────
 
@@ -193,7 +204,7 @@ export async function recordSuggestionFeedback(
   const userId = await requireUserId();
 
   const log = await db.query.suggestionLogs.findFirst({
-    columns: { id: true, circleId: true, userId: true },
+    columns: { id: true, circleId: true, userId: true, planId: true },
     where: eq(suggestionLogs.id, data.suggestionLogId),
   });
   if (!log) {
@@ -228,8 +239,23 @@ export async function recordSuggestionFeedback(
     throw new ActionError("NOT_FOUND", "Suggestion item not found.");
   }
 
-  // plan_events emission for 'suggestion_added'/'suggestion_rejected' is
-  // deferred to S7 alongside the enum migration (implementation-plan.md S7).
+  // S7 — close the loop on the receipt timeline. `add` / `reject` only:
+  // `refresh` is bulk telemetry (Flow H) and would pollute the activity log.
+  // Emission is gated on the log already being plan-linked; the drawer's
+  // pre-plan flow keeps planId null and silently skips, matching the
+  // "when applicable" wording in implementation-plan.md S5.
+  if (
+    log.planId &&
+    (data.feedback === "add" || data.feedback === "reject")
+  ) {
+    void recordPlanEvent({
+      planId: log.planId,
+      userId,
+      kind: data.feedback === "add" ? "suggestion_added" : "suggestion_rejected",
+      payload: { suggestionLogId: log.id, itemId: data.itemId },
+    });
+  }
+
   return { ok: true };
 }
 

@@ -54,6 +54,8 @@ export const proposalKind = pgEnum("proposal_kind", ["replacement", "addition"])
 
 // M24 — activity log kinds. Used by the Receipt variant to render a
 // canonical timeline of what happened to the plan, in order.
+// S7 — `suggestion_added` / `suggestion_rejected` close the suggest loop on
+// the receipt timeline; payload carries `{ suggestionLogId, itemId }`.
 export const planEventKind = pgEnum("plan_event_kind", [
   "created",
   "voted",
@@ -62,6 +64,8 @@ export const planEventKind = pgEnum("plan_event_kind", [
   "added_member",
   "locked",
   "cancelled",
+  "suggestion_added",
+  "suggestion_rejected",
 ]);
 
 // ─── Tables ─────────────────────────────────────────────────────────────
