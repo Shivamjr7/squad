@@ -193,6 +193,7 @@ export const memberships = pgTable(
       table.userId,
       table.circleId,
     ),
+    circleIdx: index("memberships_circle_id_idx").on(table.circleId),
   }),
 );
 
@@ -290,6 +291,8 @@ export const votes = pgTable(
     // Squad Pulse + Activity by user — votes_plan_user_unique leads on plan_id,
     // so a user-only filter falls back to seq scan without this.
     userIdx: index("votes_user_id_idx").on(table.userId),
+    // Index for joining votes with plans in activity queries
+    planIdx: index("votes_plan_id_idx").on(table.planId),
   }),
 );
 

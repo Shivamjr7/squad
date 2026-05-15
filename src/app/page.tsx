@@ -46,6 +46,7 @@ import { LandingFeatureGrid } from "@/components/landing/feature-grid";
 import { LandingStatsTestimonial } from "@/components/landing/stats-testimonial";
 import { LandingFinalCta } from "@/components/landing/final-cta";
 import { LandingFooter } from "@/components/landing/footer";
+import { PrefetchCircle } from "@/components/home/prefetch-circle";
 
 const FEED_LIMIT = 30;
 
@@ -118,6 +119,7 @@ async function SignedInHome({
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-4 px-4 pt-3 pb-32 sm:px-6">
+      <PrefetchCircle slug={fallbackSlug} />
       <header className="flex items-center justify-between gap-3">
         <Link
           href="/"

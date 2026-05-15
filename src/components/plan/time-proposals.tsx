@@ -60,7 +60,6 @@ function TimeProposalsInner({ canSuggest }: { canSuggest: boolean }) {
     vote,
     totalVoters,
     topProposalId,
-    pending,
   } = useTimeProposals();
 
   if (proposals.length === 0) {
@@ -101,7 +100,6 @@ function TimeProposalsInner({ canSuggest }: { canSuggest: boolean }) {
               <button
                 type="button"
                 onClick={() => vote(p.id)}
-                disabled={pending}
                 aria-pressed={mine}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-xl border bg-paper px-4 py-3 text-left transition-colors",

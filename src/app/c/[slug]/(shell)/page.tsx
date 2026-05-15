@@ -5,16 +5,9 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { and, asc, eq, gte, inArray, max, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import {
-  planEvents,
-  planVenueVotes,
-  planVenues,
-  plans,
-  pushSubscriptions,
-  votes,
-} from "@/db/schema";
+import { planEvents, plans, pushSubscriptions } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
@@ -29,18 +22,18 @@ import { InstallBanner } from "@/components/pwa/install-banner";
 import { EnablePushBanner } from "@/components/circle/enable-push-banner";
 import { WeatherChip } from "@/components/circle/weather-chip";
 import { HomeSubline } from "@/components/circle/home-subline";
-import {
-  SquadPulse,
-  SquadPulseInline,
-  type PulseMember,
-} from "@/components/circle/squad-pulse";
 import { SuggestPanel } from "@/components/circle/suggest-panel";
+import {
+  SquadPulseAsync,
+  SquadPulseSkeleton,
+} from "@/components/circle/squad-pulse-async";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import {
   getCircleBySlug,
-  getCircleMemberActivity,
   getCircleMembers,
   getUserCircles,
+  type CircleMemberRow,
+  type UserCircle,
 } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
 import { buildMapsUrl } from "@/lib/maps";
@@ -108,8 +101,8 @@ export default async function CircleHomePage({
   // memberRows + userCircles are already cached at the layout level (same
   // request), so these calls hit the cache. pushRows is page-specific.
   const [memberRows, userCircles, pushRows] = await Promise.all([
-    getCircleMembers(circle.id),
-    getUserCircles(userId),
+    getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
+    getUserCircles(userId) as Promise<UserCircle[]>,
     db
       .select({ id: pushSubscriptions.id })
       .from(pushSubscriptions)
@@ -153,6 +146,9 @@ export default async function CircleHomePage({
         sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
       );
 
+  // One nested relational query: plans + creator + every vote + voter user
+  // + every venue + every venue-vote. Drizzle issues this as a single SQL
+  // statement (one round-trip) instead of the four it used to take.
   const upcoming = await db.query.plans.findMany({
     where: and(
       eq(plans.circleId, circle.id),
@@ -166,11 +162,23 @@ export default async function CircleHomePage({
     ],
     with: {
       creator: { columns: { displayName: true, avatarUrl: true } },
+      votes: {
+        with: {
+          user: {
+            columns: { id: true, displayName: true, avatarUrl: true },
+          },
+        },
+      },
+      venues: {
+        columns: { id: true, label: true },
+        with: {
+          votes: { columns: { venueId: true } },
+        },
+      },
     },
   });
 
   const planIds = upcoming.map((p) => p.id);
-  const upcomingPlanIds = upcoming.map((p) => p.id);
   const initialVoters: VotersByPlan = {};
   // Map<planId, { label, votes, total }> — surfaces the leading venue on the
   // home featured card + upcoming row when an active plan has multi-venue
@@ -179,18 +187,10 @@ export default async function CircleHomePage({
     string,
     { label: string | null; total: number; optionCount: number }
   >();
-  if (planIds.length > 0) {
-    const voteRows = await db.query.votes.findMany({
-      where: inArray(votes.planId, planIds),
-      with: {
-        user: {
-          columns: { id: true, displayName: true, avatarUrl: true },
-        },
-      },
-    });
-    for (const v of voteRows) {
+  for (const p of upcoming) {
+    for (const v of p.votes) {
       if (!v.user) continue;
-      const list = initialVoters[v.planId] ?? [];
+      const list = initialVoters[p.id] ?? [];
       list.push({
         userId: v.user.id,
         displayName: v.user.displayName,
@@ -198,84 +198,30 @@ export default async function CircleHomePage({
         status: v.status,
         votedAt: v.votedAt.toISOString(),
       });
-      initialVoters[v.planId] = list;
+      initialVoters[p.id] = list;
     }
-  }
-
-  if (upcomingPlanIds.length > 0) {
-    const venueRows = await db
-      .select({
-        planId: planVenues.planId,
-        venueId: planVenues.id,
-        label: planVenues.label,
-      })
-      .from(planVenues)
-      .where(inArray(planVenues.planId, upcomingPlanIds));
-
-    if (venueRows.length > 0) {
-      const venueIdToPlan = new Map<string, string>();
-      const optionsPerPlan = new Map<string, number>();
-      const labelByVenue = new Map<string, string>();
-      for (const v of venueRows) {
-        venueIdToPlan.set(v.venueId, v.planId);
-        labelByVenue.set(v.venueId, v.label);
-        optionsPerPlan.set(
-          v.planId,
-          (optionsPerPlan.get(v.planId) ?? 0) + 1,
-        );
-      }
-
-      const voteRows = await db
-        .select({
-          venueId: planVenueVotes.venueId,
-        })
-        .from(planVenueVotes)
-        .where(
-          inArray(planVenueVotes.venueId, Array.from(venueIdToPlan.keys())),
-        );
-
-      // Tally votes per venue, then pick a unique leader per plan.
-      const perVenueCount = new Map<string, number>();
-      for (const r of voteRows) {
-        perVenueCount.set(
-          r.venueId,
-          (perVenueCount.get(r.venueId) ?? 0) + 1,
-        );
-      }
-      const perPlanLeader = new Map<
-        string,
-        { label: string; votes: number; tied: boolean }
-      >();
-      for (const [venueId, c] of perVenueCount.entries()) {
-        const planId = venueIdToPlan.get(venueId);
-        if (!planId) continue;
-        const label = labelByVenue.get(venueId) ?? "";
-        const cur = perPlanLeader.get(planId);
-        if (!cur || c > cur.votes) {
-          perPlanLeader.set(planId, { label, votes: c, tied: false });
-        } else if (c === cur.votes) {
-          perPlanLeader.set(planId, { ...cur, tied: true });
-        }
-      }
-      // Total votes across this plan.
-      const perPlanTotal = new Map<string, number>();
-      for (const [venueId, c] of perVenueCount.entries()) {
-        const planId = venueIdToPlan.get(venueId);
-        if (!planId) continue;
-        perPlanTotal.set(planId, (perPlanTotal.get(planId) ?? 0) + c);
-      }
-
-      for (const [planId, optionCount] of optionsPerPlan.entries()) {
-        if (optionCount < 2) continue; // no need to surface for single-option seedings
-        const leader = perPlanLeader.get(planId);
-        const total = perPlanTotal.get(planId) ?? 0;
-        venueSummaries.set(planId, {
-          label: leader && !leader.tied && leader.votes > 0 ? leader.label : null,
-          total,
-          optionCount,
-        });
+    if (p.venues.length < 2) continue;
+    // Pick the unique vote leader per plan (ties → null label).
+    let leaderLabel: string | null = null;
+    let leaderVotes = 0;
+    let tied = false;
+    let total = 0;
+    for (const venue of p.venues) {
+      const count = venue.votes.length;
+      total += count;
+      if (count > leaderVotes) {
+        leaderLabel = venue.label;
+        leaderVotes = count;
+        tied = false;
+      } else if (count === leaderVotes && count > 0) {
+        tied = true;
       }
     }
+    venueSummaries.set(p.id, {
+      label: tied || leaderVotes === 0 ? null : leaderLabel,
+      total,
+      optionCount: p.venues.length,
+    });
   }
 
   const currentUser = {
@@ -298,33 +244,33 @@ export default async function CircleHomePage({
       ? buildMapsUrl(featured.location, ua)
       : null;
 
-  // Featured-plan "last edit Nm ago" — derived from MAX(plan_events.created_at)
-  // (M24 activity log). Falls back to plan.createdAt if there are no events.
+  // Featured-plan "last edit Nm ago" — most recent activity-log row (M24).
+  // `findFirst(orderBy: desc, limit 1)` rides the (plan_id, created_at)
+  // index. Single round-trip; falls back to plan.createdAt when empty.
   let featuredLastEditAt: Date | null = null;
   if (featured) {
-    const ev = await db
-      .select({ at: max(planEvents.createdAt) })
-      .from(planEvents)
-      .where(eq(planEvents.planId, featured.id));
-    featuredLastEditAt = ev[0]?.at ?? null;
+    const ev = await db.query.planEvents.findFirst({
+      where: eq(planEvents.planId, featured.id),
+      orderBy: [desc(planEvents.createdAt)],
+      columns: { createdAt: true },
+    });
+    featuredLastEditAt = ev?.createdAt ?? null;
   }
 
-  // Squad Pulse — derive each member's last in-app activity from
-  // MAX(votes.voted_at, plans.created_at by them). The shell layout already
-  // ran this query; cache() returns the same Map without re-querying.
-  const lastActiveByUser = await getCircleMemberActivity(circle.id);
-  const pulseMembers: PulseMember[] = memberRows
+  // SquadPulse activity is streamed below via <SquadPulseAsync> in a
+  // <Suspense> boundary so the two MAX() aggregations don't block first
+  // paint. Members for the pulse come from `sidebarMembers` below.
+  const sidebarMembers = memberRows
     .map((m) =>
       m.user
         ? {
             userId: m.user.id,
             displayName: m.user.displayName,
             avatarUrl: m.user.avatarUrl,
-            lastActiveAt: lastActiveByUser.get(m.user.id) ?? null,
           }
         : null,
     )
-    .filter((m): m is PulseMember => m !== null);
+    .filter((m): m is { userId: string; displayName: string; avatarUrl: string | null } => m !== null);
 
   // Subline computations.
   const decidingCount = upcoming.filter((p) => p.status === "active").length;
@@ -394,9 +340,18 @@ export default async function CircleHomePage({
               />
             </div>
 
-            {/* Mobile-only inline pulse chips. Desktop has the full sidebar. */}
+            {/* Mobile-only inline pulse chips. Desktop has the full sidebar.
+                Streamed via Suspense — the activity aggregate runs after
+                first paint so the hero doesn't wait on it. */}
             <div className="lg:hidden">
-              <SquadPulseInline members={pulseMembers} now={now} />
+              <Suspense fallback={<SquadPulseSkeleton variant="mobile" />}>
+                <SquadPulseAsync
+                  circleId={circle.id}
+                  members={sidebarMembers}
+                  nowMs={now.getTime()}
+                  variant="mobile"
+                />
+              </Suspense>
             </div>
 
             <div className="flex flex-col gap-8">
@@ -519,7 +474,14 @@ export default async function CircleHomePage({
           </div>
 
           <aside className="hidden flex-col gap-4 lg:order-2 lg:flex">
-            <SquadPulse members={pulseMembers} now={now} />
+            <Suspense fallback={<SquadPulseSkeleton variant="desktop" />}>
+              <SquadPulseAsync
+                circleId={circle.id}
+                members={sidebarMembers}
+                nowMs={now.getTime()}
+                variant="desktop"
+              />
+            </Suspense>
             <SuggestPanel
               circleId={circle.id}
               slug={circle.slug}

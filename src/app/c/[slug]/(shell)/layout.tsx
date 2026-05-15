@@ -6,9 +6,13 @@ import {
   getCircleMemberActivity,
   getCircleMembers,
   getUserCircles,
+  type CircleMemberRow,
 } from "@/lib/circles";
 import { AppShell } from "@/components/layout/AppShell";
-import type { SidebarMember } from "@/components/layout/Sidebar";
+import type {
+  SidebarCircle,
+  SidebarMember,
+} from "@/components/layout/Sidebar";
 import { getUnreadCount } from "@/lib/actions/notifications";
 
 export default async function CircleShellLayout({
@@ -25,19 +29,14 @@ export default async function CircleShellLayout({
   const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
-  // Critical path: members + userCircles (Sidebar needs identities + the
-  // circle switcher needs the list). These two block layout render.
+  // Critical path: members + circles list (Sidebar needs identities). These
+  // block the layout shell render. Below-fold data (unread badge, "around
+  // now" activity) flows through Promises that the Sidebar `use()`s inside
+  // Suspense boundaries — they stream in without blocking first paint.
   const [memberRows, userCircles] = await Promise.all([
-    getCircleMembers(circle.id),
+    getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
     getUserCircles(userId),
   ]);
-
-  // Non-critical: bell badge count + recent-activity stamps. Pass as
-  // promises so they stream into the Sidebar via React's `use()` +
-  // Suspense, not blocking layout render. .catch() on unread keeps
-  // transient DB hiccups from blowing up the whole layout.
-  const unreadInboxPromise = getUnreadCount().catch(() => 0);
-  const activityPromise = getCircleMemberActivity(circle.id);
 
   const sidebarMembers: SidebarMember[] = memberRows
     .map((m) =>
@@ -51,10 +50,27 @@ export default async function CircleShellLayout({
     )
     .filter((m): m is SidebarMember => m !== null);
 
+  const sidebarCircles: SidebarCircle[] = userCircles.map((c) => ({
+    id: c.id,
+    slug: c.slug,
+    name: c.name,
+    role: c.role,
+    memberCount: c.memberCount,
+  }));
+
+  // Streamed — not awaited here. Sidebar resolves these inside Suspense.
+  const unreadInboxPromise = getUnreadCount();
+  const activityPromise = getCircleMemberActivity(circle.id).then(
+    (record) =>
+      new Map(
+        Object.entries(record).map(([uid, iso]) => [uid, new Date(iso)]),
+      ),
+  );
+
   return (
     <AppShell
       currentSlug={slug}
-      circles={userCircles}
+      circles={sidebarCircles}
       members={sidebarMembers}
       nowMs={Date.now()}
       unreadInboxPromise={unreadInboxPromise}

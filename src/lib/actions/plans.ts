@@ -1,7 +1,9 @@
 "use server";
 
 import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/db/client";
+import { CIRCLE_TAGS } from "@/lib/circles";
 import {
   circles,
   memberships,
@@ -297,6 +299,10 @@ export async function createPlan(
 
     return plan.id;
   });
+
+  // Plan creation bumps the squad-pulse "last activity" for the creator —
+  // invalidate the activity cache so the home strip reflects it.
+  revalidateTag(CIRCLE_TAGS.circleActivity);
 
   // Fire-and-forget: a Resend outage must not block plan creation.
   const appUrl = await getAppUrl();

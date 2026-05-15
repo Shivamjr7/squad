@@ -121,13 +121,13 @@ type CustomLocation = {
   coords: GeoCoords;
 };
 
-// Request device geolocation. Caches off (`maximumAge: 0`) so re-opens get
-// fresh coords. Branches the rejection reason so the UI can distinguish
-// "blocked at the browser level" from "GPS chip declined to answer".
-function requestGeolocation(): Promise<GeoState> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) {
-    return Promise.resolve({ kind: "unsupported" });
-  }
+// Single getCurrentPosition call wrapped in a promise. Splits success vs.
+// the three failure modes (PERMISSION_DENIED, POSITION_UNAVAILABLE,
+// TIMEOUT) so the caller can decide whether to fall back to a different
+// strategy or surface a terminal error.
+function getPosition(
+  opts: PositionOptions,
+): Promise<GeoState | { kind: "transient" }> {
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (pos) =>
@@ -144,11 +144,72 @@ function requestGeolocation(): Promise<GeoState> {
           resolve({ kind: "denied" });
           return;
         }
-        resolve({ kind: "unavailable" });
+        // POSITION_UNAVAILABLE (2) or TIMEOUT (3). Treat both as transient
+        // so the caller can retry with different options before giving up.
+        resolve({ kind: "transient" });
       },
-      { maximumAge: 0, timeout: 10_000, enableHighAccuracy: false },
+      opts,
     );
   });
+}
+
+// Request device geolocation with a two-pass strategy tuned for mobile:
+//
+//   Pass 1 (fast):  network-based, short timeout, accept a < 1 min cached
+//                   fix. This is what works in 95% of cases and avoids the
+//                   slow GPS-first-fix path on phones.
+//   Pass 2 (slow):  high accuracy, longer timeout, no cache. Fallback for
+//                   devices that lack a recent network-positioning result.
+//
+// The previous single-pass call used `enableHighAccuracy: false` +
+// `maximumAge: 0` + a 10s timeout, which on mobile would time out indoors
+// (no GPS line-of-sight) and return POSITION_UNAVAILABLE even with
+// permission granted — the "even though location is on, it doesn't
+// detect" symptom.
+//
+// We also consult the Permissions API first; if `denied`, getCurrentPosition
+// will silently reject without re-prompting, so we short-circuit to the
+// recovery UI.
+async function requestGeolocation(): Promise<GeoState> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return { kind: "unsupported" };
+  }
+
+  try {
+    if (typeof navigator.permissions?.query === "function") {
+      const status = await navigator.permissions.query({
+        name: "geolocation" as PermissionName,
+      });
+      if (status.state === "denied") {
+        return { kind: "denied" };
+      }
+    }
+  } catch {
+    // Permissions API missing or rejected the name — proceed to direct call.
+  }
+
+  // Pass 1 — fast network-positioning, willing to take a recently cached fix.
+  const fast = await getPosition({
+    maximumAge: 60_000,
+    timeout: 8_000,
+    enableHighAccuracy: false,
+  });
+  if (fast.kind === "ok" || fast.kind === "denied") return fast;
+
+  // Pass 2 — high accuracy with a generous timeout. Some Android devices
+  // need this to engage the GPS chip; iOS Safari sometimes needs it to
+  // hand back any answer at all when the network fix path stalls.
+  const slow = await getPosition({
+    maximumAge: 0,
+    timeout: 20_000,
+    enableHighAccuracy: true,
+  });
+  if (slow.kind === "ok" || slow.kind === "denied") return slow;
+
+  // Both passes failed without a permission denial — usually means system
+  // Location Services is off, the device is indoors without a cached fix,
+  // or the browser/PWA wrapper isn't surfacing system permission.
+  return { kind: "unavailable" };
 }
 
 export function SuggestDrawer({
@@ -788,7 +849,11 @@ function SuggestDrawerBody({
           </div>
 
           {showGeoState ? (
-            <GeoEmptyState state={geoState} onRetry={requestGeoNow} />
+            <GeoEmptyState
+              state={geoState}
+              onRetry={requestGeoNow}
+              onPickCustom={() => setLocationMode("custom")}
+            />
           ) : null}
 
           {showModePrompt ? (
@@ -952,15 +1017,30 @@ function SuggestDrawerBody({
   );
 }
 
+// Best-effort UA sniff used only to render platform-specific permission
+// instructions. Always treats the "false" case as Android/desktop copy,
+// which is the safe default.
+function isIOSLike(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  // iPadOS Safari ≥ 13 sends a Mac UA but still has touch — sniff that.
+  return /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
+}
+
 // Geo-specific empty state. Different copy + CTA per failure mode so the
 // user knows whether to grant permission, reset their browser, or move to
-// a device with GPS.
+// a device with GPS. The "denied" case offers a one-tap escape hatch into
+// custom-location mode so users with a wedged browser permission aren't
+// stuck.
 function GeoEmptyState({
   state,
   onRetry,
+  onPickCustom,
 }: {
   state: GeoState;
   onRetry: () => void;
+  onPickCustom: () => void;
 }) {
   if (state.kind === "requesting") {
     return (
@@ -979,39 +1059,138 @@ function GeoEmptyState({
       <EmptyState
         title="Location isn't available here"
         body="Suggest needs your device's location to pick nearby spots. Try a browser or device that supports geolocation."
-        ctaLabel="Try again"
-        onCta={onRetry}
+        ctaLabel="Pick an area instead"
+        onCta={onPickCustom}
       />
     );
   }
 
   if (state.kind === "unavailable") {
+    // Browser said we have permission but couldn't get coords. On mobile,
+    // this is usually one of: (a) system Location Services is off for the
+    // browser app, (b) Squad is installed as a PWA and the PWA doesn't have
+    // its own location permission yet, or (c) device is indoors with no
+    // cached fix and GPS couldn't engage. Spell out the first two since
+    // they're the recoverable cases the user can actually fix.
+    const ios = isIOSLike();
     return (
-      <EmptyState
-        title="Couldn't read your location"
-        body="Your device declined to share coordinates. Try moving somewhere with better signal, or retry."
-        ctaLabel="Try again"
-        onCta={onRetry}
-      />
+      <div className="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-5 py-6">
+        <p className="font-serif text-lg text-ink">
+          Couldn&apos;t read your location
+        </p>
+        <p className="text-xs text-ink-muted">
+          Permission looks granted but no coordinates came back. Most common
+          causes on phones:
+        </p>
+        <ul className="list-disc pl-4 text-xs text-ink-muted">
+          {ios ? (
+            <>
+              <li>
+                System location is off for this app:{" "}
+                <strong>
+                  Settings → Privacy &amp; Security → Location Services
+                </strong>{" "}
+                → set Safari (or the installed Squad app) to{" "}
+                <strong>While Using</strong>.
+              </li>
+              <li>
+                If Squad is installed to your home screen, it has its own
+                permission separate from Safari — check{" "}
+                <strong>Settings → Squad → Location</strong>.
+              </li>
+            </>
+          ) : (
+            <>
+              <li>
+                System location is off for Chrome:{" "}
+                <strong>Settings → Apps → Chrome → Permissions →
+                Location</strong>.
+              </li>
+              <li>
+                If Squad is installed as an app, it has its own location
+                permission: <strong>Settings → Apps → Squad → Permissions</strong>.
+              </li>
+              <li>
+                Move closer to a window, or wait a few seconds and tap retry —
+                indoor GPS can take a moment.
+              </li>
+            </>
+          )}
+        </ul>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onPickCustom}
+            className="rounded-full bg-coral px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-coral/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+          >
+            Pick an area instead
+          </button>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-full border border-ink/20 px-4 py-1.5 text-xs font-semibold text-ink transition hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
     );
   }
 
-  // denied
+  // denied — most common stuck state. Browser remembered a prior block and
+  // will keep auto-rejecting without prompting. Give clear platform-aware
+  // instructions AND a one-tap escape into custom-location mode so users
+  // are never wedged.
+  const ios = isIOSLike();
   return (
     <div className="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-coral/30 bg-coral-soft/40 px-5 py-6">
-      <p className="font-serif text-lg text-ink">Allow location to continue</p>
+      <p className="font-serif text-lg text-ink">Location is blocked</p>
       <p className="text-xs text-ink-muted">
-        Suggest only shows places near where you actually are. Click the lock
-        icon in your browser&apos;s address bar, set <strong>Location</strong>{" "}
-        to <strong>Allow</strong>, then tap Try again.
+        Your browser is auto-blocking location for this site. Pick an area
+        manually, or unblock and retry:
       </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="rounded-full bg-coral px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-coral/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-      >
-        Try again
-      </button>
+      <ul className="list-disc pl-4 text-xs text-ink-muted">
+        {ios ? (
+          <>
+            <li>
+              iPhone: <strong>Settings → Privacy &amp; Security → Location
+              Services → Safari</strong> → <strong>While Using</strong>, then
+              reload this page.
+            </li>
+            <li>
+              Installed as an app: <strong>Settings → Squad → Location</strong>{" "}
+              → <strong>While Using</strong>.
+            </li>
+          </>
+        ) : (
+          <>
+            <li>
+              Tap the lock / site-info icon next to the URL → set{" "}
+              <strong>Location</strong> to <strong>Allow</strong> → reload.
+            </li>
+            <li>
+              Or: <strong>Site settings → Permissions → Location</strong> →
+              <strong> Allow</strong>.
+            </li>
+          </>
+        )}
+      </ul>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onPickCustom}
+          className="rounded-full bg-coral px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-coral/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+        >
+          Pick an area instead
+        </button>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-full border border-ink/20 px-4 py-1.5 text-xs font-semibold text-ink transition hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+        >
+          Try again
+        </button>
+      </div>
     </div>
   );
 }

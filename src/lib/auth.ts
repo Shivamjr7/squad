@@ -1,9 +1,15 @@
 import { redirect } from "next/navigation";
+import { unstable_cache as cache } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { circles, memberships, planRecipients, users } from "@/db/schema";
 import { ActionError } from "@/lib/actions/errors";
+
+// Single broad tag — display-name flag flips at most once per user (on
+// /set-name completion or the Clerk webhook), so invalidating every user's
+// cache on a flip is cheap and correct.
+export const USER_DISPLAY_NAME_TAG = "user-display-names";
 
 export type MembershipRole = "admin" | "member";
 
@@ -44,13 +50,29 @@ export async function requireMembership(
   return { userId, role: m.role };
 }
 
+// Cross-request cache for the display-name flag. Fired on every signed-in
+// server page; the row only changes once (when the user completes /set-name)
+// or via the Clerk webhook on signup. We invalidate via tag from those two
+// write paths, so reads after the flip see truth immediately.
+const getDisplayNameFlag = cache(
+  async (userId: string): Promise<{ hasSetDisplayName: boolean } | null> => {
+    const row = await db.query.users.findFirst({
+      columns: { hasSetDisplayName: true },
+      where: eq(users.id, userId),
+    });
+    return row ?? null;
+  },
+  ["user-display-name-flag"],
+  // Long revalidate as a safety net; tag invalidation is the primary path.
+  { revalidate: 300, tags: [USER_DISPLAY_NAME_TAG] },
+);
+
 // Call from any signed-in server page. Redirects to /set-name if the user
-// hasn't picked a real display name yet (Fix 2 / M17). Cheap one-row lookup.
+// hasn't picked a real display name yet (Fix 2 / M17). Cached read so the
+// shell layout + page on the same request share one DB roundtrip across
+// navigations.
 export async function requireDisplayNameSet(userId: string): Promise<void> {
-  const row = await db.query.users.findFirst({
-    columns: { hasSetDisplayName: true },
-    where: eq(users.id, userId),
-  });
+  const row = await getDisplayNameFlag(userId);
   // If the row doesn't exist yet (Clerk webhook in flight), don't block —
   // the user can still browse; the prompt will catch them next page load.
   if (row && !row.hasSetDisplayName) {

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { revalidateTag } from "next/cache";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { and, eq, sql } from "drizzle-orm";
@@ -6,6 +7,7 @@ import { db } from "@/db/client";
 import { invites, memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { requireDisplayNameSet } from "@/lib/auth";
+import { CIRCLE_TAGS } from "@/lib/circles";
 
 function InvalidInvitePage({ reason }: { reason: string }) {
   return (
@@ -88,6 +90,12 @@ export default async function InvitePage({
       .set({ uses: sql`${invites.uses} + 1` })
       .where(eq(invites.id, invite.id));
   });
+
+  // Drop cached member + user-circles + activity entries so the home page
+  // and squad sidebar show the new member immediately.
+  revalidateTag(CIRCLE_TAGS.userCircles);
+  revalidateTag(CIRCLE_TAGS.circleMembers);
+  revalidateTag(CIRCLE_TAGS.circleActivity);
 
   redirect(`/c/${invite.circle.slug}?joined=new`);
 }

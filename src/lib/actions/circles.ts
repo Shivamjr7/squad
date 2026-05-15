@@ -1,11 +1,20 @@
 "use server";
 
 import { and, eq, ne } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { db } from "@/db/client";
 import { circles, memberships, users } from "@/db/schema";
 import { requireMembership, requireUserId } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
+import { CIRCLE_TAGS } from "@/lib/circles";
+
+// Helper to invalidate every cached helper that depends on the membership
+// graph. Used by add/remove/leave + create-circle paths.
+function invalidateMembershipCaches() {
+  revalidateTag(CIRCLE_TAGS.userCircles);
+  revalidateTag(CIRCLE_TAGS.circleMembers);
+  revalidateTag(CIRCLE_TAGS.circleActivity);
+}
 import {
   createCircleSchema,
   renameCircleSchema,
@@ -50,6 +59,7 @@ export async function createCircle(
     });
   });
 
+  invalidateMembershipCaches();
   return { slug };
 }
 
@@ -71,6 +81,10 @@ export async function renameCircle(input: {
     .update(circles)
     .set({ name: parsed.data.name })
     .where(eq(circles.id, input.circleId));
+
+  // Circle name lives in both the slug lookup and the user-circles list.
+  revalidateTag(CIRCLE_TAGS.circleBySlug);
+  revalidateTag(CIRCLE_TAGS.userCircles);
 }
 
 // Direct-add a known Squad user to a circle. Admin-only. Idempotent: a no-op
@@ -114,6 +128,7 @@ export async function addMemberDirectly(input: {
     revalidatePath(`/c/${circle.slug}`);
     revalidatePath(`/c/${circle.slug}/settings`);
   }
+  invalidateMembershipCaches();
 }
 
 export async function removeMember(input: {
@@ -149,6 +164,7 @@ export async function removeMember(input: {
     revalidatePath(`/c/${circle.slug}/squad`);
     revalidatePath(`/c/${circle.slug}/settings`);
   }
+  invalidateMembershipCaches();
 }
 
 export async function leaveCircle(input: {
@@ -190,4 +206,5 @@ export async function leaveCircle(input: {
     revalidatePath(`/c/${circle.slug}`);
     revalidatePath(`/c/${circle.slug}/squad`);
   }
+  invalidateMembershipCaches();
 }

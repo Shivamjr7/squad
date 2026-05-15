@@ -5,7 +5,7 @@
 // in the network. We only fall back to a tiny offline shell when nav fails.
 //
 // Bump CACHE_VERSION whenever the precache list changes to invalidate.
-const CACHE_VERSION = "squad-shell-v2";
+const CACHE_VERSION = "squad-shell-v3";
 const PRECACHE = [
   "/offline",
   "/manifest.webmanifest",
@@ -143,6 +143,16 @@ async function networkFirstNavigation(req) {
   const cache = await caches.open(CACHE_VERSION);
   try {
     const res = await fetch(req);
+    // Stash a copy of HTML responses so an offline reload of the same URL
+    // renders the last seen page instead of bouncing to /offline. We don't
+    // serve from this cache while online — network-first stays the policy
+    // to avoid leaking another user's RSC payload after sign-out/in.
+    if (
+      res.ok &&
+      (res.headers.get("content-type") ?? "").includes("text/html")
+    ) {
+      cache.put(req, res.clone()).catch(() => {});
+    }
     return res;
   } catch {
     const hit = await cache.match(req);

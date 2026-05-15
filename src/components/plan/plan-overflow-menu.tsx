@@ -67,13 +67,16 @@ export function PlanOverflowMenu({
       fallbackError = "Couldn't update plan.",
     }: { redirectHome?: boolean; fallbackError?: string } = {},
   ) => {
+    // User already confirmed in the dialog — close it (and navigate for the
+    // done/cancel paths) immediately so the action feels instant. The server
+    // write runs in the background; failures surface as a toast.
+    close();
+    if (redirectHome) {
+      router.push(`/c/${circleSlug}`);
+    }
     startTransition(async () => {
       try {
         await fn();
-        close();
-        if (redirectHome) {
-          router.push(`/c/${circleSlug}`);
-        }
         router.refresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : fallbackError;

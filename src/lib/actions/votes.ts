@@ -1,10 +1,12 @@
 "use server";
 
 import { and, eq, sql } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/db/client";
 import { circles, plans, users, votes } from "@/db/schema";
 import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
+import { CIRCLE_TAGS } from "@/lib/circles";
 import {
   castVoteSchema,
   removeVoteSchema,
@@ -99,6 +101,10 @@ export async function castVote(
       maybeCount,
     },
   });
+
+  // Squad-pulse derives from votes — flag the activity cache stale so the
+  // home strip reflects this voter's pulse next render.
+  revalidateTag(CIRCLE_TAGS.circleActivity);
 
   // Re-evaluate auto-lock after every cast. Cheap: short-circuits before any
   // extra queries when the plan isn't active. Three triggers can fire here —

@@ -323,11 +323,15 @@ export function NewPlanForm({
       return;
     }
 
+    // Close the sheet optimistically so the user isn't watching a spinner —
+    // the form has already validated client-side and the server write happens
+    // in the background. On failure we surface a toast; on success we slide
+    // into the home page with the new plan visible.
+    onDone?.();
     startTransition(async () => {
       try {
         await createPlan(parsed.data);
         toast.success("Plan created");
-        onDone?.();
         router.push(`/c/${slug}`);
         router.refresh();
       } catch (err) {

@@ -35,7 +35,7 @@ export function VenueVote(props: Props) {
 }
 
 function VenueVoteInner({ canSuggest }: { canSuggest: boolean }) {
-  const { venues, count, isMine, vote, totalVoters, topVenueId, pending } =
+  const { venues, count, isMine, vote, totalVoters, topVenueId } =
     useVenueVotes();
 
   if (venues.length === 0) return null;
@@ -69,7 +69,6 @@ function VenueVoteInner({ canSuggest }: { canSuggest: boolean }) {
               <button
                 type="button"
                 onClick={() => vote(v.id)}
-                disabled={pending}
                 aria-pressed={mine}
                 className={cn(
                   "flex h-full w-full flex-col items-start gap-2 rounded-xl border bg-paper px-4 py-3 text-left transition-colors",
@@ -77,7 +76,6 @@ function VenueVoteInner({ canSuggest }: { canSuggest: boolean }) {
                     ? "border-coral bg-coral-soft"
                     : "border-ink/10 hover:border-ink/20",
                   mine && !isTop && "border-coral/60",
-                  "disabled:cursor-not-allowed disabled:opacity-60",
                 )}
               >
                 <div className="flex w-full items-center justify-between gap-2">

@@ -1,0 +1,11 @@
+Rules:
+- Only inspect files directly relevant to the task
+- Do not scan entire repository
+- Do not redesign architecture
+- Keep reasoning concise
+- Prefer incremental implementation
+- Reuse existing patterns
+- Keep responses short
+- Avoid unnecessary explanations
+- Limit changes to requested scope
+- Ask before making broad refactors
