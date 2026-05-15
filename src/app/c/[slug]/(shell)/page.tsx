@@ -29,16 +29,14 @@ import { InstallBanner } from "@/components/pwa/install-banner";
 import { EnablePushBanner } from "@/components/circle/enable-push-banner";
 import { WeatherChip } from "@/components/circle/weather-chip";
 import { HomeSubline } from "@/components/circle/home-subline";
-import {
-  SquadPulse,
-  SquadPulseInline,
-  type PulseMember,
-} from "@/components/circle/squad-pulse";
 import { SuggestPanel } from "@/components/circle/suggest-panel";
+import {
+  SquadPulseAsync,
+  SquadPulseSkeleton,
+} from "@/components/circle/squad-pulse-async";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import {
   getCircleBySlug,
-  getCircleMemberActivity,
   getCircleMembers,
   getUserCircles,
   type CircleMemberRow,
@@ -311,24 +309,20 @@ export default async function CircleHomePage({
     featuredLastEditAt = ev[0]?.at ?? null;
   }
 
-  // Squad Pulse — derive each member's last in-app activity from
-  // MAX(votes.voted_at, plans.created_at by them). The shell layout already
-  // ran this query; cache() returns the same Map without re-querying.
-  const lastActiveByUser = await getCircleMemberActivity(circle.id);
-  const pulseMembers: PulseMember[] = memberRows
+  // SquadPulse activity is streamed below via <SquadPulseAsync> in a
+  // <Suspense> boundary so the two MAX() aggregations don't block first
+  // paint. Members for the pulse come from `sidebarMembers` below.
+  const sidebarMembers = memberRows
     .map((m) =>
       m.user
         ? {
             userId: m.user.id,
             displayName: m.user.displayName,
             avatarUrl: m.user.avatarUrl,
-            lastActiveAt: lastActiveByUser[m.user.id]
-              ? new Date(lastActiveByUser[m.user.id])
-              : null,
           }
         : null,
     )
-    .filter((m): m is PulseMember => m !== null);
+    .filter((m): m is { userId: string; displayName: string; avatarUrl: string | null } => m !== null);
 
   // Subline computations.
   const decidingCount = upcoming.filter((p) => p.status === "active").length;
@@ -398,9 +392,18 @@ export default async function CircleHomePage({
               />
             </div>
 
-            {/* Mobile-only inline pulse chips. Desktop has the full sidebar. */}
+            {/* Mobile-only inline pulse chips. Desktop has the full sidebar.
+                Streamed via Suspense — the activity aggregate runs after
+                first paint so the hero doesn't wait on it. */}
             <div className="lg:hidden">
-              <SquadPulseInline members={pulseMembers} now={now} />
+              <Suspense fallback={<SquadPulseSkeleton variant="mobile" />}>
+                <SquadPulseAsync
+                  circleId={circle.id}
+                  members={sidebarMembers}
+                  nowMs={now.getTime()}
+                  variant="mobile"
+                />
+              </Suspense>
             </div>
 
             <div className="flex flex-col gap-8">
@@ -523,7 +526,14 @@ export default async function CircleHomePage({
           </div>
 
           <aside className="hidden flex-col gap-4 lg:order-2 lg:flex">
-            <SquadPulse members={pulseMembers} now={now} />
+            <Suspense fallback={<SquadPulseSkeleton variant="desktop" />}>
+              <SquadPulseAsync
+                circleId={circle.id}
+                members={sidebarMembers}
+                nowMs={now.getTime()}
+                variant="desktop"
+              />
+            </Suspense>
             <SuggestPanel
               circleId={circle.id}
               slug={circle.slug}
