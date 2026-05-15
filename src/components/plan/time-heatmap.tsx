@@ -65,7 +65,7 @@ function HeatmapInner({
   slots: HeatmapSlot[];
   lockThreshold: number;
 }) {
-  const { count, isMine, toggle, pending } = useSlotVotes();
+  const { count, isMine, toggle } = useSlotVotes();
 
   const { topCount, totalVoters } = useMemo(() => {
     let top = 0;
@@ -107,7 +107,6 @@ function HeatmapInner({
               key={slot.id}
               type="button"
               onClick={() => toggle(slot.id)}
-              disabled={pending}
               aria-pressed={mine}
               aria-label={`${hourLabel(slot.startsAt)}, ${c} ${
                 c === 1 ? "person" : "people"
