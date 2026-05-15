@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
+  circles,
   comments,
   memberships,
   planRecipients,
@@ -15,8 +16,10 @@ import {
   planCancelledTemplate,
   planConfirmedTemplate,
   planLockedTemplate,
+  suggestStatsEmail,
   type EmailContent,
 } from "@/lib/email-templates";
+import { getSuggestStats } from "@/lib/suggest/stats";
 
 // Best-effort transactional email. Every public function in this module
 // catches its own errors — a downed Resend or revoked API key MUST NOT
@@ -345,6 +348,90 @@ export async function sendPlanLockedEmail(
       planId,
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+}
+
+const SUGGEST_CATEGORY_LABEL: Record<string, string> = {
+  restaurant: "Restaurants",
+  cafe: "Cafés",
+  movie: "Movies",
+  event: "Events",
+  indoor: "Indoor",
+  outdoor: "Outdoor",
+  short_trip: "Short trips",
+};
+
+// S8 — admin-only weekly Suggest summary. Caller (the pg_cron route)
+// passes a window in days; we resolve the circle's admins, compute stats,
+// and fan out one email per admin. Returns the count actually sent so the
+// route can log totals without re-querying.
+export async function sendSuggestStatsEmail(args: {
+  circleId: string;
+  appUrl: string;
+  windowDays: number;
+}): Promise<{ sent: number; impressions: number; skipped?: string }> {
+  try {
+    const circleRow = await db.query.circles.findFirst({
+      columns: { id: true, name: true, slug: true },
+      where: eq(circles.id, args.circleId),
+    });
+    if (!circleRow) return { sent: 0, impressions: 0, skipped: "no_circle" };
+
+    const adminRows = await db.query.memberships.findMany({
+      columns: { id: true },
+      where: and(
+        eq(memberships.circleId, args.circleId),
+        eq(memberships.role, "admin"),
+      ),
+      with: { user: { columns: { email: true } } },
+    });
+    const recipients = adminRows
+      .map((m) => m.user?.email)
+      .filter((e): e is string => Boolean(e));
+    if (recipients.length === 0) {
+      return { sent: 0, impressions: 0, skipped: "no_admins" };
+    }
+
+    const since = new Date(
+      Date.now() - args.windowDays * 24 * 60 * 60 * 1000,
+    );
+    const stats = await getSuggestStats({ circleId: args.circleId, since });
+    if (stats.totalLogs === 0) {
+      // No activity — don't spam admins with an empty summary.
+      return { sent: 0, impressions: 0, skipped: "no_activity" };
+    }
+
+    const formatPct = (rate: number | null): string =>
+      rate === null ? "—" : `${(Math.round(rate * 1000) / 10).toFixed(1)}%`;
+
+    const content = suggestStatsEmail({
+      circleName: circleRow.name,
+      windowLabel: `last ${args.windowDays} days`,
+      acceptanceRate: formatPct(stats.acceptanceRate),
+      rejectRate: formatPct(stats.rejectRate),
+      emptyRate: formatPct(stats.emptyRate),
+      lowConfidenceRate: formatPct(stats.lowConfidenceFallbackRate),
+      impressions: stats.impressions,
+      adds: stats.feedback.add,
+      rejects: stats.feedback.reject,
+      topCategories: stats.topCategories.map((c) => ({
+        label: SUGGEST_CATEGORY_LABEL[c.category] ?? c.category,
+        impressions: c.impressions,
+        adds: c.adds,
+      })),
+      degradedByProvider: stats.degradedByProvider,
+      statsUrl: `${args.appUrl.replace(/\/$/, "")}/c/${circleRow.slug}/stats`,
+      manageUrl: notificationsUrl(args.appUrl),
+    });
+
+    await sendFanout(recipients, content);
+    return { sent: recipients.length, impressions: stats.impressions };
+  } catch (err) {
+    console.error("[email] sendSuggestStatsEmail failed", {
+      circleId: args.circleId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { sent: 0, impressions: 0, skipped: "errored" };
   }
 }
 

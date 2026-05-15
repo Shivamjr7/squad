@@ -41,7 +41,9 @@ export type ReceiptEvent = {
     | "proposed_venue"
     | "added_member"
     | "locked"
-    | "cancelled";
+    | "cancelled"
+    | "suggestion_added"
+    | "suggestion_rejected";
   actorName: string | null;
   payload: Record<string, unknown> | null;
   createdAt: string;
@@ -288,6 +290,10 @@ function describeEvent(e: ReceiptEvent, timeZone?: string): string {
       return `Plan locked`;
     case "cancelled":
       return `${who} cancelled`;
+    case "suggestion_added":
+      return `${who} added a suggestion`;
+    case "suggestion_rejected":
+      return `${who} dismissed a suggestion`;
     default:
       return who;
   }

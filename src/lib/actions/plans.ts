@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   circles,
@@ -9,6 +9,8 @@ import {
   planRecipients,
   planVenues,
   plans,
+  suggestionLogItems,
+  suggestionLogs,
   timeSlots,
   users,
   votes,
@@ -159,25 +161,120 @@ export async function createPlan(
       payload: { title: data.title, type: data.type },
     });
 
-    // M21: when the creator added extra venue options, seed plan_venues so
-    // the squad can vote between them. The single-venue path keeps writing
-    // only to plans.location (no row in plan_venues) — voting UI is hidden
-    // and existing maps/email code keeps reading the canonical free-text
-    // field. When extras exist, we also seed the first venue (data.location)
-    // so it's an equal candidate in the vote.
-    if (data.extraVenues.length > 0) {
-      const labels: string[] = [];
-      if (data.location) labels.push(data.location);
-      for (const v of data.extraVenues) labels.push(v);
-      if (labels.length > 0) {
-        await tx.insert(planVenues).values(
-          labels.map((label) => ({
-            planId: plan.id,
-            label,
-            suggestedBy: userId,
-          })),
-        );
+    // M21 + Suggest Plan (Option A): seed plan_venues whenever the creator
+    // added extra venue options OR picked a suggestion from the drawer. The
+    // pure single-venue path (one location, no extras, no suggestions)
+    // keeps writing only to plans.location so the existing maps/email
+    // shortcut and "voting hidden" UI invariant hold.
+    //
+    // Suggestion rows carry `source='suggestion'` + `suggestion_item_id`.
+    // The item id is verified against suggestion_log_items first; rows
+    // whose item is unresolvable fall back to `source='manual'` and we
+    // emit a `suggestion_added` plan_event with `payload.warning =
+    // 'item_unresolved'` (10-edge-cases.md §Race conditions).
+    const requestedItemIds = data.suggestions.map((s) => s.itemId);
+    const resolvedItemIds = new Set<string>();
+    if (requestedItemIds.length > 0) {
+      const rows = await tx
+        .select({ id: suggestionLogItems.id })
+        .from(suggestionLogItems)
+        .where(inArray(suggestionLogItems.id, requestedItemIds));
+      for (const r of rows) resolvedItemIds.add(r.id);
+    }
+
+    type SeedRow = {
+      label: string;
+      source: "manual" | "suggestion";
+      suggestionItemId: string | null;
+    };
+    const seedMap = new Map<string, SeedRow>();
+    const insertionOrder: string[] = [];
+    const addLabel = (
+      rawLabel: string | null | undefined,
+      provenance?: { itemId: string },
+    ) => {
+      const key = rawLabel?.trim();
+      if (!key) return;
+      const isResolvedSuggestion =
+        provenance != null && resolvedItemIds.has(provenance.itemId);
+      const existing = seedMap.get(key);
+      if (existing) {
+        // Upgrade an earlier manual row when a matching suggestion lands.
+        if (isResolvedSuggestion && existing.source !== "suggestion") {
+          existing.source = "suggestion";
+          existing.suggestionItemId = provenance!.itemId;
+        }
+        return;
       }
+      seedMap.set(key, {
+        label: key,
+        source: isResolvedSuggestion ? "suggestion" : "manual",
+        suggestionItemId: isResolvedSuggestion ? provenance!.itemId : null,
+      });
+      insertionOrder.push(key);
+    };
+
+    if (data.location) addLabel(data.location);
+    for (const ex of data.extraVenues) addLabel(ex);
+    for (const s of data.suggestions) addLabel(s.label, { itemId: s.itemId });
+
+    const hasResolvedSuggestion = data.suggestions.some((s) =>
+      resolvedItemIds.has(s.itemId),
+    );
+    const shouldSeedVenues =
+      data.extraVenues.length > 0 || hasResolvedSuggestion;
+
+    if (shouldSeedVenues && seedMap.size > 0) {
+      await tx.insert(planVenues).values(
+        insertionOrder.map((key) => {
+          const row = seedMap.get(key)!;
+          return {
+            planId: plan.id,
+            label: row.label,
+            suggestedBy: userId,
+            source: row.source,
+            suggestionItemId: row.suggestionItemId,
+          };
+        }),
+      );
+    }
+
+    // Plan-event timeline: one row per accepted suggestion. Unresolved
+    // items still get an event so the audit log records the attempt; the
+    // warning flag lets dashboards distinguish from clean adds.
+    for (const s of data.suggestions) {
+      const resolved = resolvedItemIds.has(s.itemId);
+      await tx.insert(planEvents).values({
+        planId: plan.id,
+        userId,
+        kind: "suggestion_added",
+        payload: resolved
+          ? { suggestionLogId: s.suggestionLogId, itemId: s.itemId }
+          : {
+              suggestionLogId: s.suggestionLogId,
+              itemId: s.itemId,
+              warning: "item_unresolved",
+            },
+      });
+    }
+
+    // Close the loop on suggestion_logs.planId so lifecycle hooks (auto-
+    // lock 'won', cancelPlan 'cancelled') + any post-create recordFeedback
+    // calls can find the right plan. Guarded with isNull so re-creation
+    // never silently relinks an older log to a newer plan.
+    const uniqueLogIds = Array.from(
+      new Set(data.suggestions.map((s) => s.suggestionLogId)),
+    );
+    if (uniqueLogIds.length > 0) {
+      await tx
+        .update(suggestionLogs)
+        .set({ planId: plan.id })
+        .where(
+          and(
+            inArray(suggestionLogs.id, uniqueLogIds),
+            isNull(suggestionLogs.planId),
+          ),
+        );
     }
 
     // Open-time mode: seed 5 hourly slots anchored on the picked startsAt.
@@ -320,6 +417,34 @@ export async function cancelPlan(input: PlanIdInput): Promise<void> {
     kind: "cancelled",
     payload: null,
   });
+
+  // S7 — close the loop on any suggestion-sourced venues that were
+  // attached to this plan. Best-effort: a failed write must not break
+  // cancel email/notification fanout.
+  void (async () => {
+    try {
+      const suggestionVenues = await db
+        .select({ suggestionItemId: planVenues.suggestionItemId })
+        .from(planVenues)
+        .where(
+          and(
+            eq(planVenues.planId, plan.id),
+            eq(planVenues.source, "suggestion"),
+            isNotNull(planVenues.suggestionItemId),
+          ),
+        );
+      const itemIds = suggestionVenues
+        .map((v) => v.suggestionItemId)
+        .filter((id): id is string => id !== null);
+      if (itemIds.length === 0) return;
+      await db
+        .update(suggestionLogItems)
+        .set({ feedback: "cancelled", feedbackAt: new Date() })
+        .where(inArray(suggestionLogItems.id, itemIds));
+    } catch (err) {
+      console.error("[plans.cancelPlan] suggestion feedback=cancelled failed", err);
+    }
+  })();
 
   const appUrl = await getAppUrl();
   void sendPlanCancelledEmail(plan.id, userId, appUrl).catch((err) => {

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/vacuum-provider-cache",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/vacuum-suggestion-logs",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/suggest-stats-weekly",
+      "schedule": "0 14 * * 1"
+    }
+  ]
+}
