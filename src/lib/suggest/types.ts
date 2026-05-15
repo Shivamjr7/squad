@@ -207,4 +207,6 @@ export interface WeatherProvider {
     timeWindow: TimeWindow,
     signal: AbortSignal,
   ): Promise<WeatherSnapshot | null>;
+  /** Optional health probe — mirrors SuggestionProvider.health?(). */
+  health?(): Promise<ProviderHealth>;
 }

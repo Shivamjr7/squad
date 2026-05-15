@@ -708,6 +708,18 @@ export function NewPlanForm({
         circleId={circleId}
         onPickVenue={({ label, itemId, suggestionLogId }) => {
           appendSuggestion({ label, itemId, suggestionLogId });
+          // Mirror Path 1 (home-drawer) pre-fill: if WHERE is empty, drop
+          // the picked label in so `plans.location` doesn't end up null and
+          // the plan card / email don't show "TBD". If the user already
+          // typed a location, respect it — the suggestion still renders as
+          // a chip below and rides through as a separate vote option.
+          const current = form.getValues("location").trim();
+          if (current.length === 0) {
+            form.setValue("location", label, {
+              shouldDirty: true,
+              shouldValidate: true,
+            });
+          }
           setSuggestDrawerOpen(false);
         }}
       />

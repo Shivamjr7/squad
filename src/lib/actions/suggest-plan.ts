@@ -33,6 +33,8 @@ import {
 } from "@/lib/suggest/pipeline";
 import { explain } from "@/lib/suggest/pipeline/explain";
 import { confidenceLabel } from "@/lib/suggest/pipeline/rank";
+import { effectiveCentroid } from "@/lib/suggest/pipeline/normalize";
+import { getWeatherProvider } from "@/lib/suggest/providers/weather-registry";
 import { loadWeights } from "@/lib/suggest/weights";
 import type {
   Activity,
@@ -40,6 +42,7 @@ import type {
   RecommendationResult,
   ScoreBreakdown,
   SuggestionContext,
+  WeatherSnapshot,
 } from "@/lib/suggest/types";
 import {
   getSuggestionsSchema,
@@ -64,6 +67,11 @@ const CENTROID_FALLBACK_VENUE_LIMIT = 10;
 // back to the circle centroid — the drawer's UX is "show me what's near
 // where I actually am." Mobile/GPS readings come in well under this.
 const GEO_ACCURACY_CUTOFF_M = 50_000;
+
+// Hard ceiling on the WeatherProvider call. The provider has its own 1.5s
+// soft timeout; this is the belt-and-suspenders bound mirroring the per-
+// activity-provider HARD_TIMEOUT_MS in pipeline/fetch-activities.ts.
+const WEATHER_HARD_TIMEOUT_MS = 3_000;
 
 // Types are intentionally NOT re-exported here. Files with the "use server"
 // directive may only export async functions at runtime — type-only re-exports
@@ -146,7 +154,7 @@ export async function getSuggestions(
   // 9. Assemble SuggestionContext. groupPreferences is intentionally
   //    omitted so gatherContext substitutes the neutral profile — the
   //    DB-backed aggregator lands in S6+.
-  const ctx = gatherContext({
+  const ctxNoWeather = gatherContext({
     circleId: data.circleId,
     userId,
     planType: data.planType,
@@ -162,9 +170,22 @@ export async function getSuggestions(
     requestNonce: data.requestNonce,
   });
 
+  // 9b. Weather (S9). Best-effort: a failed/null forecast collapses the
+  //     weather component to the neutral defaults in score.ts. The provider
+  //     itself implements 1.5s soft timeout + breaker; we add a 3s hard
+  //     bound to be safe. Degraded entries appended to result.degraded
+  //     below so the UI footnote can render "weather unavailable".
+  const { weather, weatherDegraded } = await fetchWeather(ctxNoWeather);
+  const ctx: SuggestionContext = weather
+    ? { ...ctxNoWeather, weather }
+    : ctxNoWeather;
+
   // 10. Run pipeline (pure orchestrator — provider I/O is isolated inside).
   const weights = loadWeights();
   const result = await runPipeline(ctx, { limit: data.limit });
+  if (weatherDegraded) {
+    result.degraded = [...(result.degraded ?? []), weatherDegraded];
+  }
 
   // 11. Persist: one log + one row per result, in a single transaction so
   //     a half-written log can never surface as a stale id.
@@ -428,6 +449,58 @@ async function persistLog(args: {
       })),
     );
   });
+}
+
+// S9 — opportunistic weather fetch. The pipeline tolerates `weather:
+// undefined` (score.ts §weatherScore falls to neutral defaults), so every
+// failure mode here returns `{ weather: null }` and the caller adds a
+// `weather_unavailable` entry to degraded[]. Reasons mirror provider-side
+// errors so the admin dashboard can attribute outages.
+async function fetchWeather(ctx: SuggestionContext): Promise<{
+  weather: WeatherSnapshot | null;
+  weatherDegraded: { provider: string; reason: string } | null;
+}> {
+  const provider = getWeatherProvider();
+  if (!provider) {
+    // No provider registered → not actually "down", just absent. Skip the
+    // degraded entry so we don't pollute the admin Suggestions tab in
+    // dev/no-key environments.
+    return { weather: null, weatherDegraded: null };
+  }
+  const anchor = effectiveCentroid(ctx);
+  if (!anchor) {
+    // No anchor point means we'd be guessing — no degraded entry either.
+    return { weather: null, weatherDegraded: null };
+  }
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), WEATHER_HARD_TIMEOUT_MS);
+  try {
+    const snapshot = await provider.forecast(anchor, ctx.timeWindow, ac.signal);
+    return {
+      weather: snapshot,
+      weatherDegraded: snapshot
+        ? null
+        : { provider: provider.name, reason: "weather_unavailable" },
+    };
+  } catch (err) {
+    const reason =
+      err instanceof Error
+        ? err.message === "BreakerOpen"
+          ? "breaker_open"
+          : err.message === "DailyCapExceeded"
+            ? "daily_cap_exceeded"
+            : err.name === "AbortError"
+              ? "timeout"
+              : "weather_unavailable"
+        : "weather_unavailable";
+    return {
+      weather: null,
+      weatherDegraded: { provider: provider.name, reason },
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function scrubContext(ctx: SuggestionContext): SuggestionContext {

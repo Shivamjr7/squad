@@ -25,6 +25,7 @@ import {
   recordSuggestionFeedback,
 } from "@/lib/actions/suggest-plan";
 import { isActionError } from "@/lib/actions/errors";
+import { track } from "@/lib/analytics";
 import { getBrowserTimeZone } from "@/lib/tz";
 import type {
   GetSuggestionsInput,
@@ -236,6 +237,17 @@ function SuggestDrawerBody({
     void requestGeolocation().then(setGeoState);
   }, []);
 
+  // S8 — fire `suggest_open` once per mount. SuggestDrawerBody is unmounted
+  // when the host Sheet/Dialog closes (radix default), so each open is a
+  // fresh mount and a fresh event. planType reflects the user's last choice
+  // before close (or 'eat' default on first open).
+  const openTrackedRef = useRef(false);
+  useEffect(() => {
+    if (!open || openTrackedRef.current) return;
+    openTrackedRef.current = true;
+    track("suggest_open", { planType });
+  }, [open, planType]);
+
   // Always request fresh geo on each drawer-open. We never reuse a cached
   // reading from a previous session — keeps the "show me what's near where
   // I am right now" promise honest.
@@ -287,6 +299,7 @@ function SuggestDrawerBody({
             reason,
             logId: result.suggestionLogId,
           });
+          track("suggest_empty", { reason });
           return;
         }
         setStatus({
@@ -330,6 +343,8 @@ function SuggestDrawerBody({
 
   async function handleReject(item: RankedResult) {
     if (status.kind !== "ready") return;
+    const rank = status.results.findIndex((r) => r.id === item.id) + 1;
+    track("suggest_reject", { rank, category: item.activity.category });
     setHiddenItemIds((prev) => new Set(prev).add(item.id));
     setExcludeIds((prev) => [...prev, item.activity.id]);
     setPendingFeedback((prev) => new Set(prev).add(item.id));
@@ -354,6 +369,12 @@ function SuggestDrawerBody({
 
   async function handleAdd(item: RankedResult) {
     if (status.kind !== "ready") return;
+    const rank = status.results.findIndex((r) => r.id === item.id) + 1;
+    track("suggest_add", {
+      rank,
+      confidence: item.confidence,
+      category: item.activity.category,
+    });
     setPendingFeedback((prev) => new Set(prev).add(item.id));
     // Record-then-route. We don't block the navigation on the write — Flow G
     // §6 lists Add as optimistic, and we don't want a slow round trip to keep
@@ -377,6 +398,10 @@ function SuggestDrawerBody({
   }
 
   function handleRefresh() {
+    track("suggest_refresh", {
+      remainingCount:
+        status.kind === "ready" ? visibleResults.length : 0,
+    });
     if (geoState.kind !== "ok") {
       // Geo isn't usable — refresh re-requests it instead of pretending to
       // fetch. Browser will silently fail if user previously blocked; the
