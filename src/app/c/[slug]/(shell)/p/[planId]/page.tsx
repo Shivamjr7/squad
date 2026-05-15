@@ -78,13 +78,24 @@ import {
   type VotersByPlan,
 } from "@/lib/realtime/use-circle-votes";
 
-const SHORT_TIME = new Intl.DateTimeFormat(undefined, {
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+// Server-rendered formatters must take an explicit timeZone — the Node
+// runtime defaults to UTC on Vercel, which would make "Plan locks at …"
+// read off by hours for any plan not in UTC.
+function shortTime(date: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  }).format(date);
+}
 
-const SHORT_DAY = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+function shortDay(date: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    timeZone,
+  }).format(date);
+}
 
 function isSameLocalDay(a: Date, b: Date): boolean {
   return (
@@ -94,20 +105,21 @@ function isSameLocalDay(a: Date, b: Date): boolean {
   );
 }
 
-function relativeCreatedAt(createdAt: Date, now: Date): string {
+function relativeCreatedAt(createdAt: Date, now: Date, timeZone?: string): string {
   const diffMs = now.getTime() - createdAt.getTime();
   const min = Math.round(diffMs / 60_000);
   if (min < 1) return "just now";
   if (min < 60) return `${min}m ago`;
   const hr = Math.round(min / 60);
   if (hr < 24 && isSameLocalDay(createdAt, now)) {
-    return SHORT_TIME.format(createdAt).toLowerCase().replace(" ", "");
+    return shortTime(createdAt, timeZone).toLowerCase().replace(" ", "");
   }
   const day = Math.round(hr / 24);
   if (day < 7) return `${day}d ago`;
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
+    timeZone,
   }).format(createdAt);
 }
 
@@ -116,6 +128,7 @@ function statusLine(
   startsAt: Date,
   decideBy: Date | null,
   now: Date,
+  timeZone?: string,
 ): { label: string; tone: "deciding" | "confirmed" | "muted" } {
   if (status === "cancelled") {
     return { label: "Cancelled", tone: "muted" };
@@ -125,14 +138,14 @@ function statusLine(
   }
   if (status === "confirmed") {
     return {
-      label: `Confirmed · ${SHORT_DAY.format(startsAt).toUpperCase()} ${SHORT_TIME.format(startsAt)}`,
+      label: `Confirmed · ${shortDay(startsAt, timeZone).toUpperCase()} ${shortTime(startsAt, timeZone)}`,
       tone: "confirmed",
     };
   }
   // active
   if (decideBy && decideBy.getTime() > now.getTime()) {
     return {
-      label: `Deciding now · Ends ${SHORT_TIME.format(decideBy)}`,
+      label: `Deciding now · Ends ${shortTime(decideBy, timeZone)}`,
       tone: "deciding",
     };
   }
@@ -509,7 +522,13 @@ export default async function PlanDetailPage({
     !isPastPlan && plan.status === "active" && plan.timeMode === "exact";
 
   const showVotes = !isPastPlan && (plan.status === "active" || plan.status === "confirmed");
-  const status = statusLine(plan.status, plan.startsAt, plan.decideBy, now);
+  const status = statusLine(
+    plan.status,
+    plan.startsAt,
+    plan.decideBy,
+    now,
+    plan.timeZone,
+  );
   const memberCount = memberRows.length;
   const lockThreshold = plan.lockThreshold;
 
@@ -636,7 +655,7 @@ export default async function PlanDetailPage({
           <p className="text-sm text-ink-muted">
             started by {plan.creator?.displayName ?? "Someone"}{" "}
             <span aria-hidden>·</span>{" "}
-            {relativeCreatedAt(plan.createdAt, now)}{" "}
+            {relativeCreatedAt(plan.createdAt, now, plan.timeZone)}{" "}
             <span aria-hidden>·</span> {memberCount}{" "}
             {memberCount === 1 ? "person" : "people"}
           </p>
@@ -673,11 +692,10 @@ export default async function PlanDetailPage({
             <LockFooter
               status={plan.status}
               decideBy={plan.decideBy}
-              startsAt={plan.startsAt}
-              isApprox={isApprox}
               lockThreshold={lockThreshold}
               currentInCount={currentInCount}
               now={now}
+              timeZone={plan.timeZone}
             />
           </>
         ) : variant === "live-ticker" ? (
@@ -783,7 +801,10 @@ export default async function PlanDetailPage({
               />
             ) : null}
             {additionsForTicker.length > 0 ? (
-              <DecisionAdditions additions={additionsForTicker} />
+              <DecisionAdditions
+                additions={additionsForTicker}
+                timeZone={plan.timeZone}
+              />
             ) : null}
             {showVotes ? (
               <section className="flex flex-col gap-4">
@@ -807,11 +828,10 @@ export default async function PlanDetailPage({
                 <LockFooter
                   status={plan.status}
                   decideBy={plan.decideBy}
-                  startsAt={plan.startsAt}
-                  isApprox={isApprox}
                   lockThreshold={lockThreshold}
                   currentInCount={currentInCount}
                   now={now}
+                  timeZone={plan.timeZone}
                 />
               </section>
             ) : (
@@ -869,13 +889,16 @@ function NotInvitedNote({ creatorName }: { creatorName: string | null }) {
 
 function DecisionAdditions({
   additions,
+  timeZone,
 }: {
   additions: LiveTickerAddition[];
+  timeZone?: string;
 }) {
   const TIME = new Intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    timeZone,
   });
   return (
     <section className="flex flex-col gap-2">
@@ -905,46 +928,45 @@ function DecisionAdditions({
   );
 }
 
-// "PLAN LOCKS AT 8:30 IF 5+ ARE IN" footer (PLAN.md §10 M22). When the plan
-// is already at threshold, copy reads "Plan locks any moment now". Confirmed
-// plans show their locked time so people landing on the page after the lock
-// see what just happened. We prefer plan.decideBy as the lock anchor when
-// it's set; otherwise we fall back to the plan's startsAt for the time
-// display so the line reads coherently for plans without a deadline.
+// Lock footer (PLAN.md §10 M22, refined post-launch). The plan locks on
+// whichever of these fires first:
+//   - `in` count hits `lock_threshold`
+//   - `decide_by` deadline reached
+//   - every eligible voter has voted (M29)
+// When at threshold already, copy reads "Locking any moment now."
 function LockFooter({
   status,
   decideBy,
-  startsAt,
-  isApprox,
   lockThreshold,
   currentInCount,
   now,
+  timeZone,
 }: {
   status: "active" | "confirmed" | "done" | "cancelled";
   decideBy: Date | null;
-  startsAt: Date;
-  isApprox: boolean;
   lockThreshold: number;
   currentInCount: number;
   now: Date;
+  timeZone?: string;
 }) {
   if (status !== "active") return null;
-  const TIME = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  // The plan locks on the FIRST of these to fire:
+  //   - lock_threshold `in` votes (M22 threshold path)
+  //   - decide_by deadline (M22 forced path)
+  //   - all eligible voters have voted (M29 all-voted path)
+  // Earlier copy ("Plan locks at X if 5+ are in") read both clauses as a
+  // single condition, which confused users who saw a deadline time and
+  // expected it to be the plan start time. Rephrased so the deadline and
+  // the threshold are clearly two independent triggers.
   const anchor = decideBy && decideBy.getTime() > now.getTime() ? decideBy : null;
   const remaining = Math.max(0, lockThreshold - currentInCount);
   let label: string;
   if (remaining <= 0) {
     label = "Locking any moment now";
   } else if (anchor) {
-    label = `Plan locks at ${TIME.format(anchor)} if ${lockThreshold}+ are in`;
-  } else if (!isApprox) {
-    label = `Plan locks at ${TIME.format(startsAt)} if ${lockThreshold}+ are in`;
+    label = `Locks at ${shortTime(anchor, timeZone)}, or sooner with ${lockThreshold}+ in`;
   } else {
-    label = `Plan locks when ${lockThreshold}+ are in`;
+    label = `Locks when ${lockThreshold}+ are in`;
   }
   return (
     <p className="pt-1 text-center eyebrow text-ink-muted">

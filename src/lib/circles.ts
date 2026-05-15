@@ -6,6 +6,17 @@ import type { KnownSquadUser, UserCircle } from "@/lib/circle-types";
 
 export type { KnownSquadUser, UserCircle };
 
+// Broad cache tags. `unstable_cache` requires tags to be static at
+// definition time, so we can't scope per-entity. Writes invalidate the
+// whole bucket — fine because membership / circle writes are rare, and the
+// alternative (waiting out the revalidate window) was already stale.
+export const CIRCLE_TAGS = {
+  userCircles: "user-circles",
+  circleBySlug: "circle-by-slug",
+  circleMembers: "circle-members",
+  circleActivity: "circle-activity",
+} as const;
+
 // Hot path — called by every authenticated server page (layout + page in the
 // shell tree). `unstable_cache()` is cross-request: same args → cached result
 // with a revalidation window, so repeated navigations avoid DB work.
@@ -45,7 +56,7 @@ export const getUserCircles = cache(
     role: r.role,
     memberCount: countMap.get(r.id) || 0,
   }));
-}, undefined, { revalidate: 60 });
+}, undefined, { revalidate: 60, tags: [CIRCLE_TAGS.userCircles] });
 
 // Request-scoped circle lookup by slug. Layout + page + plan-detail all need
 // this; `cache()` keeps it to a single DB roundtrip per render.
@@ -55,7 +66,7 @@ export const getCircleBySlug = cache(
       columns: { id: true, name: true, slug: true },
       where: eq(circles.slug, slug),
     });
-  }, undefined, { revalidate: 300 });
+  }, undefined, { revalidate: 300, tags: [CIRCLE_TAGS.circleBySlug] });
 
 export type CircleMemberRow = {
   userId: string;
@@ -90,7 +101,7 @@ export const getCircleMembers = cache(
           }
         : null,
     }));
-  }, undefined, { revalidate: 60 });
+  }, undefined, { revalidate: 60, tags: [CIRCLE_TAGS.circleMembers] });
 
 // Squad Pulse activity — last vote-or-plan-creation per member, scoped to a
 // circle. Shell layout + home page both compute this from the same rows; the
@@ -141,7 +152,7 @@ export const getCircleMemberActivity = cache(
       result[userId] = date.toISOString();
     }
     return result;
-  }, undefined, { revalidate: 30 });
+  }, undefined, { revalidate: 30, tags: [CIRCLE_TAGS.circleActivity] });
 
 // Returns Squad users the caller already shares at least one circle with,
 // excluding themselves and anyone already in `targetCircleId`.

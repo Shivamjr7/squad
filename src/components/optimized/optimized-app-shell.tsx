@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { OptimizedSidebar } from "./optimized-sidebar";
 import { SquadLogo } from "@/components/brand/squad-logo";
@@ -44,10 +45,14 @@ export function OptimizedAppShell({
       <div className="min-w-0 flex-1 pb-[60px] md:pb-0">
         {/* Mobile top bar */}
         <div className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6 md:hidden">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink transition-opacity hover:opacity-80">
+          <Link
+            href="/"
+            aria-label="Squad — home"
+            className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink transition-opacity hover:opacity-80"
+          >
             <SquadLogo className="size-[18px] text-coral" />
             SQUAD
-          </div>
+          </Link>
           <ThemeToggle />
         </div>
         
@@ -82,10 +87,14 @@ export function MobileOptimizedAppShell({
       <div className="min-w-0 flex-1 pb-[60px] md:pb-0">
         {/* Mobile top bar */}
         <div className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6 md:hidden">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink transition-opacity hover:opacity-80">
+          <Link
+            href="/"
+            aria-label="Squad — home"
+            className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink transition-opacity hover:opacity-80"
+          >
             <SquadLogo className="size-[18px] text-coral" />
             SQUAD
-          </div>
+          </Link>
           <ThemeToggle />
         </div>
         

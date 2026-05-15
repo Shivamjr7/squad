@@ -1,9 +1,11 @@
 import { headers } from "next/headers";
+import { revalidateTag } from "next/cache";
 import { Webhook } from "svix";
 import { db } from "@/db/client";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { normalizeAvatarUrl } from "@/lib/avatar";
+import { USER_DISPLAY_NAME_TAG } from "@/lib/auth";
 
 // Clerk webhook payload shapes. Only the fields we touch are typed.
 type ClerkEmailAddress = {
@@ -115,11 +117,15 @@ export async function POST(req: Request) {
             ...(isReal ? { displayName, hasSetDisplayName: true } : {}),
           },
         });
+      // Flip on signup/update may toggle the flag; drop the cached version
+      // so server pages don't bounce a freshly-named user to /set-name.
+      revalidateTag(USER_DISPLAY_NAME_TAG);
       break;
     }
     case "user.deleted": {
       const data = event.data as ClerkDeletedData;
       await db.delete(users).where(eq(users.id, data.id));
+      revalidateTag(USER_DISPLAY_NAME_TAG);
       break;
     }
     default:

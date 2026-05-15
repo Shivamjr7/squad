@@ -1,9 +1,10 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/db/client";
 import { users } from "@/db/schema";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, USER_DISPLAY_NAME_TAG } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
   setDisplayNameSchema,
@@ -26,4 +27,7 @@ export async function setDisplayName(input: SetDisplayNameInput): Promise<void> 
       hasSetDisplayName: true,
     })
     .where(eq(users.id, userId));
+  // Drop the cached flag so the next page render reflects truth and stops
+  // bouncing to /set-name.
+  revalidateTag(USER_DISPLAY_NAME_TAG);
 }

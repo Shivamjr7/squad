@@ -144,10 +144,16 @@ export function LiveTicker({
 
   const isIn = ownVote === "in";
   const ctaLabel = isIn ? "You're in" : "I'm in";
-  const lockTimeLabel = formatShortTime(
-    decideBy && decideBy.getTime() > serverNow.getTime() ? decideBy : startsAt,
-    timeZone,
-  );
+  // Show the deadline only when it's actually set and in the future. Without
+  // a decideBy, the plan only locks via vote threshold — showing startsAt
+  // here implies the plan auto-locks at start time, which it doesn't.
+  const deadlineLabel =
+    decideBy && decideBy.getTime() > serverNow.getTime()
+      ? formatShortTime(decideBy, timeZone)
+      : null;
+  const lockFooter = deadlineLabel
+    ? `Locks at ${deadlineLabel}, or sooner with ${lockThreshold}+ in`
+    : `Locks when ${lockThreshold}+ are in`;
 
   return (
     <div
@@ -298,7 +304,7 @@ export function LiveTicker({
       </div>
 
       <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-white/40">
-        Plan locks at {lockTimeLabel} if {lockThreshold}+ are in
+        {lockFooter}
       </p>
     </div>
   );
