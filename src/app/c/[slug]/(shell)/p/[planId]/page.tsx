@@ -4,22 +4,16 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { ArrowLeft } from "lucide-react";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   planEvents,
-  planRecipients,
-  planTimeProposalVotes,
   planTimeProposals,
-  planVenueVotes,
   planVenues,
   plans,
-  timeSlotVotes,
   timeSlots,
-  votes,
 } from "@/db/schema";
 import { canModifyPlan, requireDisplayNameSet } from "@/lib/auth";
-import { tryAutoLock } from "@/lib/actions/auto-lock";
 import { Button } from "@/components/ui/button";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { PlanVotes } from "@/components/votes/plan-votes";
@@ -161,56 +155,85 @@ export default async function PlanDetailPage({
   const { userId } = await auth();
   if (!userId) notFound();
 
-  // Fan out auth/circle/plan/userCircles + display-name check in parallel.
-  // None depend on each other; sequential was costing ~5 roundtrips.
-  const [, circle, initialPlan, userCircles] = await Promise.all([
+  // One nested relational query for everything we need to render this
+  // page. Folds the previous two-wave Promise.all (recipients + votes +
+  // slots + venues + proposals + receipts, then slot/venue/proposal votes)
+  // into a single round-trip via Drizzle's `with:` graph. The plan's
+  // creator + member-side data (memberRows) is request-cached at the
+  // layout level so this stays a single DB hit on the read path.
+  const [, circle, planFull, userCircles] = await Promise.all([
     requireDisplayNameSet(userId),
     getCircleBySlug(slug),
     db.query.plans.findFirst({
       where: eq(plans.id, planId),
       with: {
-        creator: { columns: { id: true, displayName: true, avatarUrl: true } },
+        creator: {
+          columns: { id: true, displayName: true, avatarUrl: true },
+        },
+        recipients: { columns: { userId: true } },
+        votes: {
+          with: {
+            user: {
+              columns: { id: true, displayName: true, avatarUrl: true },
+            },
+          },
+        },
+        timeSlots: {
+          orderBy: asc(timeSlots.startsAt),
+          columns: { id: true, startsAt: true },
+          with: {
+            votes: {
+              with: {
+                user: {
+                  columns: { id: true, displayName: true, avatarUrl: true },
+                },
+              },
+            },
+          },
+        },
+        venues: {
+          orderBy: asc(planVenues.createdAt),
+          with: {
+            suggester: { columns: { id: true, displayName: true } },
+            votes: {
+              with: {
+                user: {
+                  columns: { id: true, displayName: true, avatarUrl: true },
+                },
+              },
+            },
+          },
+        },
+        timeProposals: {
+          orderBy: asc(planTimeProposals.createdAt),
+          with: {
+            proposer: { columns: { id: true, displayName: true } },
+            votes: {
+              with: {
+                user: {
+                  columns: { id: true, displayName: true, avatarUrl: true },
+                },
+              },
+            },
+          },
+        },
+        events: {
+          orderBy: asc(planEvents.createdAt),
+          with: { user: { columns: { displayName: true } } },
+        },
       },
     }),
     getUserCircles(userId),
   ]);
 
   if (!circle) notFound();
-  if (!initialPlan || initialPlan.circleId !== circle.id) notFound();
+  if (!planFull || planFull.circleId !== circle.id) notFound();
+  const plan = planFull;
 
   // Members are layout-cached so this is request-scoped free.
   const memberRows = await getCircleMembers(circle.id) as CircleMemberRow[];
   const me = memberRows.find((m) => m.userId === userId);
   if (!me) notFound();
-
-  // M29 — idempotent recheck. Covers races where a vote slipped through
-  // before the all-voted gate existed, or two voters tipped a threshold
-  // simultaneously and one mutation skipped its lock attempt. tryAutoLock
-  // short-circuits when the plan isn't lockable; on a successful flip we
-  // refetch so the rendered status matches DB truth this request. Skip on
-  // pure browse views — without `decide_by` already passed, the lock
-  // conditions only flip on a write path (a vote), so the read-side
-  // recheck does five DB queries for nothing on every active-plan visit.
-  let plan = initialPlan;
-  const couldPossiblyLockOnRead =
-    plan.status === "active" &&
-    plan.timeMode === "exact" &&
-    plan.decideBy !== null &&
-    plan.decideBy.getTime() <= Date.now();
-  if (couldPossiblyLockOnRead) {
-    const recheck = await tryAutoLock(planId);
-    if (recheck.lockedNow) {
-      const refreshed = await db.query.plans.findFirst({
-        where: eq(plans.id, planId),
-        with: {
-          creator: {
-            columns: { id: true, displayName: true, avatarUrl: true },
-          },
-        },
-      });
-      if (refreshed) plan = refreshed;
-    }
-  }
 
   const canMutateStatus = canModifyPlan(
     { createdBy: plan.createdBy },
@@ -219,127 +242,35 @@ export default async function PlanDetailPage({
   );
 
   const isOpenTime = plan.timeMode === "open" && plan.status === "active";
-  const isActiveExact = plan.status === "active" && plan.timeMode === "exact";
   const variant = getPlanVariant(plan, new Date());
 
-  // Fan out every independent plan-detail data query in a single Promise.all
-  // — previously they ran sequentially (~8 roundtrips). Conditional helpers
-  // skip work that's irrelevant to the current variant.
-  const loadSlots = async () => {
-    if (!isOpenTime) return [];
-    return db.query.timeSlots.findMany({
-      where: eq(timeSlots.planId, planId),
-      orderBy: asc(timeSlots.startsAt),
-      columns: { id: true, startsAt: true },
-    });
-  };
-  const loadProposals = async () => {
-    if (!isActiveExact) return [];
-    return db.query.planTimeProposals.findMany({
-      where: and(
-        eq(planTimeProposals.planId, planId),
-        eq(planTimeProposals.kind, "replacement"),
-      ),
-      orderBy: asc(planTimeProposals.createdAt),
-      with: {
-        proposer: { columns: { id: true, displayName: true } },
-      },
-    });
-  };
-  const loadReceiptEvents = async () => {
-    if (variant !== "receipt") return [];
-    return db.query.planEvents.findMany({
-      where: eq(planEvents.planId, planId),
-      orderBy: asc(planEvents.createdAt),
-      with: {
-        user: { columns: { displayName: true } },
-      },
-    });
-  };
-  // Comments are streamed via <PlanCommentsSection> below — not in this
-  // Promise.all. They appear last in the visual order and don't gate any
-  // earlier render decisions, so we let the page flush before fetching them.
-  const [
-    recipientRows,
-    voteRows,
-    slotRows,
-    venueRows,
-    proposalRows,
-    additionRows,
-    receiptEventRows,
-  ] = await Promise.all([
-    db
-      .select({ userId: planRecipients.userId })
-      .from(planRecipients)
-      .where(eq(planRecipients.planId, planId)),
-    db.query.votes.findMany({
-      where: eq(votes.planId, planId),
-      with: {
-        user: {
-          columns: { id: true, displayName: true, avatarUrl: true },
-        },
-      },
-    }),
-    loadSlots(),
-    db.query.planVenues.findMany({
-      where: eq(planVenues.planId, planId),
-      orderBy: asc(planVenues.createdAt),
-      with: {
-        suggester: { columns: { id: true, displayName: true } },
-      },
-    }),
-    loadProposals(),
-    db.query.planTimeProposals.findMany({
-      where: and(
-        eq(planTimeProposals.planId, planId),
-        eq(planTimeProposals.kind, "addition"),
-      ),
-      orderBy: asc(planTimeProposals.createdAt),
-      with: {
-        proposer: { columns: { id: true, displayName: true } },
-      },
-    }),
-    loadReceiptEvents(),
-  ]);
-
-  // Fire the second-level dependent vote queries (slot votes, venue votes,
-  // proposal votes) in parallel now that we have the parent IDs. These three
-  // are independent of each other.
-  const slotIds = slotRows.map((s) => s.id);
-  const venueIds = venueRows.map((v) => v.id);
-  const proposalIds = proposalRows.map((p) => p.id);
-  const loadSlotVotes = async () => {
-    if (!slotIds.length) return [];
-    return db.query.timeSlotVotes.findMany({
-      where: inArray(timeSlotVotes.slotId, slotIds),
-      with: {
-        user: { columns: { id: true, displayName: true, avatarUrl: true } },
-      },
-    });
-  };
-  const loadVenueVotes = async () => {
-    if (!venueIds.length) return [];
-    return db.query.planVenueVotes.findMany({
-      where: inArray(planVenueVotes.venueId, venueIds),
-      with: {
-        user: { columns: { id: true, displayName: true, avatarUrl: true } },
-      },
-    });
-  };
-  const loadProposalVotes = async () => {
-    if (!proposalIds.length) return [];
-    return db.query.planTimeProposalVotes.findMany({
-      where: inArray(planTimeProposalVotes.proposalId, proposalIds),
-      with: {
-        user: { columns: { id: true, displayName: true, avatarUrl: true } },
-      },
-    });
-  };
-  const [slotVoteRows, venueVoteRows, proposalVoteRows] = await Promise.all([
-    loadSlotVotes(),
-    loadVenueVotes(),
-    loadProposalVotes(),
-  ]);
+  // Pull the nested arrays apart into the shapes the downstream JSX uses.
+  // `timeProposals` is split into replacement vs addition because the UI
+  // routes them to different components (proposals row vs. additions row).
+  const recipientRows = plan.recipients;
+  const voteRows = plan.votes;
+  const slotRows = isOpenTime ? plan.timeSlots : [];
+  const venueRows = plan.venues;
+  const proposalRows = plan.timeProposals.filter(
+    (p) => p.kind === "replacement",
+  );
+  const additionRows = plan.timeProposals.filter(
+    (p) => p.kind === "addition",
+  );
+  const receiptEventRows = variant === "receipt" ? plan.events : [];
+  // Vote arrays are nested under their parent rows by the relational
+  // query; flatten only when the downstream code expects a flat list.
+  const slotVoteRows = isOpenTime
+    ? plan.timeSlots.flatMap((s) =>
+        s.votes.map((v) => ({ ...v, slotId: s.id })),
+      )
+    : [];
+  const venueVoteRows = plan.venues.flatMap((v) =>
+    v.votes.map((vv) => ({ ...vv, venueId: v.id })),
+  );
+  const proposalVoteRows = proposalRows.flatMap((p) =>
+    p.votes.map((pv) => ({ ...pv, proposalId: p.id })),
+  );
 
   const isAllRecipients = recipientRows.length === 0;
   const recipientIds = isAllRecipients
