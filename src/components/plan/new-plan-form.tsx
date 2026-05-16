@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { Plus, Sparkles, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, ChevronDown, Plus, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Form,
@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { createPlan } from "@/lib/actions/plans";
 import { SuggestDrawer } from "@/components/plan/suggest-drawer";
+import { formatPlanTime } from "@/lib/format-plan-time";
+import { useMyHardCommitments } from "@/lib/use-hard-commitments";
 import {
   createPlanSchema,
   type CreatePlanInput,
@@ -217,6 +219,27 @@ export function NewPlanForm({
   const decideBy = computeDecideBy(decidePreset, startsAt, now);
   const token = heroToken(startsAt, now);
   const subhead = decideBySubhead(decidePreset, decideBy, now);
+
+  // M32.4 — Scenario 3 (CONVERGENCE_PLAN.md §4.2). Fetch hard commitments
+  // spanning the next ~14 days once; the warning row reads from the same
+  // in-memory cache as the user nudges the start-time picker. Open-mode
+  // plans haven't picked a real time yet, so no warning. Default plan
+  // duration matches the server default (`plans.duration_minutes = 120`).
+  const conflictRangeStart = useMemo(() => now, [now]);
+  const conflictRangeEnd = useMemo(
+    () => new Date(now.getTime() + 14 * 24 * 3600_000),
+    [now],
+  );
+  const { findOverlap } = useMyHardCommitments(
+    conflictRangeStart,
+    conflictRangeEnd,
+  );
+  const startsConflict = useMemo(() => {
+    if (timeMode !== "exact" || !startsAt) return null;
+    const end = new Date(startsAt.getTime() + 120 * 60_000);
+    return findOverlap(startsAt, end);
+  }, [timeMode, startsAt, findOverlap]);
+  const [conflictExpanded, setConflictExpanded] = useState(false);
 
   const isTitleValid = title.trim().length >= 3;
   const isWhenValid = startsAt !== null && startsAt.getTime() > now.getTime();
@@ -555,6 +578,15 @@ export function NewPlanForm({
                     />
                   </FormControl>
 
+                  {startsConflict ? (
+                    <ConflictRow
+                      conflict={startsConflict}
+                      expanded={conflictExpanded}
+                      onToggle={() => setConflictExpanded((v) => !v)}
+                      now={now}
+                    />
+                  ) : null}
+
                   <div className="flex flex-col gap-2 pt-1">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
                       Decide by
@@ -763,6 +795,60 @@ function SegmentButton({
     >
       {children}
     </button>
+  );
+}
+
+function ConflictRow({
+  conflict,
+  expanded,
+  onToggle,
+  now,
+}: {
+  conflict: { planTitle: string; circleName: string; start: Date };
+  expanded: boolean;
+  onToggle: () => void;
+  now: Date;
+}) {
+  const timeLabel = formatPlanTime(conflict.start, false, now);
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex items-center gap-2 rounded-xl border border-coral/30 bg-coral-soft/40 px-3 py-2 text-left text-xs text-ink transition-colors hover:bg-coral-soft/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+      >
+        <AlertTriangle className="size-3.5 shrink-0 text-coral" aria-hidden />
+        <span className="flex-1 truncate">
+          You&apos;re already in for{" "}
+          <span className="font-semibold">{conflict.planTitle}</span> at this
+          time.
+        </span>
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-ink-muted transition-transform",
+            expanded && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {expanded ? (
+        <div className="flex flex-col gap-1 rounded-xl border border-coral/20 bg-paper-card/60 px-3 py-2 text-xs">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate font-semibold text-ink">
+              {conflict.planTitle}
+            </span>
+            <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+              {conflict.circleName}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-ink-muted">
+            <CalendarClock className="size-3.5" aria-hidden />
+            <span>{timeLabel}</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

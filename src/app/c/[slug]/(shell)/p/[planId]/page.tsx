@@ -769,6 +769,7 @@ export default async function PlanDetailPage({
                 members={proposalMembers}
                 currentUserId={userId}
                 canSuggest={plan.status === "active" && canParticipate}
+                planDurationMinutes={plan.durationMinutes}
               />
             ) : null}
             {!isPastPlan && canParticipate ? (
