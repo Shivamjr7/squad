@@ -29,6 +29,10 @@ import {
   type LiveTickerAddition,
 } from "@/components/plan/live-ticker";
 import { Receipt, type ReceiptEvent } from "@/components/plan/receipt";
+import {
+  ItsHappening,
+  type ItsHappeningAddition,
+} from "@/components/plan/its-happening";
 import { SuggestAddition } from "@/components/plan/suggest-addition";
 import { getPlanVariant } from "@/lib/plan-variant";
 import {
@@ -479,6 +483,34 @@ export default async function PlanDetailPage({
     createdAt: e.createdAt.toISOString(),
   }));
 
+  // M31.8 — the "It's happening" surface pulls the lock timestamp + trigger
+  // straight from the latest `locked` event so the green pill and the
+  // subline copy ("auto-locked when consensus hit" vs. deadline vs. all-
+  // voted) match the actual lock reason. Most plans have exactly one
+  // locked event, but if a plan was unlocked and relocked we take the most
+  // recent — `events` is already asc-sorted so it's the tail.
+  const lockedEventRow =
+    variant === "its-happening"
+      ? [...plan.events].reverse().find((e) => e.kind === "locked")
+      : null;
+  const lockedAtIso = lockedEventRow?.createdAt.toISOString() ?? null;
+  const lockedPayload =
+    (lockedEventRow?.payload as Record<string, unknown> | null) ?? null;
+  const lockTrigger = (() => {
+    const raw = lockedPayload?.trigger;
+    if (raw === "threshold" || raw === "forced" || raw === "all_voted") {
+      return raw;
+    }
+    return null;
+  })();
+  const itsHappeningAdditions: ItsHappeningAddition[] = additionRows.map(
+    (r) => ({
+      id: r.id,
+      label: r.label,
+      startsAt: r.startsAt.toISOString(),
+    }),
+  );
+
   // M23 — recipient list (display-name + avatar) for the Squad section.
   // Sorted in circle-membership order (matches the home/squad strips).
   const circleMemberCards: RecipientCircleMember[] = memberRows
@@ -652,6 +684,21 @@ export default async function PlanDetailPage({
               ) : null
             }
           />
+        ) : variant === "its-happening" ? (
+          <ItsHappening
+            planId={plan.id}
+            startsAt={plan.startsAt}
+            timeZone={plan.timeZone}
+            location={plan.location}
+            recipientCount={recipientIds.length}
+            inCount={currentInCount}
+            lockedAtIso={lockedAtIso}
+            lockTrigger={lockTrigger}
+            additions={itsHappeningAdditions}
+            mapsUrl={mapsUrl}
+            icsUrl={icsUrl}
+            commentsHref={`/c/${circle.slug}/p/${plan.id}#comments`}
+          />
         ) : variant === "receipt" ? (
           <Receipt
             planId={plan.id}
@@ -785,7 +832,10 @@ export default async function PlanDetailPage({
           isPlanActive={plan.status === "active"}
         />
 
-        <section className="flex flex-1 flex-col gap-3 border-t border-ink/10 pt-6">
+        <section
+          id="comments"
+          className="flex flex-1 flex-col gap-3 border-t border-ink/10 pt-6 scroll-mt-16"
+        >
           <h2 className="eyebrow text-ink-muted">
             Discussion
           </h2>

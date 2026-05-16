@@ -31,12 +31,6 @@ import {
   type PlanIdInput,
 } from "@/lib/validation/plan";
 import { isValidTimeZone, zonedWallClockToUtc } from "@/lib/tz";
-import { getAppUrl } from "@/lib/url";
-import {
-  sendNewPlanEmail,
-  sendPlanCancelledEmail,
-  sendPlanConfirmedEmail,
-} from "@/lib/email";
 import { captureWinningVenue } from "@/lib/actions/plan-venues";
 
 export async function createPlan(
@@ -304,15 +298,9 @@ export async function createPlan(
   // invalidate the activity cache so the home strip reflects it.
   revalidateTag(CIRCLE_TAGS.circleActivity);
 
-  // Fire-and-forget: a Resend outage must not block plan creation.
-  const appUrl = await getAppUrl();
-  void sendNewPlanEmail(planId, appUrl).catch((err) => {
-    console.error("[plans.createPlan] email fanout failed", err);
-  });
-
-  // M30 — drop a plan_created notification on every recipient. Same fan-out
-  // semantics as the email path (recipient set if non-empty, else full
-  // circle), and we exclude the creator since they obviously know.
+  // M30 — drop a plan_created notification on every recipient. Recipient set
+  // if non-empty, else full circle; the creator is excluded since they
+  // obviously know. Push is the only channel now (M31 ripped out Resend).
   void notifyPlanCreated({
     planId,
     circleId: data.circleId,
@@ -452,10 +440,56 @@ export async function cancelPlan(input: PlanIdInput): Promise<void> {
     }
   })();
 
-  const appUrl = await getAppUrl();
-  void sendPlanCancelledEmail(plan.id, userId, appUrl).catch((err) => {
-    console.error("[plans.cancelPlan] email fanout failed", err);
+  // M31.6 — fan out the "Plan off" push. Tag mirrors plan_locked
+  // (`plan:{id}:state`) so the OS shade replaces any prior "It's happening"
+  // bubble with this cancellation. Actor (canceller) is excluded — they just
+  // performed the action and don't need to be told what they did.
+  void dispatchPlanCancelledNotification({
+    planId: plan.id,
+    circleId: plan.circleId,
+    cancellerId: userId,
   });
+}
+
+async function dispatchPlanCancelledNotification(args: {
+  planId: string;
+  circleId: string;
+  cancellerId: string;
+}): Promise<void> {
+  try {
+    const [planRow, circle, canceller, audience] = await Promise.all([
+      db.query.plans.findFirst({
+        columns: { title: true },
+        where: eq(plans.id, args.planId),
+      }),
+      db.query.circles.findFirst({
+        columns: { slug: true, name: true },
+        where: eq(circles.id, args.circleId),
+      }),
+      db.query.users.findFirst({
+        columns: { displayName: true },
+        where: eq(users.id, args.cancellerId),
+      }),
+      resolvePlanAudience(args.planId, args.circleId, args.cancellerId),
+    ]);
+    if (!planRow || !circle || audience.length === 0) return;
+    await dispatchNotifications({
+      type: "plan_cancelled",
+      userIds: audience,
+      payload: {
+        planId: args.planId,
+        planTitle: planRow.title,
+        circleSlug: circle.slug,
+        circleName: circle.name,
+        cancellerName: canceller?.displayName ?? null,
+      },
+    });
+  } catch (err) {
+    console.error("[plans.cancelPlan] plan_cancelled dispatch failed", {
+      planId: args.planId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function uncancelPlan(input: PlanIdInput): Promise<void> {
@@ -503,10 +537,8 @@ export async function confirmPlan(input: PlanIdInput): Promise<void> {
     },
   });
 
-  const appUrl = await getAppUrl();
-  void sendPlanConfirmedEmail(plan.id, userId, appUrl).catch((err) => {
-    console.error("[plans.confirmPlan] email fanout failed", err);
-  });
+  // M31.6 wires the `plan_locked` notification trigger here for the manual
+  // confirm path. The auto-lock path goes through auto-lock.ts.
 }
 
 export async function unconfirmPlan(input: PlanIdInput): Promise<void> {

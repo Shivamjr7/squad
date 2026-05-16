@@ -5,7 +5,7 @@
 // in the network. We only fall back to a tiny offline shell when nav fails.
 //
 // Bump CACHE_VERSION whenever the precache list changes to invalidate.
-const CACHE_VERSION = "squad-shell-v3";
+const CACHE_VERSION = "squad-shell-v4";
 const PRECACHE = [
   "/offline",
   "/manifest.webmanifest",
@@ -13,10 +13,18 @@ const PRECACHE = [
   "/icon-512.png",
   "/apple-touch-icon.png",
 ];
+// M31.4: monochrome badge for rich push. Soft-added so a missing binary
+// (e.g. asset not yet deployed) doesn't block SW install.
+const SOFT_PRECACHE = ["/icon-badge.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(PRECACHE)),
+    caches.open(CACHE_VERSION).then(async (cache) => {
+      await cache.addAll(PRECACHE);
+      await Promise.all(
+        SOFT_PRECACHE.map((path) => cache.add(path).catch(() => {})),
+      );
+    }),
   );
   self.skipWaiting();
 });
@@ -78,11 +86,14 @@ async function cacheFirst(req) {
   return res;
 }
 
-// ─── Web Push (M30) ─────────────────────────────────────────────────────
+// ─── Web Push (M30, rich payload M31.4) ─────────────────────────────────
 // The edge function `send-push` posts an AES-128-GCM-encrypted payload to
 // the user's push endpoint. The browser decrypts and hands us the JSON via
 // event.data. Shape (kept in sync with lib/notifications.ts):
-//   { title, body, url, tag? }
+//   { title, body, url, tag?, image?, renotify?, vibrate?, actions?,
+//     type?, planId?, directionsUrl? }
+// iOS Safari silently ignores image/badge/actions/vibrate — we always emit
+// the rich shape and let the OS strip what it can't render.
 self.addEventListener("push", (event) => {
   let data = { title: "Squad", body: "" };
   try {
@@ -96,48 +107,110 @@ self.addEventListener("push", (event) => {
   const body = typeof data.body === "string" ? data.body : "";
   const url = typeof data.url === "string" ? data.url : "/";
   const tag = typeof data.tag === "string" ? data.tag : undefined;
+  const image = typeof data.image === "string" ? data.image : undefined;
+  // `renotify` only takes effect alongside a `tag` — gate it.
+  const renotify = tag && data.renotify === true ? true : undefined;
+  const vibrate = Array.isArray(data.vibrate)
+    ? data.vibrate.filter((n) => typeof n === "number" && n >= 0 && n <= 5000)
+    : undefined;
+  // Chrome on Android caps action buttons at 2; slice defensively.
+  const actions = Array.isArray(data.actions)
+    ? data.actions
+        .filter(
+          (a) =>
+            a &&
+            typeof a === "object" &&
+            typeof a.action === "string" &&
+            typeof a.title === "string",
+        )
+        .slice(0, 2)
+    : undefined;
 
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
-      tag,
-      data: { url },
-    }),
-  );
+  const options = {
+    body,
+    icon: "/icon-192.png",
+    badge: "/icon-badge.png",
+    tag,
+    data: {
+      url,
+      type: typeof data.type === "string" ? data.type : undefined,
+      planId: typeof data.planId === "string" ? data.planId : undefined,
+      directionsUrl:
+        typeof data.directionsUrl === "string"
+          ? data.directionsUrl
+          : undefined,
+    },
+  };
+  if (image) options.image = image;
+  if (renotify) options.renotify = true;
+  if (vibrate && vibrate.length) options.vibrate = vibrate;
+  if (actions && actions.length) options.actions = actions;
+
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
+// notificationclick routes by `event.action`:
+//   - "directions"  → open `data.directionsUrl` (cross-origin maps deep-link)
+//   - "open_squad"  → focus existing tab, navigate to `data.url` with the
+//                     `#comments` anchor appended
+//   - "" (default body click) → focus existing tab, navigate to `data.url`
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = event.notification.data?.url ?? "/";
-  event.waitUntil(
-    (async () => {
-      // If a Squad tab is already open, focus it and navigate there. Else
-      // open a fresh window.
-      const clientList = await self.clients.matchAll({
-        type: "window",
-        includeUncontrolled: true,
-      });
-      for (const client of clientList) {
-        if ("focus" in client) {
-          await client.focus();
-          if ("navigate" in client && client.url !== url) {
-            try {
-              await client.navigate(url);
-            } catch {
-              // Cross-origin or revoked — fall through to openWindow below.
-            }
-          }
-          return;
+  const data = event.notification.data ?? {};
+  const action = event.action;
+  const baseUrl = typeof data.url === "string" ? data.url : "/";
+
+  let target;
+  if (action === "directions" && typeof data.directionsUrl === "string") {
+    target = data.directionsUrl;
+  } else if (action === "open_squad") {
+    target = baseUrl.includes("#") ? baseUrl : `${baseUrl}#comments`;
+  } else {
+    target = baseUrl;
+  }
+
+  event.waitUntil(focusOrOpen(target));
+});
+
+async function focusOrOpen(target) {
+  let parsed;
+  try {
+    parsed = new URL(target, self.location.origin);
+  } catch {
+    return;
+  }
+
+  // External destinations (e.g. maps deep-link) — always a new window.
+  if (parsed.origin !== self.location.origin) {
+    if (self.clients.openWindow) {
+      await self.clients.openWindow(parsed.href);
+    }
+    return;
+  }
+
+  // If a Squad tab is already open, focus it and navigate there. Else
+  // open a fresh window.
+  const clientList = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  for (const client of clientList) {
+    if ("focus" in client) {
+      await client.focus();
+      if ("navigate" in client && client.url !== parsed.href) {
+        try {
+          await client.navigate(parsed.href);
+        } catch {
+          // Cross-origin or revoked — fall through to openWindow below.
         }
       }
-      if (self.clients.openWindow) {
-        await self.clients.openWindow(url);
-      }
-    })(),
-  );
-});
+      return;
+    }
+  }
+  if (self.clients.openWindow) {
+    await self.clients.openWindow(parsed.href);
+  }
+}
 
 async function networkFirstNavigation(req) {
   const cache = await caches.open(CACHE_VERSION);

@@ -1,63 +1,54 @@
 // Internal notification dispatcher. Called from server actions on the
-// trigger side (vote cast, plan create) and from anywhere else that wants to
-// drop a row into a user's feed. Two responsibilities:
+// trigger side (vote cast, plan create, lock, cancel) and from anywhere
+// else that wants to drop a row into a user's feed.
 //
+// Three responsibilities:
 //   1. Insert one row per recipient into the `notifications` table — that's
 //      the in-app feed. Read by listNotifications + getUnreadCount.
 //   2. Fire-and-forget hand-off to the Supabase Edge Function `send-push`,
 //      which fans the same payload out to every push_subscriptions row owned
 //      by each recipient. The HTTP call is awaited as a Promise but its
 //      errors are swallowed — push delivery must not fail the trigger.
+//   3. Resolve "everyone on this plan except the actor" via
+//      resolvePlanAudience for the trigger sites.
+//
+// The pure push-payload composer lives in `./notifications-payload` so the
+// Supabase Edge function (Deno) can import it without dragging in DB code.
+// We re-export it here so call sites keep importing from `@/lib/notifications`
+// as before — single import surface.
 //
 // We don't use Supabase Database Webhooks for the hand-off because that
 // requires manual project-config glue. A direct fetch from the Next.js
 // server keeps the wiring inside this repo. Cron-driven notifications
-// (plan_reminder) skip this module entirely — the edge function inserts
+// (plan_leave_soon) skip this module entirely — the edge function inserts
 // its own rows and fans out without an HTTP round-trip.
 
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import { memberships, notifications, planRecipients } from "@/db/schema";
+import type { NotificationPayload } from "@/lib/notifications-payload";
 
-// Payload shapes, one per notification type. The dispatcher accepts a
-// discriminated union so the call site can't assemble a `vote_in` payload
-// with reminder fields.
-export type NotificationPayload =
-  | {
-      type: "vote_in";
-      payload: {
-        planId: string;
-        planTitle: string;
-        circleSlug: string;
-        circleName: string;
-        voterName: string;
-        voterId: string;
-      };
-    }
-  | {
-      type: "plan_created";
-      payload: {
-        planId: string;
-        planTitle: string;
-        circleSlug: string;
-        circleName: string;
-        creatorName: string;
-        creatorId: string;
-      };
-    }
-  | {
-      type: "plan_reminder";
-      payload: {
-        planId: string;
-        planTitle: string;
-        circleSlug: string;
-        circleName: string;
-        // ISO string — formatter lives client-side so the recipient's locale
-        // wins. Server-rendered fallback uses EMAIL_TIMEZONE.
-        startsAtIso: string;
-        location: string | null;
-      };
-    };
+// Re-export the pure composer + types so existing call sites keep working.
+export type {
+  ComposeInput,
+  ComposeOptions,
+  ComposedPushPayload,
+  NotificationPayload,
+  PlanCancelledPayload,
+  PlanCreatedPayload,
+  PlanLeaveSoonPayload,
+  PlanLockedPayload,
+  PlanReminderPayload,
+  PushAction,
+  VoteInPayload,
+} from "@/lib/notifications-payload";
+export {
+  composePushPayload,
+  DEFAULT_BADGE,
+  DEFAULT_ICON,
+  PUSH_PAYLOAD_BUDGET_BYTES,
+  stripPushPayloadToMinimum,
+} from "@/lib/notifications-payload";
 
 export type DispatchInput = NotificationPayload & {
   userIds: string[];

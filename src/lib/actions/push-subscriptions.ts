@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { pushSubscriptions } from "@/db/schema";
 import { requireUserId } from "@/lib/auth";
@@ -53,11 +53,12 @@ export async function setPushSubscription(
 
 // Unsubscribe is endpoint-scoped. The browser passes the endpoint of the
 // subscription it just unsubscribed; we delete only that row so the user's
-// other devices keep receiving pushes.
+// other devices keep receiving pushes. Scoped to the caller's user_id so
+// nobody can poke at someone else's row by knowing the endpoint string.
 export async function clearPushSubscription(
   input: UnsubscribePushInput,
 ): Promise<void> {
-  await requireUserId();
+  const userId = await requireUserId();
   const parsed = unsubscribePushSchema.safeParse(input);
   if (!parsed.success) {
     throw new ActionError(
@@ -67,5 +68,22 @@ export async function clearPushSubscription(
   }
   await db
     .delete(pushSubscriptions)
-    .where(eq(pushSubscriptions.endpoint, parsed.data.endpoint));
+    .where(
+      and(
+        eq(pushSubscriptions.endpoint, parsed.data.endpoint),
+        eq(pushSubscriptions.userId, userId),
+      ),
+    );
+}
+
+// Global mute — wipes every push subscription row the caller owns. Used by
+// the Manage devices "Mute all devices" affordance on /you. Each device's
+// own browser-side PushSubscription object stays valid until it tries to
+// send (the next push to that endpoint will come back 410 and the row is
+// already gone, so nothing to clean up server-side).
+export async function clearAllMyPushSubscriptions(): Promise<void> {
+  const userId = await requireUserId();
+  await db
+    .delete(pushSubscriptions)
+    .where(eq(pushSubscriptions.userId, userId));
 }

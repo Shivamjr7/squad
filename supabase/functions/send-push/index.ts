@@ -7,6 +7,14 @@
 // matching CRON_SECRET. We re-read the rows from Postgres so the caller
 // can't spoof recipients — the row's user_id is the source of truth.
 //
+// M31.5 — payload composition lives in `src/lib/notifications-payload.ts`.
+// That module is pure (no DB, no env, no Node/Deno-specific imports), so
+// both the Next.js dispatcher and this Deno function call the same
+// `composePushPayload` and emit identical `showNotification` shapes. The
+// 3 KB JSON budget (NOTIFICATIONS_PLAN §5) is enforced here at send time —
+// over-budget payloads fall back to `stripPushPayloadToMinimum` (title +
+// body + url + tag) so the push still lands.
+//
 // Auth: requires Authorization: Bearer <CRON_SECRET>. CRON_SECRET is shared
 // between the cron job and the Next.js process; rotating it is a single
 // `supabase secrets set` away.
@@ -14,6 +22,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
+import {
+  type ComposedPushPayload,
+  type ComposeInput,
+  composePushPayload,
+  PUSH_PAYLOAD_BUDGET_BYTES,
+  stripPushPayloadToMinimum,
+} from "../../../src/lib/notifications-payload.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -34,77 +49,109 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 
 // ─── payload rendering ──────────────────────────────────────────────────
 
+// Mirrors the active enum values in the `notification_type` Postgres enum
+// (post-M31.1 migration). `plan_reminder` is legacy but still composable.
+type NotificationKind = ComposeInput["type"];
+const KNOWN_KINDS: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
+  "vote_in",
+  "plan_created",
+  "plan_locked",
+  "plan_leave_soon",
+  "plan_cancelled",
+  "plan_reminder",
+]);
+
 type NotificationRow = {
   id: string;
   user_id: string;
-  type: "vote_in" | "plan_created" | "plan_reminder";
+  type: string;
   payload: Record<string, unknown> | null;
 };
-
-type Payload = { title: string; body: string; url: string; tag?: string };
-
-function payloadString(p: Record<string, unknown> | null, key: string): string | null {
-  if (!p) return null;
-  const v = p[key];
-  return typeof v === "string" ? v : null;
-}
 
 function planIdFromPayload(
   p: Record<string, unknown> | null,
 ): string | null {
-  return payloadString(p, "planId");
+  if (!p) return null;
+  const v = p.planId;
+  return typeof v === "string" ? v : null;
 }
 
-function renderPayload(row: NotificationRow): Payload {
-  const p = row.payload ?? {};
-  const slug = payloadString(p, "circleSlug");
-  const planId = payloadString(p, "planId");
-  const planTitle = payloadString(p, "planTitle") ?? "this plan";
-  const url = slug && planId
-    ? `${APP_URL}/c/${slug}/p/${planId}`
-    : APP_URL || "/";
+// Compose a push body from a row. Returns null when the row is
+// uncomposable (unknown type, missing required surface fields, or composer
+// throws). The caller skips null results — one bad row never kills a batch.
+function buildPushBody(row: NotificationRow): {
+  body: string;
+  composed: ComposedPushPayload;
+} | null {
+  if (!KNOWN_KINDS.has(row.type as NotificationKind)) {
+    console.warn("[send-push] unknown notification type, skipping", {
+      id: row.id,
+      type: row.type,
+    });
+    return null;
+  }
+  const p = row.payload;
+  // Minimum surface: composer reads circleSlug + planId from every kind to
+  // build the click URL. Missing either makes the push useless.
+  if (
+    !p ||
+    typeof (p as Record<string, unknown>).planId !== "string" ||
+    typeof (p as Record<string, unknown>).circleSlug !== "string"
+  ) {
+    console.warn("[send-push] payload missing planId/circleSlug, skipping", {
+      id: row.id,
+      type: row.type,
+    });
+    return null;
+  }
 
-  switch (row.type) {
-    case "vote_in": {
-      const name = payloadString(p, "voterName") ?? "Someone";
-      return {
-        title: "Squad",
-        body: `${name} is in for ${planTitle}.`,
-        url,
-        tag: planId ? `plan:${planId}` : undefined,
-      };
-    }
-    case "plan_created": {
-      const name = payloadString(p, "creatorName") ?? "Someone";
-      return {
-        title: "New plan",
-        body: `${name} started ${planTitle}.`,
-        url,
-        tag: planId ? `plan:${planId}` : undefined,
-      };
-    }
-    case "plan_reminder": {
-      const iso = payloadString(p, "startsAtIso");
-      let when = "soon";
-      if (iso) {
-        try {
-          when = new Intl.DateTimeFormat("en-US", {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          }).format(new Date(iso));
-        } catch {
-          when = "soon";
-        }
-      }
-      return {
-        title: planTitle,
-        body: `Starts at ${when}.`,
-        url,
-        tag: planId ? `reminder:${planId}` : undefined,
-      };
+  let composed: ComposedPushPayload;
+  try {
+    // Cast is safe given the KNOWN_KINDS + planId/circleSlug guards above;
+    // remaining per-kind fields render as their fallbacks if absent.
+    composed = composePushPayload(
+      { type: row.type, payload: p } as ComposeInput,
+      { appUrl: APP_URL },
+    );
+  } catch (err) {
+    console.error("[send-push] compose failed, skipping", {
+      id: row.id,
+      type: row.type,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+
+  let body = JSON.stringify(composed);
+  // 3 KB JSON budget — the Web Push hard cap is ~4 KB encrypted, so we
+  // leave room for AES-128-GCM overhead. Strip to title+body+url+tag if
+  // the rich shape (image/actions/vibrate) blows past it.
+  if (byteLengthUtf8(body) > PUSH_PAYLOAD_BUDGET_BYTES) {
+    console.warn("[send-push] payload over 3KB budget, stripping", {
+      id: row.id,
+      type: row.type,
+      bytes: byteLengthUtf8(body),
+    });
+    composed = stripPushPayloadToMinimum(composed);
+    body = JSON.stringify(composed);
+    if (byteLengthUtf8(body) > PUSH_PAYLOAD_BUDGET_BYTES) {
+      console.error("[send-push] stripped payload still over budget, skipping", {
+        id: row.id,
+        type: row.type,
+        bytes: byteLengthUtf8(body),
+      });
+      return null;
     }
   }
+
+  return { body, composed };
+}
+
+// Deno's TextEncoder is built-in; this is the cheapest way to count UTF-8
+// bytes (string.length counts UTF-16 code units, not bytes).
+const ENCODER = new TextEncoder();
+function byteLengthUtf8(s: string): number {
+  return ENCODER.encode(s).byteLength;
 }
 
 // ─── push fan-out ───────────────────────────────────────────────────────
@@ -124,6 +171,10 @@ async function fanOutForNotification(row: NotificationRow): Promise<number> {
     return 0;
   }
 
+  const built = buildPushBody(row);
+  if (!built) return 0;
+  const { body } = built;
+
   const { data: subs, error } = await supabase
     .from("push_subscriptions")
     .select("id, endpoint, p256dh, auth")
@@ -138,8 +189,7 @@ async function fanOutForNotification(row: NotificationRow): Promise<number> {
   }
   if (!subs || subs.length === 0) return 0;
 
-  const payload = renderPayload(row);
-  const body = JSON.stringify(payload);
+  const planId = planIdFromPayload(row.payload);
 
   let sent = 0;
   await Promise.all(
@@ -158,12 +208,12 @@ async function fanOutForNotification(row: NotificationRow): Promise<number> {
             // header the default is "normal", which is why pushes only
             // surface when the user opens the app on Android.
             urgency: "high",
-            // Collapsing key — replaces older pushes for the same plan so the
-            // shade doesn't pile up multiple "Karan is in" rows. The header
-            // caps at 32 url-safe chars; UUIDs are 36 with hyphens, so strip.
-            ...(planIdFromPayload(row.payload)
-              ? { topic: planIdFromPayload(row.payload)!.replace(/-/g, "") }
-              : {}),
+            // Push-service-side collapsing key — replaces older queued
+            // messages for the same plan when a device is offline. OS-shade
+            // collapse is handled separately by the `tag` field in the
+            // payload (see notifications-payload.ts). The header caps at
+            // 32 url-safe chars; UUIDs are 36 with hyphens, so strip.
+            ...(planId ? { topic: planId.replace(/-/g, "") } : {}),
           },
         );
         sent += 1;

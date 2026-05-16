@@ -15,8 +15,6 @@ import {
   toggleSlotVoteSchema,
   type ToggleSlotVoteInput,
 } from "@/lib/validation/time-slot";
-import { sendPlanLockedEmail } from "@/lib/email";
-import { getAppUrl } from "@/lib/url";
 import { captureWinningVenue } from "@/lib/actions/plan-venues";
 import { recordPlanEvent } from "@/lib/actions/plan-events";
 
@@ -159,10 +157,8 @@ export async function lockOpenPlan(
     },
   });
 
-  const appUrl = await getAppUrl();
-  void sendPlanLockedEmail(planId, appUrl).catch((err) => {
-    console.error("[timeSlots.lockOpenPlan] email fanout failed", err);
-  });
+  // M31.6 wires the `plan_locked` notification trigger here for the
+  // open-mode in-app lock path.
 
   return true;
 }

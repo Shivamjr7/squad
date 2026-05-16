@@ -13,10 +13,12 @@ import {
   suggestionLogItems,
   votes,
 } from "@/db/schema";
-import { sendPlanLockedEmail } from "@/lib/email";
-import { getAppUrl } from "@/lib/url";
 import { recordPlanEvent } from "@/lib/actions/plan-events";
 import { allEligibleVotersHaveVoted } from "@/lib/actions/eligibility";
+import {
+  dispatchNotifications,
+  resolvePlanAudience,
+} from "@/lib/notifications";
 
 // Auto-lock. The plan flips to `confirmed` when:
 //   1. M22 threshold path: `votes` with status='in' ≥ plans.lock_threshold AND
@@ -278,7 +280,7 @@ export async function tryAutoLock(
   }
 
   const circle = await db.query.circles.findFirst({
-    columns: { slug: true },
+    columns: { slug: true, name: true },
     where: eq(circles.id, plan.circleId),
   });
   if (circle?.slug) {
@@ -286,10 +288,21 @@ export async function tryAutoLock(
     revalidatePath(`/c/${circle.slug}`);
   }
 
-  const appUrl = await getAppUrl();
-  void sendPlanLockedEmail(planId, appUrl).catch((err) => {
-    console.error("[auto-lock] email fanout failed", err);
-  });
+  // M31.6 — fire-and-forget "It's happening" push. System-driven from this
+  // function's perspective: no actor exclusion, so the voter who tipped the
+  // threshold also gets the push. That's intentional — confirms their vote
+  // landed and gives a fast path back to the plan detail.
+  if (circle) {
+    void dispatchPlanLockedNotification({
+      planId,
+      circleId: plan.circleId,
+      circleSlug: circle.slug,
+      circleName: circle.name,
+      startsAt: canonicalStartsAt,
+      location: canonicalLocation,
+      trigger,
+    });
+  }
 
   return {
     locked: true,
@@ -297,4 +310,53 @@ export async function tryAutoLock(
     startsAt: canonicalStartsAt,
     location: canonicalLocation,
   };
+}
+
+// Compose the `plan_locked` payload and hand off to dispatchNotifications.
+// Pulled out as a separate function so the await + try/catch don't bloat
+// tryAutoLock and so the dispatch can be `void`-fired off the hot path.
+async function dispatchPlanLockedNotification(args: {
+  planId: string;
+  circleId: string;
+  circleSlug: string;
+  circleName: string;
+  startsAt: Date;
+  location: string | null;
+  trigger: "threshold" | "forced" | "all_voted";
+}): Promise<void> {
+  try {
+    const [planRow, audience, inCountRow] = await Promise.all([
+      db.query.plans.findFirst({
+        columns: { title: true },
+        where: eq(plans.id, args.planId),
+      }),
+      resolvePlanAudience(args.planId, args.circleId, null),
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(votes)
+        .where(and(eq(votes.planId, args.planId), eq(votes.status, "in"))),
+    ]);
+    if (!planRow || audience.length === 0) return;
+    const inCount = Number(inCountRow[0]?.n ?? 0);
+    await dispatchNotifications({
+      type: "plan_locked",
+      userIds: audience,
+      payload: {
+        planId: args.planId,
+        planTitle: planRow.title,
+        circleSlug: args.circleSlug,
+        circleName: args.circleName,
+        startsAtIso: args.startsAt.toISOString(),
+        location: args.location,
+        inCount,
+        totalRecipients: audience.length,
+        trigger: args.trigger,
+      },
+    });
+  } catch (err) {
+    console.error("[auto-lock] plan_locked dispatch failed", {
+      planId: args.planId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
