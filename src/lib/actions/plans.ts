@@ -31,12 +31,6 @@ import {
   type PlanIdInput,
 } from "@/lib/validation/plan";
 import { isValidTimeZone, zonedWallClockToUtc } from "@/lib/tz";
-import { getAppUrl } from "@/lib/url";
-import {
-  sendNewPlanEmail,
-  sendPlanCancelledEmail,
-  sendPlanConfirmedEmail,
-} from "@/lib/email";
 import { captureWinningVenue } from "@/lib/actions/plan-venues";
 
 export async function createPlan(
@@ -304,15 +298,9 @@ export async function createPlan(
   // invalidate the activity cache so the home strip reflects it.
   revalidateTag(CIRCLE_TAGS.circleActivity);
 
-  // Fire-and-forget: a Resend outage must not block plan creation.
-  const appUrl = await getAppUrl();
-  void sendNewPlanEmail(planId, appUrl).catch((err) => {
-    console.error("[plans.createPlan] email fanout failed", err);
-  });
-
-  // M30 — drop a plan_created notification on every recipient. Same fan-out
-  // semantics as the email path (recipient set if non-empty, else full
-  // circle), and we exclude the creator since they obviously know.
+  // M30 — drop a plan_created notification on every recipient. Recipient set
+  // if non-empty, else full circle; the creator is excluded since they
+  // obviously know. Push is the only channel now (M31 ripped out Resend).
   void notifyPlanCreated({
     planId,
     circleId: data.circleId,
@@ -452,10 +440,7 @@ export async function cancelPlan(input: PlanIdInput): Promise<void> {
     }
   })();
 
-  const appUrl = await getAppUrl();
-  void sendPlanCancelledEmail(plan.id, userId, appUrl).catch((err) => {
-    console.error("[plans.cancelPlan] email fanout failed", err);
-  });
+  // M31.6 wires the `plan_cancelled` notification trigger here.
 }
 
 export async function uncancelPlan(input: PlanIdInput): Promise<void> {
@@ -503,10 +488,8 @@ export async function confirmPlan(input: PlanIdInput): Promise<void> {
     },
   });
 
-  const appUrl = await getAppUrl();
-  void sendPlanConfirmedEmail(plan.id, userId, appUrl).catch((err) => {
-    console.error("[plans.confirmPlan] email fanout failed", err);
-  });
+  // M31.6 wires the `plan_locked` notification trigger here for the manual
+  // confirm path. The auto-lock path goes through auto-lock.ts.
 }
 
 export async function unconfirmPlan(input: PlanIdInput): Promise<void> {

@@ -71,6 +71,11 @@ const TYPE_ICON: Record<
   vote_in: { Icon: ThumbsUp, bg: "bg-in/15", fg: "text-in" },
   plan_created: { Icon: Plus, bg: "bg-blue-500/15", fg: "text-blue-300" },
   plan_reminder: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
+  // M31.1 placeholders — feed restyle in M31.9 will replace this map with
+  // per-type compose helpers. No triggers fire these kinds yet (M31.6).
+  plan_locked: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
+  plan_leave_soon: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
+  plan_cancelled: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
 };
 
 type Decoded = {
@@ -124,7 +129,8 @@ function decode(row: NotificationRow): Decoded {
         circleName,
       };
     }
-    case "plan_reminder": {
+    case "plan_reminder":
+    case "plan_leave_soon": {
       const iso = payloadString(p, "startsAtIso");
       let when = "soon";
       if (iso) {
@@ -145,6 +151,36 @@ function decode(row: NotificationRow): Decoded {
           <>
             <span className="font-medium text-ink">{planTitle}</span> starts at{" "}
             {when}.
+          </>
+        ),
+        href,
+        circleSlug: slug,
+        circleName,
+      };
+    }
+    // M31.1 placeholders — full per-type copy lands in M31.9.
+    case "plan_locked": {
+      return {
+        actor: null,
+        actorSeed: null,
+        body: (
+          <>
+            <span className="font-medium text-ink">{planTitle}</span> is locked.
+          </>
+        ),
+        href,
+        circleSlug: slug,
+        circleName,
+      };
+    }
+    case "plan_cancelled": {
+      return {
+        actor: null,
+        actorSeed: null,
+        body: (
+          <>
+            <span className="font-medium text-ink">{planTitle}</span> was
+            cancelled.
           </>
         ),
         href,

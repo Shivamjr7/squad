@@ -9,9 +9,6 @@ import {
   addCommentSchema,
   type AddCommentInput,
 } from "@/lib/validation/comment";
-import { getAppUrl } from "@/lib/url";
-import { sendNewCommentEmail } from "@/lib/email";
-
 export type AddedComment = {
   id: string;
   planId: string;
@@ -51,10 +48,10 @@ export async function addComment(
     throw new ActionError("INVALID", "Couldn't save comment.");
   }
 
-  const appUrl = await getAppUrl();
-  void sendNewCommentEmail(row.id, appUrl).catch((err) => {
-    console.error("[comments.addComment] email fanout failed", err);
-  });
+  // Comments don't generate notifications in M31 — keeps the feed quiet.
+  // Realtime channel still delivers the live update to anyone viewing the
+  // plan detail; out-of-app discovery happens via the plan_locked /
+  // plan_leave_soon pushes the recipient already gets.
 
   return {
     id: row.id,

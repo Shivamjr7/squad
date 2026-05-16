@@ -34,7 +34,13 @@ export async function castVote(
   const data = parsed.data;
 
   const plan = await db.query.plans.findFirst({
-    columns: { circleId: true, status: true, title: true },
+    columns: {
+      circleId: true,
+      status: true,
+      title: true,
+      startsAt: true,
+      timeMode: true,
+    },
     where: eq(plans.id, data.planId),
   });
   if (!plan) {
@@ -116,11 +122,21 @@ export async function castVote(
   // to in. Out/maybe/no-change casts don't notify, since the value to other
   // members is "+1 confirmed for the plan", not every vote churn.
   if (data.status === "in" && previousVote !== "in") {
-    void notifyVoteIn(data.planId, plan.circleId, plan.title, userId).catch(
-      (err) => {
-        console.error("[votes.castVote] notify fanout failed", err);
-      },
-    );
+    // M31 — open-mode plans haven't picked a time yet, so the push body
+    // collapses to "Karan: in for {plan title}" rather than a half-formed
+    // "in for —". The composer reads `startsAtIso === null` and drops the
+    // time suffix.
+    const startsAtIso =
+      plan.timeMode === "exact" ? plan.startsAt.toISOString() : null;
+    void notifyVoteIn(
+      data.planId,
+      plan.circleId,
+      plan.title,
+      userId,
+      startsAtIso,
+    ).catch((err) => {
+      console.error("[votes.castVote] notify fanout failed", err);
+    });
   }
 
   return { status: data.status };
@@ -131,6 +147,7 @@ async function notifyVoteIn(
   circleId: string,
   planTitle: string,
   voterId: string,
+  startsAtIso: string | null,
 ): Promise<void> {
   const [circle, voter] = await Promise.all([
     db.query.circles.findFirst({
@@ -157,6 +174,7 @@ async function notifyVoteIn(
       circleName: circle.name,
       voterName: voter?.displayName ?? "Someone",
       voterId,
+      startsAtIso,
     },
   });
 }

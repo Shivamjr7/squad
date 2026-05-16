@@ -13,8 +13,6 @@ import {
   suggestionLogItems,
   votes,
 } from "@/db/schema";
-import { sendPlanLockedEmail } from "@/lib/email";
-import { getAppUrl } from "@/lib/url";
 import { recordPlanEvent } from "@/lib/actions/plan-events";
 import { allEligibleVotersHaveVoted } from "@/lib/actions/eligibility";
 
@@ -286,10 +284,7 @@ export async function tryAutoLock(
     revalidatePath(`/c/${circle.slug}`);
   }
 
-  const appUrl = await getAppUrl();
-  void sendPlanLockedEmail(planId, appUrl).catch((err) => {
-    console.error("[auto-lock] email fanout failed", err);
-  });
+  // M31.6 wires the `plan_locked` notification trigger here.
 
   return {
     locked: true,

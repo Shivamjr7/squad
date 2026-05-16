@@ -17,14 +17,18 @@ import {
 
 export const membershipRole = pgEnum("membership_role", ["admin", "member"]);
 
-// M30 — in-app notification types. Three for v1: vote_in fans out to the
-// rest of the recipient set when someone votes IN; plan_created fans out
-// to recipients on plan creation; plan_reminder fires 30m before start_time
-// from the cron. Add new kinds at the end — Postgres enums grow forward only.
+// M30 — in-app notification types. M31 extends with plan_locked,
+// plan_leave_soon, and plan_cancelled. `plan_reminder` is kept in the enum
+// for backward compat with rows already in the table, but no new sites write
+// it — `plan_leave_soon` replaces it as the pre-event nudge.
+// Add new kinds at the end — Postgres enums grow forward only.
 export const notificationType = pgEnum("notification_type", [
   "vote_in",
   "plan_created",
   "plan_reminder",
+  "plan_locked",
+  "plan_leave_soon",
+  "plan_cancelled",
 ]);
 
 export const planType = pgEnum("plan_type", [
@@ -244,6 +248,13 @@ export const plans = pgTable(
       mode: "date",
     }),
     reminderSentAt: timestamp("reminder_sent_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    // M31 — set when the 45-min pre-leave push fires for a confirmed plan.
+    // Gates the `remind-plans` edge function so the same plan can't re-push
+    // on later cron ticks within the 40–50 min window.
+    leavePushSentAt: timestamp("leave_push_sent_at", {
       withTimezone: true,
       mode: "date",
     }),
