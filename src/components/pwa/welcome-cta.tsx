@@ -59,10 +59,12 @@ async function subscribeAndPersist(vapidKey: string): Promise<void> {
   await setPushSubscription(payload);
 }
 
+type State = "loading" | "unsupported" | "denied" | "ready";
+
 export function WelcomeCta({ fallbackSlug }: { fallbackSlug: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [unsupported, setUnsupported] = useState(false);
+  const [state, setState] = useState<State>("loading");
   const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
   useEffect(() => {
@@ -75,7 +77,20 @@ export function WelcomeCta({ fallbackSlug }: { fallbackSlug: string }) {
       // Private mode or storage quota — best-effort. Worst case the user
       // sees /welcome twice; the second visit is a no-op once they subscribe.
     }
-    if (!isPushSupported() || !vapidKey) setUnsupported(true);
+    if (!isPushSupported() || !vapidKey) {
+      setState("unsupported");
+      return;
+    }
+    // Chrome can have permission pre-set to "denied" (previous deny on this
+    // origin, quieter-permissions mode, or some incognito configs that auto-
+    // reject). Calling requestPermission() in that state returns "denied"
+    // instantly without a prompt, which felt broken pre-M31.10. Detect on
+    // mount and render the recovery instructions inline instead.
+    if (Notification.permission === "denied") {
+      setState("denied");
+      return;
+    }
+    setState("ready");
   }, [vapidKey]);
 
   const skip = () => router.replace(`/c/${fallbackSlug}`);
@@ -91,9 +106,10 @@ export function WelcomeCta({ fallbackSlug }: { fallbackSlug: string }) {
       }
       if (permission !== "granted") {
         if (permission === "denied") {
-          toast.error(
-            "Notifications are blocked. Enable them in browser settings to turn this on.",
-          );
+          // Flip into the inline recovery panel instead of just toasting —
+          // the page stays open so the user can fix it in browser settings
+          // and re-land here without re-navigating.
+          setState("denied");
         }
         return;
       }
@@ -109,7 +125,11 @@ export function WelcomeCta({ fallbackSlug }: { fallbackSlug: string }) {
     });
   };
 
-  if (unsupported) {
+  if (state === "loading") {
+    return <div className="h-12" aria-hidden />;
+  }
+
+  if (state === "unsupported") {
     return (
       <div className="flex flex-col items-center gap-4">
         <p className="text-xs text-ink-muted">
@@ -123,6 +143,50 @@ export function WelcomeCta({ fallbackSlug }: { fallbackSlug: string }) {
           className="rounded-full bg-ink px-7 py-3 text-sm font-medium text-paper transition-opacity hover:opacity-90"
         >
           Continue
+        </button>
+      </div>
+    );
+  }
+
+  if (state === "denied") {
+    return (
+      <div className="flex flex-col items-center gap-4 text-left">
+        <div className="w-full rounded-2xl border border-out/30 bg-out/5 px-5 py-4">
+          <p className="text-sm font-medium text-ink">
+            Notifications are blocked for this site.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+            Your browser denied the permission without prompting — usually
+            because notifications were turned off here before, or the browser
+            is in a strict mode (incognito or &ldquo;quieter prompts&rdquo;).
+          </p>
+          <p className="mt-3 text-xs leading-relaxed text-ink-muted">
+            To turn them on:
+          </p>
+          <ol className="mt-1 list-decimal pl-4 text-xs leading-relaxed text-ink-muted">
+            <li>
+              Click the lock / tune icon next to the URL in the address bar.
+            </li>
+            <li>
+              Set <span className="font-medium text-ink">Notifications</span>{" "}
+              to <span className="font-medium text-ink">Allow</span>.
+            </li>
+            <li>Reload this page and tap the button again.</li>
+          </ol>
+        </div>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="w-full rounded-full bg-coral px-7 py-3.5 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral"
+        >
+          Reload and try again
+        </button>
+        <button
+          type="button"
+          onClick={skip}
+          className="text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+        >
+          Continue without notifications
         </button>
       </div>
     );

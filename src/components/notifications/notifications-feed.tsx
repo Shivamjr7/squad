@@ -104,6 +104,12 @@ const TYPE_ICON: Record<
   plan_locked: { Icon: CheckCircle2, bg: "bg-in/15", fg: "text-in" },
   plan_leave_soon: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
   plan_cancelled: { Icon: BellOff, bg: "bg-out/15", fg: "text-out" },
+  // M32 placeholders. M32.7 wires the real conflict UI; until then no
+  // composer writes these kinds, so the entries are reachable only via
+  // backfilled rows. Keep them defined so Record<NotificationType, …>
+  // exhaustiveness holds.
+  plan_conflict: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
+  plan_conflict_resolved: { Icon: Bell, bg: "bg-in/15", fg: "text-in" },
 };
 
 type Decoded = {
@@ -216,6 +222,20 @@ function decode(row: NotificationRow): Decoded {
         circleSlug: slug,
         circleName,
         tag: planId ? `plan:${planId}:reminder` : `row:${row.id}`,
+      };
+    }
+    // M32 placeholders. No composer writes these yet (M32.7 does the wiring);
+    // keep the switch exhaustive so the schema can land first.
+    case "plan_conflict":
+    case "plan_conflict_resolved": {
+      return {
+        actor: null,
+        actorSeed: null,
+        bodyText: planTitle,
+        href,
+        circleSlug: slug,
+        circleName,
+        tag: planId ? `plan:${planId}:conflict` : `row:${row.id}`,
       };
     }
   }
