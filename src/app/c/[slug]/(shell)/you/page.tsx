@@ -11,7 +11,10 @@ import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { EditDisplayName } from "@/components/circle/edit-display-name";
 import { LeaveCircleButton } from "@/components/circle/leave-circle-button";
 import { YouSignOutButton } from "@/components/circle/sign-out-button";
-import { PushOptIn } from "@/components/circle/push-opt-in";
+import {
+  ManageDevices,
+  type ManageDeviceRow,
+} from "@/components/circle/manage-devices";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { getCircleBySlug, getUserCircles } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
@@ -43,13 +46,27 @@ export default async function YouPage({
     }),
     getUserCircles(userId),
     db
-      .select({ id: pushSubscriptions.id })
+      .select({
+        id: pushSubscriptions.id,
+        endpoint: pushSubscriptions.endpoint,
+        deviceHint: pushSubscriptions.deviceHint,
+        lastUsedAt: pushSubscriptions.lastUsedAt,
+        createdAt: pushSubscriptions.createdAt,
+      })
       .from(pushSubscriptions)
-      .where(eq(pushSubscriptions.userId, userId))
-      .limit(1),
+      .where(eq(pushSubscriptions.userId, userId)),
   ]);
   if (!me || !membership) notFound();
-  const hasPushSubscription = pushRows.length > 0;
+  const devices: ManageDeviceRow[] = pushRows.map((r) => ({
+    id: r.id,
+    endpoint: r.endpoint,
+    deviceHint:
+      r.deviceHint === "mobile" || r.deviceHint === "desktop"
+        ? r.deviceHint
+        : null,
+    lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
+    createdAt: r.createdAt.toISOString(),
+  }));
 
   const isAdmin = membership.role === "admin";
 
@@ -125,26 +142,14 @@ export default async function YouPage({
 
             <section className="flex flex-col gap-3">
               <h2 className="eyebrow text-ink-muted">
-                Notifications
+                Manage devices
               </h2>
-              <div className="flex flex-col gap-2 rounded-lg border border-ink/10 bg-paper-card/40 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex flex-col">
-                    <span className="text-sm text-ink">Plan emails</span>
-                    <span className="text-xs text-ink-muted">
-                      New plans, comments on plans you voted on, reminders
-                    </span>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-paper-card px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
-                    On
-                  </span>
-                </div>
-                <p className="text-xs text-ink-muted">
-                  Granular preferences are coming. For now, plan emails go out by
-                  default.
-                </p>
-              </div>
-              <PushOptIn initiallyOn={hasPushSubscription} />
+              <p className="text-xs text-ink-muted">
+                Squad pings you when a new plan drops, when one&apos;s about to
+                lock, and 45 minutes before you should leave. One row per
+                device you&apos;ve enabled.
+              </p>
+              <ManageDevices devices={devices} />
             </section>
 
             <section className="flex flex-col gap-3">

@@ -2,8 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
-import { Bell, Check, Plus, ThumbsUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  Bell,
+  BellOff,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Plus,
+} from "lucide-react";
 import {
   markAllNotificationsRead,
   markNotificationRead,
@@ -35,15 +42,33 @@ function payloadString(p: Payload | null, key: string): string | null {
   return typeof v === "string" ? v : null;
 }
 
+function payloadNumber(p: Payload | null, key: string): number | null {
+  if (!p) return null;
+  const v = p[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function formatShortTime(iso: string | null): string {
+  if (!iso) return "soon";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(new Date(iso));
+  } catch {
+    return "soon";
+  }
+}
+
 // Deterministic initials-avatar color, matching the Squad Pulse palette so
-// the same actor reads the same across surfaces. Bright text variants for
-// the dark theme.
+// the same actor reads the same across surfaces.
 const ACTOR_PALETTE = [
   "bg-coral/20 text-coral",
   "bg-in/15 text-in",
   "bg-maybe/25 text-maybe",
-  "bg-blue-500/15 text-blue-300",
-  "bg-purple-500/15 text-purple-300",
+  "bg-blue-500/15 text-blue-600 dark:text-blue-300",
+  "bg-purple-500/15 text-purple-600 dark:text-purple-300",
 ] as const;
 
 function actorColor(seed: string): string {
@@ -60,31 +85,40 @@ function initial(name: string | null | undefined): string {
   return t.length === 0 ? "?" : t[0]!.toUpperCase();
 }
 
-// Per-type icon + tint, used when there's no specific actor (system
-// notifications like plan_reminder). vote_in / plan_created carry an
-// actor (voterName / creatorName), so they default to an initials avatar
-// but fall through to the icon if the actor name is missing.
+// Per-type icon + tint, used when there's no specific actor (system events
+// like plan_locked / plan_leave_soon / plan_cancelled). vote_in /
+// plan_created carry an actor (voterName / creatorName) so they default to
+// an initials avatar, falling through to the type icon if the actor name
+// is missing.
 const TYPE_ICON: Record<
   NotificationType,
   { Icon: typeof Bell; bg: string; fg: string }
 > = {
-  vote_in: { Icon: ThumbsUp, bg: "bg-in/15", fg: "text-in" },
-  plan_created: { Icon: Plus, bg: "bg-blue-500/15", fg: "text-blue-300" },
+  vote_in: { Icon: CheckCircle2, bg: "bg-in/15", fg: "text-in" },
+  plan_created: {
+    Icon: Plus,
+    bg: "bg-blue-500/15",
+    fg: "text-blue-600 dark:text-blue-300",
+  },
   plan_reminder: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
-  // M31.1 placeholders — feed restyle in M31.9 will replace this map with
-  // per-type compose helpers. No triggers fire these kinds yet (M31.6).
-  plan_locked: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
+  plan_locked: { Icon: CheckCircle2, bg: "bg-in/15", fg: "text-in" },
   plan_leave_soon: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
-  plan_cancelled: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
+  plan_cancelled: { Icon: BellOff, bg: "bg-out/15", fg: "text-out" },
 };
 
 type Decoded = {
   actor: string | null;
   actorSeed: string | null;
-  body: React.ReactNode;
+  // OS-quote-voice body, per M31 NOTIFICATIONS_PLAN §3 / §7. The composer
+  // intentionally returns a plain string so the feed can prefix the actor
+  // name as a separate bold span without HTML-soup.
+  bodyText: string;
   href: string | null;
   circleSlug: string | null;
   circleName: string | null;
+  // OS-level collapse key. Mirrors composePushPayload's `tag` per kind so
+  // the in-app feed groups the same way the push shade collapses.
+  tag: string;
 };
 
 function decode(row: NotificationRow): Decoded {
@@ -99,96 +133,184 @@ function decode(row: NotificationRow): Decoded {
     case "vote_in": {
       const name = payloadString(p, "voterName") ?? "Someone";
       const seed = payloadString(p, "voterId") ?? name;
+      const startsAtIso = payloadString(p, "startsAtIso");
+      const when = startsAtIso ? formatShortTime(startsAtIso) : null;
+      // Quote voice: "Karan: in for 8:30" or "Karan: in for Movie night".
       return {
         actor: name,
         actorSeed: seed,
-        body: (
-          <>
-            is in for <span className="font-medium text-ink">{planTitle}</span>.
-          </>
-        ),
+        bodyText: when ? `in for ${when}` : `in for ${planTitle}`,
         href,
         circleSlug: slug,
         circleName,
+        tag: planId ? `plan:${planId}:votes` : `row:${row.id}`,
       };
     }
     case "plan_created": {
       const name = payloadString(p, "creatorName") ?? "Someone";
       const seed = payloadString(p, "creatorId") ?? name;
+      // "Mira started a plan · Movie night" — body without actor; the
+      // renderer prepends "Mira" as a bold span.
       return {
         actor: name,
         actorSeed: seed,
-        body: (
-          <>
-            started a new plan ·{" "}
-            <span className="font-medium text-ink">{planTitle}</span>
-          </>
-        ),
+        bodyText: `started a plan · ${planTitle}`,
         href,
         circleSlug: slug,
         circleName,
+        tag: planId ? `plan:${planId}:created` : `row:${row.id}`,
       };
     }
-    case "plan_reminder":
-    case "plan_leave_soon": {
-      const iso = payloadString(p, "startsAtIso");
-      let when = "soon";
-      if (iso) {
-        try {
-          when = new Intl.DateTimeFormat(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          }).format(new Date(iso));
-        } catch {
-          when = "soon";
-        }
-      }
-      return {
-        actor: null,
-        actorSeed: null,
-        body: (
-          <>
-            <span className="font-medium text-ink">{planTitle}</span> starts at{" "}
-            {when}.
-          </>
-        ),
-        href,
-        circleSlug: slug,
-        circleName,
-      };
-    }
-    // M31.1 placeholders — full per-type copy lands in M31.9.
     case "plan_locked": {
+      const startsAt = payloadString(p, "startsAtIso");
+      const location = payloadString(p, "location");
+      const when = formatShortTime(startsAt);
+      const where = location?.trim() || planTitle;
       return {
         actor: null,
         actorSeed: null,
-        body: (
-          <>
-            <span className="font-medium text-ink">{planTitle}</span> is locked.
-          </>
-        ),
+        bodyText: `It's happening — ${when} at ${where}`,
         href,
         circleSlug: slug,
         circleName,
+        tag: planId ? `plan:${planId}:state` : `row:${row.id}`,
+      };
+    }
+    case "plan_leave_soon": {
+      const location = payloadString(p, "location");
+      const raw = payloadNumber(p, "minutesUntilStart") ?? 45;
+      const minutes = Math.max(5, Math.round(raw / 5) * 5);
+      const where = location?.trim();
+      return {
+        actor: null,
+        actorSeed: null,
+        bodyText: where
+          ? `Leave in ~${minutes}m · ${where}`
+          : `Leave in ~${minutes}m`,
+        href,
+        circleSlug: slug,
+        circleName,
+        tag: planId ? `plan:${planId}:leave` : `row:${row.id}`,
       };
     }
     case "plan_cancelled": {
       return {
         actor: null,
         actorSeed: null,
-        body: (
-          <>
-            <span className="font-medium text-ink">{planTitle}</span> was
-            cancelled.
-          </>
-        ),
+        bodyText: `Plan off — ${planTitle} cancelled`,
         href,
         circleSlug: slug,
         circleName,
+        tag: planId ? `plan:${planId}:state` : `row:${row.id}`,
+      };
+    }
+    case "plan_reminder": {
+      // Legacy back-compat for rows already in the table — no new triggers
+      // fire this kind in M31+, but the composer keeps the shape.
+      const startsAt = payloadString(p, "startsAtIso");
+      return {
+        actor: null,
+        actorSeed: null,
+        bodyText: `${planTitle} · Starts at ${formatShortTime(startsAt)}`,
+        href,
+        circleSlug: slug,
+        circleName,
+        tag: planId ? `plan:${planId}:reminder` : `row:${row.id}`,
       };
     }
   }
+}
+
+// ─── Tag-based grouping ──────────────────────────────────────────────────
+// vote_in bursts collapse into a single row to mirror the OS shade behavior
+// (composePushPayload sets renotify=false for the same tag so Android /
+// iOS only show one bubble). Other kinds pass through as singletons even
+// when they happen to share a tag (e.g. plan_locked → plan_cancelled on the
+// same `:state` tag) — those are genuinely different states the user wants
+// to see distinctly.
+
+type FeedItem =
+  | { kind: "single"; row: NotificationRow; decoded: Decoded }
+  | {
+      kind: "group";
+      key: string;
+      tag: string;
+      rows: NotificationRow[];
+      decoded: Decoded[];
+    };
+
+function buildFeedItems(rows: NotificationRow[]): FeedItem[] {
+  const items: FeedItem[] = [];
+  // Walk in display order (newest → oldest, as returned by the action). A
+  // run is a maximal stretch of same-tag vote_in rows.
+  let i = 0;
+  while (i < rows.length) {
+    const row = rows[i]!;
+    const decoded = decode(row);
+    if (row.type === "vote_in" && decoded.tag.startsWith("plan:")) {
+      let j = i + 1;
+      const groupRows: NotificationRow[] = [row];
+      const groupDecoded: Decoded[] = [decoded];
+      while (j < rows.length) {
+        const next = rows[j]!;
+        if (next.type !== "vote_in") break;
+        const nextDecoded = decode(next);
+        if (nextDecoded.tag !== decoded.tag) break;
+        groupRows.push(next);
+        groupDecoded.push(nextDecoded);
+        j += 1;
+      }
+      if (groupRows.length > 1) {
+        items.push({
+          kind: "group",
+          // Stable key: tag + earliest id keeps React identity steady even
+          // when newer votes prepend more rows on a refetch.
+          key: `${decoded.tag}:${groupRows[groupRows.length - 1]!.id}`,
+          tag: decoded.tag,
+          rows: groupRows,
+          decoded: groupDecoded,
+        });
+      } else {
+        items.push({ kind: "single", row, decoded });
+      }
+      i = j;
+      continue;
+    }
+    items.push({ kind: "single", row, decoded });
+    i += 1;
+  }
+  return items;
+}
+
+// Build the collapsed-row label for a vote_in group. Unique actors only —
+// the trigger only fires on the IN edge per user, so duplicates are rare,
+// but defensive de-dupe keeps the count honest if it ever happens.
+function groupedActorLine(decoded: Decoded[]): string {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const d of decoded) {
+    if (!d.actor) continue;
+    const key = d.actorSeed ?? d.actor;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ordered.push(d.actor);
+  }
+  if (ordered.length === 0) return "are in";
+  if (ordered.length === 1) return `is in`;
+  if (ordered.length === 2) return `and ${ordered[1]} are in`;
+  return `+ ${ordered.length - 1} others are in`;
+}
+
+function groupedAvatars(decoded: Decoded[]): Decoded[] {
+  const seen = new Set<string>();
+  const ordered: Decoded[] = [];
+  for (const d of decoded) {
+    const key = d.actorSeed ?? d.actor ?? d.bodyText;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ordered.push(d);
+  }
+  return ordered.slice(0, 3);
 }
 
 export function NotificationsFeed({
@@ -199,8 +321,10 @@ export function NotificationsFeed({
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
   const [pending, startTransition] = useTransition();
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const unreadCount = rows.filter((r) => !r.readAt).length;
+  const feedItems = useMemo(() => buildFeedItems(rows), [rows]);
 
   // Auto-mark-all when the inbox mounts — viewing the feed IS the
   // "I've seen these" signal. Optimistic locally; server call is
@@ -253,6 +377,15 @@ export function NotificationsFeed({
     });
   }
 
+  function toggleGroup(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   if (rows.length === 0) {
     return <NotificationsEmpty />;
   }
@@ -277,115 +410,242 @@ export function NotificationsFeed({
       </div>
 
       <ul className="flex flex-col gap-1">
-        {rows.map((row) => {
-          const d = decode(row);
-          const isUnread = row.readAt === null;
-          const typeIcon = TYPE_ICON[row.type];
-          const inner = (
-            <div
-              className={cn(
-                "relative flex items-start gap-3 rounded-xl px-3 py-3 transition-colors",
-                isUnread
-                  ? "bg-paper-card"
-                  : "bg-transparent hover:bg-paper-card/50",
-              )}
-            >
-              {/* Unread accent dot — opacity-driven so the read transition
-                  is a smooth fade (300ms) rather than a hard pop. */}
-              <span
-                aria-hidden
-                className={cn(
-                  "pointer-events-none absolute top-1/2 left-1 size-2 -translate-y-1/2 rounded-full bg-coral transition-opacity duration-300",
-                  isUnread ? "opacity-100" : "opacity-0",
-                )}
-              />
-
-              {/* Avatar — initials for an actor, icon for a system event. */}
-              <span
-                className={cn(
-                  "flex size-9 shrink-0 items-center justify-center rounded-full pl-0",
-                  d.actor && d.actorSeed
-                    ? actorColor(d.actorSeed)
-                    : `${typeIcon.bg} ${typeIcon.fg}`,
-                )}
-                aria-hidden
-              >
-                {d.actor && d.actorSeed ? (
-                  <span className="text-sm font-semibold uppercase">
-                    {initial(d.actor)}
-                  </span>
-                ) : (
-                  <typeIcon.Icon className="size-4" />
-                )}
-              </span>
-
-              {/* Body — bold actor name + action; optional circle chip below */}
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <div className="flex items-start gap-2">
-                  <p className="min-w-0 flex-1 text-sm leading-snug text-ink-muted">
-                    {d.actor ? (
-                      <>
-                        <span className="font-semibold text-ink">
-                          {d.actor}
-                        </span>{" "}
-                      </>
-                    ) : null}
-                    {d.body}
-                  </p>
-                  <span
-                    className="shrink-0 text-xs tabular-nums text-ink-muted"
-                    aria-label={row.createdAt.toLocaleString()}
-                  >
-                    {compactRelative(row.createdAt)}
-                  </span>
-                </div>
-
-                {d.circleSlug && d.circleName ? (
-                  <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-paper px-2 py-0.5 text-[11px] text-ink-muted ring-1 ring-ink-subtle">
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "size-1.5 rounded-full",
-                        circleDotClass(d.circleSlug),
-                      )}
-                    />
-                    <span className="truncate font-medium text-ink/80">
-                      {d.circleName}
-                    </span>
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          );
-
-          if (d.href) {
+        {feedItems.map((item) => {
+          if (item.kind === "single") {
             return (
-              <li key={row.id}>
-                <Link
-                  href={d.href}
-                  onClick={() => handleClickRow(row.id)}
-                  prefetch={false}
-                  className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
-                >
-                  {inner}
-                </Link>
-              </li>
+              <FeedRow
+                key={item.row.id}
+                row={item.row}
+                decoded={item.decoded}
+                onClick={() => handleClickRow(item.row.id)}
+              />
             );
           }
+          const isExpanded = expanded.has(item.key);
+          const anyUnread = item.rows.some((r) => r.readAt === null);
+          const newest = item.rows[0]!;
           return (
-            <li key={row.id}>
+            <li key={item.key} className="flex flex-col gap-1">
               <button
                 type="button"
-                onClick={() => handleClickRow(row.id)}
+                onClick={() => toggleGroup(item.key)}
+                aria-expanded={isExpanded}
                 className="block w-full rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
               >
-                {inner}
+                <div
+                  className={cn(
+                    "relative flex items-start gap-3 rounded-xl px-3 py-3 transition-colors",
+                    anyUnread
+                      ? "bg-paper-card"
+                      : "bg-transparent hover:bg-paper-card/50",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "pointer-events-none absolute top-1/2 left-1 size-2 -translate-y-1/2 rounded-full bg-coral transition-opacity duration-300",
+                      anyUnread ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  <GroupedAvatarStack decoded={groupedAvatars(item.decoded)} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <div className="flex items-start gap-2">
+                      <p className="min-w-0 flex-1 text-sm leading-snug text-ink-muted">
+                        <span className="font-semibold text-ink">
+                          {item.decoded[0]?.actor ?? "Someone"}
+                        </span>{" "}
+                        {groupedActorLine(item.decoded)}
+                      </p>
+                      <span
+                        className="shrink-0 text-xs tabular-nums text-ink-muted"
+                        aria-label={newest.createdAt.toLocaleString()}
+                      >
+                        {compactRelative(newest.createdAt)}
+                      </span>
+                    </div>
+                    <CircleChip
+                      slug={item.decoded[0]?.circleSlug ?? null}
+                      name={item.decoded[0]?.circleName ?? null}
+                    />
+                  </div>
+                  <ChevronDown
+                    aria-hidden
+                    className={cn(
+                      "size-4 shrink-0 self-center text-ink-muted transition-transform duration-200",
+                      isExpanded ? "rotate-180" : "rotate-0",
+                    )}
+                  />
+                </div>
               </button>
+              {isExpanded ? (
+                <ul className="ml-3 flex flex-col gap-1 border-l border-ink-subtle pl-2">
+                  {item.rows.map((row, idx) => (
+                    <FeedRow
+                      key={row.id}
+                      row={row}
+                      decoded={item.decoded[idx]!}
+                      onClick={() => handleClickRow(row.id)}
+                      compact
+                    />
+                  ))}
+                </ul>
+              ) : null}
             </li>
           );
         })}
       </ul>
     </div>
+  );
+}
+
+function FeedRow({
+  row,
+  decoded,
+  onClick,
+  compact = false,
+}: {
+  row: NotificationRow;
+  decoded: Decoded;
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  const isUnread = row.readAt === null;
+  const typeIcon = TYPE_ICON[row.type];
+  const inner = (
+    <div
+      className={cn(
+        "relative flex items-start gap-3 rounded-xl px-3 py-3 transition-colors",
+        compact ? "py-2" : "py-3",
+        isUnread ? "bg-paper-card" : "bg-transparent hover:bg-paper-card/50",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute top-1/2 left-1 size-2 -translate-y-1/2 rounded-full bg-coral transition-opacity duration-300",
+          isUnread ? "opacity-100" : "opacity-0",
+        )}
+      />
+
+      <span
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-full",
+          compact ? "size-7" : "size-9",
+          decoded.actor && decoded.actorSeed
+            ? actorColor(decoded.actorSeed)
+            : `${typeIcon.bg} ${typeIcon.fg}`,
+        )}
+        aria-hidden
+      >
+        {decoded.actor && decoded.actorSeed ? (
+          <span
+            className={cn(
+              "font-semibold uppercase",
+              compact ? "text-[11px]" : "text-sm",
+            )}
+          >
+            {initial(decoded.actor)}
+          </span>
+        ) : (
+          <typeIcon.Icon className={cn(compact ? "size-3.5" : "size-4")} />
+        )}
+      </span>
+
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex items-start gap-2">
+          <p
+            className={cn(
+              "min-w-0 flex-1 leading-snug text-ink-muted",
+              compact ? "text-[13px]" : "text-sm",
+            )}
+          >
+            {decoded.actor ? (
+              <>
+                <span className="font-semibold text-ink">{decoded.actor}</span>
+                <span aria-hidden>: </span>
+              </>
+            ) : null}
+            {decoded.bodyText}
+          </p>
+          <span
+            className={cn(
+              "shrink-0 tabular-nums text-ink-muted",
+              compact ? "text-[11px]" : "text-xs",
+            )}
+            aria-label={row.createdAt.toLocaleString()}
+          >
+            {compactRelative(row.createdAt)}
+          </span>
+        </div>
+        {!compact ? (
+          <CircleChip slug={decoded.circleSlug} name={decoded.circleName} />
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (decoded.href) {
+    return (
+      <li>
+        <Link
+          href={decoded.href}
+          onClick={onClick}
+          prefetch={false}
+          className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+        >
+          {inner}
+        </Link>
+      </li>
+    );
+  }
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className="block w-full rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+      >
+        {inner}
+      </button>
+    </li>
+  );
+}
+
+function CircleChip({
+  slug,
+  name,
+}: {
+  slug: string | null;
+  name: string | null;
+}) {
+  if (!slug || !name) return null;
+  return (
+    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-paper px-2 py-0.5 text-[11px] text-ink-muted ring-1 ring-ink-subtle">
+      <span aria-hidden className={cn("size-1.5 rounded-full", circleDotClass(slug))} />
+      <span className="truncate font-medium text-ink/80">{name}</span>
+    </span>
+  );
+}
+
+function GroupedAvatarStack({ decoded }: { decoded: Decoded[] }) {
+  return (
+    <span className="flex shrink-0 -space-x-2">
+      {decoded.map((d, idx) => {
+        const seed = d.actorSeed ?? d.actor ?? `idx-${idx}`;
+        return (
+          <span
+            key={seed}
+            className={cn(
+              "flex size-8 items-center justify-center rounded-full text-sm font-semibold uppercase ring-2 ring-paper",
+              actorColor(seed),
+            )}
+            aria-hidden
+          >
+            {initial(d.actor)}
+          </span>
+        );
+      })}
+    </span>
   );
 }
 

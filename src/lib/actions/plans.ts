@@ -440,7 +440,56 @@ export async function cancelPlan(input: PlanIdInput): Promise<void> {
     }
   })();
 
-  // M31.6 wires the `plan_cancelled` notification trigger here.
+  // M31.6 — fan out the "Plan off" push. Tag mirrors plan_locked
+  // (`plan:{id}:state`) so the OS shade replaces any prior "It's happening"
+  // bubble with this cancellation. Actor (canceller) is excluded — they just
+  // performed the action and don't need to be told what they did.
+  void dispatchPlanCancelledNotification({
+    planId: plan.id,
+    circleId: plan.circleId,
+    cancellerId: userId,
+  });
+}
+
+async function dispatchPlanCancelledNotification(args: {
+  planId: string;
+  circleId: string;
+  cancellerId: string;
+}): Promise<void> {
+  try {
+    const [planRow, circle, canceller, audience] = await Promise.all([
+      db.query.plans.findFirst({
+        columns: { title: true },
+        where: eq(plans.id, args.planId),
+      }),
+      db.query.circles.findFirst({
+        columns: { slug: true, name: true },
+        where: eq(circles.id, args.circleId),
+      }),
+      db.query.users.findFirst({
+        columns: { displayName: true },
+        where: eq(users.id, args.cancellerId),
+      }),
+      resolvePlanAudience(args.planId, args.circleId, args.cancellerId),
+    ]);
+    if (!planRow || !circle || audience.length === 0) return;
+    await dispatchNotifications({
+      type: "plan_cancelled",
+      userIds: audience,
+      payload: {
+        planId: args.planId,
+        planTitle: planRow.title,
+        circleSlug: circle.slug,
+        circleName: circle.name,
+        cancellerName: canceller?.displayName ?? null,
+      },
+    });
+  } catch (err) {
+    console.error("[plans.cancelPlan] plan_cancelled dispatch failed", {
+      planId: args.planId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function uncancelPlan(input: PlanIdInput): Promise<void> {

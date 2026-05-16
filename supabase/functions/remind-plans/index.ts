@@ -1,18 +1,17 @@
 // Supabase Edge Function (Deno). Triggered by pg_cron via net.http_post.
 // Two responsibilities:
 //   1. Auto-lock decide_by-elapsed plans (both open-time and exact-time).
-//   2. Fire plan-reminder notifications (in-app rows + Web Push) for
-//      confirmed plans starting within the next hour.
+//      Each successful lock fires a `plan_locked` notification (M31.6).
+//   2. Fire `plan_leave_soon` notifications (in-app rows + Web Push) for
+//      confirmed plans whose starts_at falls in the [now+40m, now+50m]
+//      window. Dedup via the `leave_push_sent_at` column (M31.1) — the
+//      atomic UPDATE+IS NULL claim means a re-fire on a later tick is
+//      a no-op.
 //
-// M31 — every Resend send was ripped out. Push is the only out-of-app
-// channel. M31.6 will (a) emit `plan_locked` notifications from the auto-
-// lock branches, and (b) tighten the reminder window from 60m to 40–50m and
-// switch the kind to `plan_leave_soon` gated by leave_push_sent_at.
-//
-// Cadence: pg_cron's existing hourly schedule still works — the
-// reminder_sent_at column prevents re-sends on later ticks. If the user
-// later tightens pg_cron to every ~5-10 min, the window below stays valid
-// (and reminders just land closer to true T-30m).
+// Cron cadence: with hourly pg_cron the 40–50m window catches plans whose
+// starts_at falls within a specific 10-min slice each tick. For reliable
+// T-45m delivery, tighten pg_cron to every ~5 min after deploying M31.6.
+// The leave_push_sent_at guard makes the tighter cadence safe.
 //
 // Auth: requires Authorization: Bearer <CRON_SECRET>. The anon key is public
 // and not used here — pg_cron passes the custom secret instead.
@@ -49,6 +48,47 @@ async function getPlanRecipientUserIds(
   }
   if (!data || data.length === 0) return null;
   return new Set(data.map((r) => r.user_id));
+}
+
+// Mirrors resolvePlanAudience() from src/lib/notifications.ts but in Deno:
+// recipients if non-empty, else full circle membership. The cron has no
+// "actor" to exclude — lock / leave-soon are system-driven.
+async function resolveAudienceForPlan(
+  planId: string,
+  circleId: string,
+): Promise<string[]> {
+  const recipients = await getPlanRecipientUserIds(planId);
+  if (recipients !== null) return Array.from(recipients);
+  const { data, error } = await supabase
+    .from("memberships")
+    .select("user_id")
+    .eq("circle_id", circleId)
+    .returns<{ user_id: string }[]>();
+  if (error) {
+    console.error("[remind-plans] membership lookup failed", {
+      circleId,
+      error: error.message,
+    });
+    return [];
+  }
+  return (data ?? []).map((r) => r.user_id);
+}
+
+// Count `in` votes for the lock body copy ("5 of 6 said yes").
+async function countInVotes(planId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("votes")
+    .select("user_id", { count: "exact", head: true })
+    .eq("plan_id", planId)
+    .eq("status", "in");
+  if (error) {
+    console.error("[remind-plans] in-vote count failed", {
+      planId,
+      error: error.message,
+    });
+    return 0;
+  }
+  return count ?? 0;
 }
 
 // Lock open-time plans whose decide_by has elapsed. Picks the slot with the
@@ -129,8 +169,17 @@ async function processOpenTimeLocks(now: Date): Promise<number> {
         .select("id")
         .returns<{ id: string }[]>();
       if (!claim || claim.length === 0) continue;
-      // M31.6 will emit a `plan_locked` notification + push to the recipient
-      // set here, mirroring the in-app auto-lock path in src/lib/actions/auto-lock.ts.
+      // M31.6 — emit `plan_locked` notification + push. trigger='forced'
+      // because the deadline reaper is what's flipping it (the in-app
+      // threshold path would have already fired its own notification).
+      await dispatchPlanLocked({
+        planId: plan.id,
+        circleId: plan.circle_id,
+        title: plan.title,
+        startsAtIso: winner.starts_at,
+        location: plan.location,
+        trigger: "forced",
+      });
       locked += 1;
     } catch (err) {
       console.error("[remind-plans] open-lock per-plan failed", {
@@ -273,8 +322,15 @@ async function processExactTimeLocks(now: Date): Promise<number> {
         .select("id")
         .returns<{ id: string }[]>();
       if (!claim || claim.length === 0) continue;
-      // M31.6 will emit `plan_locked` notification + push for the recipient
-      // set here. canonicalStartsAt + canonicalLocation are the payload values.
+      // M31.6 — emit `plan_locked` notification + push.
+      await dispatchPlanLocked({
+        planId: plan.id,
+        circleId: plan.circle_id,
+        title: plan.title,
+        startsAtIso: canonicalStartsAt,
+        location: canonicalLocation,
+        trigger: "forced",
+      });
       locked += 1;
     } catch (err) {
       console.error("[remind-plans] exact-lock per-plan failed", {
@@ -298,18 +354,16 @@ type ClaimedPlan = {
 
 type VoterRow = { user_id: string };
 
-// M30 — fan out a plan-reminder push to every recipient who's IN/MAYBE on
-// the plan. Inserts in-app notification rows, then hands the IDs to the
-// send-push edge function so subscribers also hear it on their device.
-//
-// Audience: same as the old email reminder — voters with status in/maybe,
-// intersected with the plan_recipients set if present. We don't notify
-// `out` voters or non-participants — telling someone "Karaoke at 8" when
-// they declined is noise.
-async function dispatchPlanReminder(
+// M31.6 — fan out the "Leave in ~45m" push to in/maybe voters intersected
+// with the plan_recipients set (full circle when there's no explicit
+// recipient list). out / non-voters aren't pulled in — telling someone
+// "Karaoke at 8" when they declined is noise. Inserts in-app notification
+// rows, then hands the IDs to the send-push edge function.
+async function dispatchPlanLeaveSoon(
   plan: ClaimedPlan,
   circleSlug: string,
   circleName: string,
+  now: Date,
 ): Promise<number> {
   const { data: voterRows } = await supabase
     .from("votes")
@@ -327,6 +381,13 @@ async function dispatchPlanReminder(
     );
   if (userIds.length === 0) return 0;
 
+  // Composer rounds to 5 — pass the raw minutes and let it bucket the copy.
+  const startsMs = new Date(plan.starts_at).getTime();
+  const minutesUntilStart = Math.max(
+    0,
+    Math.round((startsMs - now.getTime()) / 60_000),
+  );
+
   const payload = {
     planId: plan.id,
     planTitle: plan.title,
@@ -334,6 +395,7 @@ async function dispatchPlanReminder(
     circleName,
     startsAtIso: plan.starts_at,
     location: plan.location,
+    minutesUntilStart,
   };
 
   const { data: inserted, error } = await supabase
@@ -341,7 +403,7 @@ async function dispatchPlanReminder(
     .insert(
       userIds.map((userId) => ({
         user_id: userId,
-        type: "plan_reminder",
+        type: "plan_leave_soon",
         payload,
       })),
     )
@@ -350,6 +412,65 @@ async function dispatchPlanReminder(
   if (error) {
     console.error("[remind-plans] notification insert failed", {
       planId: plan.id,
+      error: error.message,
+    });
+    return 0;
+  }
+  if (!inserted || inserted.length === 0) return 0;
+
+  await invokeSendPush(inserted.map((r) => r.id));
+  return inserted.length;
+}
+
+// M31.6 — fan out the "It's happening" push when the cron locks a plan
+// (open-time or exact-time). System-driven, so audience = full
+// recipients-or-circle (no actor exclusion). Mirrors the in-app dispatch
+// in src/lib/actions/auto-lock.ts.
+async function dispatchPlanLocked(args: {
+  planId: string;
+  circleId: string;
+  title: string;
+  startsAtIso: string;
+  location: string | null;
+  trigger: "threshold" | "forced" | "all_voted";
+}): Promise<number> {
+  const [audience, inCount, circle] = await Promise.all([
+    resolveAudienceForPlan(args.planId, args.circleId),
+    countInVotes(args.planId),
+    supabase
+      .from("circles")
+      .select("slug, name")
+      .eq("id", args.circleId)
+      .single<{ slug: string; name: string }>(),
+  ]);
+  if (audience.length === 0 || circle.error || !circle.data) return 0;
+
+  const payload = {
+    planId: args.planId,
+    planTitle: args.title,
+    circleSlug: circle.data.slug,
+    circleName: circle.data.name,
+    startsAtIso: args.startsAtIso,
+    location: args.location,
+    inCount,
+    totalRecipients: audience.length,
+    trigger: args.trigger,
+  };
+
+  const { data: inserted, error } = await supabase
+    .from("notifications")
+    .insert(
+      audience.map((userId) => ({
+        user_id: userId,
+        type: "plan_locked",
+        payload,
+      })),
+    )
+    .select("id")
+    .returns<{ id: string }[]>();
+  if (error) {
+    console.error("[remind-plans] plan_locked insert failed", {
+      planId: args.planId,
       error: error.message,
     });
     return 0;
@@ -401,20 +522,21 @@ Deno.serve(async (req) => {
   }
 
   const now = new Date();
-  // M30 — reminder window is "starts within the next 60 min". With the
-  // existing hourly cron this lands the push 0-60min before start; if the
-  // pg_cron schedule is tightened to every 5-10 min, the push lands closer
-  // to true T-30m. The reminder_sent_at guard prevents re-sends.
-  const upper = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+  // M31.6 — "Leave in ~45m" window. Strict 40–50 min ahead, dedup'd via
+  // leave_push_sent_at. With hourly cron the catch rate is ~17%; bump
+  // pg_cron to every 5 min for ~100% coverage. The atomic UPDATE+IS NULL
+  // guard makes the tighter cadence safe — concurrent firings race for
+  // the stamp and the loser sees an empty result set.
+  const lower = new Date(now.getTime() + 40 * 60 * 1000).toISOString();
+  const upper = new Date(now.getTime() + 50 * 60 * 1000).toISOString();
 
-  // Atomic claim. Concurrent firings see reminder_sent_at flip and skip.
   const { data: claimed, error: claimErr } = await supabase
     .from("plans")
-    .update({ reminder_sent_at: now.toISOString() })
+    .update({ leave_push_sent_at: now.toISOString() })
     .eq("status", "confirmed")
+    .gte("starts_at", lower)
     .lte("starts_at", upper)
-    .gte("starts_at", now.toISOString())
-    .is("reminder_sent_at", null)
+    .is("leave_push_sent_at", null)
     .select("id, title, starts_at, location, circle_id")
     .returns<ClaimedPlan[]>();
 
@@ -426,7 +548,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  let reminded = 0;
+  let leaveSoon = 0;
   for (const plan of claimed ?? []) {
     try {
       const { data: circle } = await supabase
@@ -435,7 +557,12 @@ Deno.serve(async (req) => {
         .eq("id", plan.circle_id)
         .single();
       if (!circle) continue;
-      reminded += await dispatchPlanReminder(plan, circle.slug, circle.name);
+      leaveSoon += await dispatchPlanLeaveSoon(
+        plan,
+        circle.slug,
+        circle.name,
+        now,
+      );
     } catch (err) {
       console.error("[remind-plans] per-plan failed", {
         planId: plan.id,
@@ -449,13 +576,13 @@ Deno.serve(async (req) => {
   const locked = lockedOpen + lockedExact;
 
   console.log("[remind-plans]", {
-    reminded,
+    leaveSoon,
     locked,
     lockedOpen,
     lockedExact,
     at: now.toISOString(),
   });
-  return new Response(JSON.stringify({ reminded, locked }), {
+  return new Response(JSON.stringify({ leaveSoon, locked }), {
     headers: { "Content-Type": "application/json" },
   });
 });

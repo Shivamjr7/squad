@@ -7,7 +7,7 @@ import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
 import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { planEvents, plans, pushSubscriptions } from "@/db/schema";
+import { planEvents, plans } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
@@ -19,7 +19,6 @@ import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import { InstallBanner } from "@/components/pwa/install-banner";
-import { EnablePushBanner } from "@/components/circle/enable-push-banner";
 import { WeatherChip } from "@/components/circle/weather-chip";
 import { HomeSubline } from "@/components/circle/home-subline";
 import { SuggestPanel } from "@/components/circle/suggest-panel";
@@ -99,17 +98,11 @@ export default async function CircleHomePage({
   if (!circle) notFound();
 
   // memberRows + userCircles are already cached at the layout level (same
-  // request), so these calls hit the cache. pushRows is page-specific.
-  const [memberRows, userCircles, pushRows] = await Promise.all([
+  // request), so these calls hit the cache.
+  const [memberRows, userCircles] = await Promise.all([
     getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
     getUserCircles(userId) as Promise<UserCircle[]>,
-    db
-      .select({ id: pushSubscriptions.id })
-      .from(pushSubscriptions)
-      .where(eq(pushSubscriptions.userId, userId))
-      .limit(1),
   ]);
-  const hasAnyPushSubscription = pushRows.length > 0;
 
   const me = memberRows.find((m) => m.userId === userId);
   if (!me) notFound();
@@ -396,11 +389,12 @@ export default async function CircleHomePage({
                 <NoUpcomingState />
               )}
 
-              {/* Setup nudges live below the act-now content — they're useful
-                  one-time prompts but should never push the featured card
-                  below the fold on a 380px viewport. */}
+              {/* Install nudge lives below the act-now content — useful as
+                  a one-time prompt but never pushes the featured card below
+                  the fold on a 380px viewport. The install gesture is also
+                  where we ask for notification permission (M31.7), so the
+                  separate push-opt-in banner is gone. */}
               <InstallBanner />
-              <EnablePushBanner hasAnySubscription={hasAnyPushSubscription} />
 
               {/* Mobile-only Suggest panel — desktop sees it in the right rail.
                   Replaces the M28 QuickNudge with the S6 suggest drawer entry. */}
