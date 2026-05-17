@@ -127,7 +127,7 @@ async function SignedInHome({
           aria-label="Squad — home"
           className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-ink transition-opacity hover:opacity-80"
         >
-          <SquadLogo className="size-[18px] text-coral" />
+          <SquadLogo className="size-[18px] text-ink dark:text-paper" />
           SQUAD
         </Link>
         <div className="flex items-center gap-1">

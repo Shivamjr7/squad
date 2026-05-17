@@ -1,14 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="112" fill="#15151C"/>
-  <path
-    d="M 256 138 L 122 380 L 390 380 Z"
-    fill="none"
-    stroke="#FF7B4D"
-    stroke-width="14"
-    stroke-linejoin="round"
-    opacity="0.22"
-  />
-  <circle cx="256" cy="138" r="56" fill="#FF7B4D"/>
-  <circle cx="122" cy="380" r="56" fill="#FF7B4D"/>
-  <circle cx="390" cy="380" r="56" fill="#FF7B4D"/>
+  <text
+    x="245" y="380"
+    font-family="Instrument Serif, Cambria, Georgia, serif"
+    font-style="italic"
+    font-weight="400"
+    font-size="380"
+    text-anchor="middle"
+    fill="#F5F0EA"
+  >S</text>
+  <circle cx="418" cy="100" r="34" fill="#FF7B4D"/>
 </svg>

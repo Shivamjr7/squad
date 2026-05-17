@@ -275,3 +275,22 @@
       );
   }
 }
+
+/* Clerk theming overrides — Clerk's dev-mode banner + "Secured by Clerk"
+   branding ship with a dark striped background that clashes with our
+   paper theme on /sign-in and /sign-up. We recolor (not hide) so the
+   dev-mode reminder is still visible to us, just on-brand. In a Clerk
+   Production instance these elements don't render — this CSS becomes
+   a no-op. Class names are obfuscated so we target via partial-match. */
+.cl-rootBox [class*="cl-internal"],
+.cl-rootBox [class*="developmentMode"],
+.cl-rootBox [class*="poweredBy"] {
+  background: var(--paper) !important;
+  background-image: none !important;
+  color: var(--ink-muted) !important;
+}
+.cl-rootBox [class*="cl-internal"] svg,
+.cl-rootBox [class*="poweredBy"] svg {
+  filter: none !important;
+  opacity: 0.6;
+}

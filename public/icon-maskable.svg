@@ -1,16 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" fill="#15151C"/>
-  <!-- Maskable variant: dots pulled inward to the safe zone (40% radius)
-       so Android's adaptive-icon mask doesn't clip them. -->
-  <path
-    d="M 256 172 L 156 360 L 356 360 Z"
-    fill="none"
-    stroke="#FF7B4D"
-    stroke-width="12"
-    stroke-linejoin="round"
-    opacity="0.22"
-  />
-  <circle cx="256" cy="172" r="44" fill="#FF7B4D"/>
-  <circle cx="156" cy="360" r="44" fill="#FF7B4D"/>
-  <circle cx="356" cy="360" r="44" fill="#FF7B4D"/>
+  <!-- Maskable variant: S + dot pulled inside the 40% safe radius so
+       Android's adaptive-icon mask doesn't clip them on any device. -->
+  <text
+    x="248" y="360"
+    font-family="Instrument Serif, Cambria, Georgia, serif"
+    font-style="italic"
+    font-weight="400"
+    font-size="320"
+    text-anchor="middle"
+    fill="#F5F0EA"
+  >S</text>
+  <circle cx="380" cy="160" r="28" fill="#FF7B4D"/>
 </svg>

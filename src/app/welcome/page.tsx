@@ -36,7 +36,7 @@ export default async function WelcomePage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-10 px-6 pb-24 pt-16 text-center">
-      <SquadLogo className="size-8 text-coral" />
+      <SquadLogo className="size-8 text-ink dark:text-paper" />
       <div className="flex flex-col gap-4">
         <span className="eyebrow text-ink-muted">One quick thing</span>
         <h1 className="font-serif text-[36px] leading-[1.05] font-semibold text-ink sm:text-[42px]">
