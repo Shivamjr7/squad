@@ -82,6 +82,39 @@ export type PlanCancelledPayload = {
   cancellerName: string | null;
 };
 
+// M32 — cross-circle conflict + resolution payloads. Per CONVERGENCE_PLAN.md
+// §5, the OS tag is `conflict:{userId}:{planA}:{planB}` with canonical-sorted
+// plan ids so the two-way pair collapses to one bubble and the resolution
+// push overrides the conflict push on the shade. The userId rides on the
+// payload because the composer is per-row (the dispatcher writes one row per
+// recipient) and that's where the tag is built.
+//
+// `planId` is the *anchor* plan — the one whose change just triggered the
+// notification (the newly-created plan, the just-locked plan, the just-voted
+// plan). Click → that plan's detail page. `otherPlanId` is the existing
+// commitment that now collides.
+export type PlanConflictPayload = {
+  recipientUserId: string;
+  planId: string;
+  planTitle: string;
+  circleSlug: string;
+  circleName: string;
+  otherPlanId: string;
+  otherPlanTitle: string;
+  otherCircleName: string;
+};
+
+export type PlanConflictResolvedPayload = {
+  recipientUserId: string;
+  planId: string;
+  planTitle: string;
+  circleSlug: string;
+  circleName: string;
+  otherPlanId: string;
+  otherPlanTitle: string;
+  otherCircleName: string;
+};
+
 // Legacy — kept so the composer can still render plan_reminder rows that
 // landed in the table before M31. No trigger site writes this kind in M31+.
 export type PlanReminderPayload = {
@@ -93,14 +126,17 @@ export type PlanReminderPayload = {
   location: string | null;
 };
 
-// Dispatch input — five active kinds. The dispatcher will not insert
-// `plan_reminder` because callers shouldn't be creating new reminder rows.
+// Dispatch input — seven active kinds (M31 five + M32 two). The dispatcher
+// will not insert `plan_reminder` because callers shouldn't be creating new
+// reminder rows.
 export type NotificationPayload =
   | { type: "vote_in"; payload: VoteInPayload }
   | { type: "plan_created"; payload: PlanCreatedPayload }
   | { type: "plan_locked"; payload: PlanLockedPayload }
   | { type: "plan_leave_soon"; payload: PlanLeaveSoonPayload }
-  | { type: "plan_cancelled"; payload: PlanCancelledPayload };
+  | { type: "plan_cancelled"; payload: PlanCancelledPayload }
+  | { type: "plan_conflict"; payload: PlanConflictPayload }
+  | { type: "plan_conflict_resolved"; payload: PlanConflictResolvedPayload };
 
 // Composer input — includes plan_reminder for legacy-row back-compat. Both
 // the Next.js dispatcher and the send-push edge function call
@@ -337,6 +373,43 @@ export function composePushPayload(
         body: `Starts at ${when}.`,
         url,
         tag: `plan:${planId}:reminder`,
+        renotify: true,
+        icon: DEFAULT_ICON,
+        badge: DEFAULT_BADGE,
+        data: baseData,
+      };
+    }
+
+    case "plan_conflict": {
+      // Canonical-sorted pair tag — A↔B and B↔A collapse to the same shade
+      // entry, and the matching plan_conflict_resolved push overrides it.
+      const [a, b] = [input.payload.planId, input.payload.otherPlanId].sort();
+      // Push click lands on the anchor plan with `?conflictWith=…` so the
+      // page server-renders the compare sheet's data and the launcher pops
+      // it open on first paint. Notification feed click reuses the same URL.
+      const compareUrl = `${url}?conflictWith=${input.payload.otherPlanId}`;
+      return {
+        title: "Heads up",
+        body: `${input.payload.planTitle} clashes with ${input.payload.otherPlanTitle} in ${input.payload.otherCircleName}`,
+        url: compareUrl,
+        tag: `conflict:${input.payload.recipientUserId}:${a}:${b}`,
+        // false — §5 "same pair never re-fires". The ledger row enforces this
+        // server-side; renotify=false is a belt-and-braces guard against the
+        // OS re-buzzing if the row were ever re-dispatched.
+        renotify: false,
+        icon: DEFAULT_ICON,
+        badge: DEFAULT_BADGE,
+        data: { ...baseData, url: compareUrl },
+      };
+    }
+
+    case "plan_conflict_resolved": {
+      const [a, b] = [input.payload.planId, input.payload.otherPlanId].sort();
+      return {
+        title: "Sorted",
+        body: `${input.payload.planTitle} and ${input.payload.otherPlanTitle} no longer clash`,
+        url,
+        tag: `conflict:${input.payload.recipientUserId}:${a}:${b}`,
         renotify: true,
         icon: DEFAULT_ICON,
         badge: DEFAULT_BADGE,

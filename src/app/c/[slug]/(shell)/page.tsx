@@ -10,6 +10,7 @@ import { db } from "@/db/client";
 import { planEvents, plans } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
+import { CircleCollisionBanner } from "@/components/plan/circle-collision-banner";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
 import {
   UpcomingStrip,
@@ -250,6 +251,38 @@ export default async function CircleHomePage({
     featuredLastEditAt = ev?.createdAt ?? null;
   }
 
+  // M32.8 §4.6 — first pair of the viewer's hard commitments in this
+  // circle whose windows overlap. Only one banner shows per page even if
+  // three plans collide pairwise; the user resolves them one at a time.
+  // Commitment = IN vote or creator auto-in, on a non-approximate exact-
+  // time active/confirmed plan (matches §2 "hard" eligibility).
+  const collision = (() => {
+    const committed = upcoming.filter((p) => {
+      if (p.isApproximate) return false;
+      if (p.timeMode !== "exact") return false;
+      if (p.createdBy === userId) return true;
+      const voters = initialVoters[p.id] ?? [];
+      return voters.some((v) => v.userId === userId && v.status === "in");
+    });
+    for (let i = 0; i < committed.length; i += 1) {
+      const a = committed[i]!;
+      const aEnd = new Date(
+        a.startsAt.getTime() + a.durationMinutes * 60_000,
+      );
+      for (let j = i + 1; j < committed.length; j += 1) {
+        const b = committed[j]!;
+        const bEnd = new Date(
+          b.startsAt.getTime() + b.durationMinutes * 60_000,
+        );
+        if (a.startsAt < bEnd && b.startsAt < aEnd) {
+          const [pairA, pairB] = [a.id, b.id].sort();
+          return { planAId: pairA!, planBId: pairB! };
+        }
+      }
+    }
+    return null;
+  })();
+
   // SquadPulse activity is streamed below via <SquadPulseAsync> in a
   // <Suspense> boundary so the two MAX() aggregations don't block first
   // paint. Members for the pulse come from `sidebarMembers` below.
@@ -406,6 +439,13 @@ export default async function CircleHomePage({
                   currentUserId={userId}
                 />
               </div>
+
+              {collision ? (
+                <CircleCollisionBanner
+                  planAId={collision.planAId}
+                  planBId={collision.planBId}
+                />
+              ) : null}
 
               {restUpcoming.length > 0 ? (
                 <section className="flex flex-col gap-3">

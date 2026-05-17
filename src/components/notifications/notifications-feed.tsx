@@ -224,18 +224,39 @@ function decode(row: NotificationRow): Decoded {
         tag: planId ? `plan:${planId}:reminder` : `row:${row.id}`,
       };
     }
-    // M32 placeholders. No composer writes these yet (M32.7 does the wiring);
-    // keep the switch exhaustive so the schema can land first.
-    case "plan_conflict":
-    case "plan_conflict_resolved": {
+    case "plan_conflict": {
+      const otherTitle = payloadString(p, "otherPlanTitle") ?? "another plan";
+      const otherCircle = payloadString(p, "otherCircleName");
+      const otherPlanId = payloadString(p, "otherPlanId");
+      const tail = otherCircle ? ` in ${otherCircle}` : "";
+      // Compare-sheet launcher trigger — opens the side-by-side sheet
+      // automatically on the anchor plan's detail page.
+      const compareHref =
+        href && otherPlanId ? `${href}?conflictWith=${otherPlanId}` : href;
       return {
         actor: null,
         actorSeed: null,
-        bodyText: planTitle,
+        // Mirrors push body: "Movie clashes with Drinks in Folsom Crew."
+        bodyText: `${planTitle} clashes with ${otherTitle}${tail}`,
+        href: compareHref,
+        circleSlug: slug,
+        circleName,
+        // Per-pair tag is informational only — conflicts never collapse in
+        // the feed (the ledger guarantees one row per pair), but matching
+        // the OS shade tag keeps the surfaces parallel.
+        tag: planId ? `plan:${planId}:conflict:${row.id}` : `row:${row.id}`,
+      };
+    }
+    case "plan_conflict_resolved": {
+      const otherTitle = payloadString(p, "otherPlanTitle") ?? "another plan";
+      return {
+        actor: null,
+        actorSeed: null,
+        bodyText: `${planTitle} and ${otherTitle} no longer clash`,
         href,
         circleSlug: slug,
         circleName,
-        tag: planId ? `plan:${planId}:conflict` : `row:${row.id}`,
+        tag: planId ? `plan:${planId}:conflict:${row.id}` : `row:${row.id}`,
       };
     }
   }

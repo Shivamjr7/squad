@@ -309,6 +309,211 @@ export async function getMyHardCommitmentsInRange(
   }));
 }
 
+// M32.5 — calendar projection. Richer than `UserCommitment` because the
+// /calendar surface needs to link to each plan and render venue / circle
+// chrome inline. Kept as its own export so `getUserCommitments` stays the
+// minimal shape its conflict-detection callers want.
+export type CalendarCommitment = {
+  planId: string;
+  planTitle: string;
+  circleId: string;
+  circleSlug: string;
+  circleName: string;
+  circleColor: string;
+  start: Date;
+  end: Date;
+  vote: CommitmentVote;
+  isApproximate: boolean;
+  location: string | null;
+};
+
+export async function getCalendarCommitments(
+  fromUtc: Date,
+  toUtc: Date,
+): Promise<CalendarCommitment[]> {
+  const userId = await requireUserId();
+  if (!(fromUtc instanceof Date) || !(toUtc instanceof Date)) return [];
+  if (fromUtc >= toUtc) return [];
+
+  const planEnd = sql<Date>`${plans.startsAt} + (${plans.durationMinutes} || ' minutes')::interval`;
+
+  const rows = await db
+    .select({
+      planId: plans.id,
+      planTitle: plans.title,
+      circleId: plans.circleId,
+      circleSlug: circles.slug,
+      circleName: circles.name,
+      startsAt: plans.startsAt,
+      endsAt: planEnd,
+      voteStatus: votes.status,
+      createdBy: plans.createdBy,
+      isApproximate: plans.isApproximate,
+      location: plans.location,
+    })
+    .from(plans)
+    .innerJoin(circles, eq(circles.id, plans.circleId))
+    // Membership join doubles as the §9 "belt and braces" privacy guard —
+    // we never surface a plan from a circle the requester has since left.
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.circleId, plans.circleId),
+        eq(memberships.userId, userId),
+      ),
+    )
+    .leftJoin(
+      votes,
+      and(eq(votes.planId, plans.id), eq(votes.userId, userId)),
+    )
+    .where(
+      and(
+        inArray(plans.status, ["active", "confirmed"]),
+        sql`${plans.startsAt} < ${toUtc.toISOString()}::timestamptz`,
+        sql`${planEnd} > ${fromUtc.toISOString()}::timestamptz`,
+        or(
+          inArray(votes.status, ["in", "maybe"]),
+          eq(plans.createdBy, userId),
+        ),
+      ),
+    );
+
+  return rows.map((row) => {
+    const vote: CommitmentVote =
+      row.voteStatus === "in" || row.voteStatus === "maybe"
+        ? row.voteStatus
+        : "creator";
+    return {
+      planId: row.planId,
+      planTitle: row.planTitle,
+      circleId: row.circleId,
+      circleSlug: row.circleSlug,
+      circleName: row.circleName,
+      circleColor: circleDotClass(row.circleId),
+      start: row.startsAt,
+      end: row.endsAt instanceof Date ? row.endsAt : new Date(row.endsAt),
+      vote,
+      isApproximate: row.isApproximate,
+      location: row.location,
+    };
+  });
+}
+
+// M32.8 — shape powering `<ConflictCompareSheet />` for scenarios 1 + 6 + 7.
+// One side of the side-by-side compare. Includes everything the card needs
+// (display copy + vote tally + current user's vote) so the sheet renders
+// from a single fetch.
+export type CompareSheetSide = {
+  planId: string;
+  circleSlug: string;
+  circleName: string;
+  circleColor: string;
+  planTitle: string;
+  start: Date;
+  end: Date;
+  isApproximate: boolean;
+  timeMode: "exact" | "open";
+  status: "active" | "confirmed" | "done" | "cancelled";
+  location: string | null;
+  inCount: number;
+  outCount: number;
+  maybeCount: number;
+  // Caller's vote on this plan. null = not voted (or vote retracted).
+  myVote: "in" | "out" | "maybe" | null;
+};
+
+export type CompareSheetData = {
+  a: CompareSheetSide;
+  b: CompareSheetSide;
+};
+
+// Fetch both sides of a compare sheet. Privacy: the membership join makes
+// each side conditional on the caller's circle membership — if they're not
+// in either circle, that side returns null and the sheet refuses to open.
+export async function getCompareSheetData(
+  planAId: string,
+  planBId: string,
+): Promise<CompareSheetData | null> {
+  if (planAId === planBId) return null;
+  const userId = await requireUserId();
+
+  const planRows = await db
+    .select({
+      id: plans.id,
+      circleId: plans.circleId,
+      circleSlug: circles.slug,
+      circleName: circles.name,
+      title: plans.title,
+      startsAt: plans.startsAt,
+      durationMinutes: plans.durationMinutes,
+      isApproximate: plans.isApproximate,
+      timeMode: plans.timeMode,
+      status: plans.status,
+      location: plans.location,
+    })
+    .from(plans)
+    .innerJoin(circles, eq(circles.id, plans.circleId))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.circleId, plans.circleId),
+        eq(memberships.userId, userId),
+      ),
+    )
+    .where(inArray(plans.id, [planAId, planBId]));
+
+  if (planRows.length < 2) return null;
+
+  // Tallies + current user's vote in one read. Group in JS — the two-plan
+  // result set is at most ~2× circle-size rows, trivially small.
+  const voteRows = await db
+    .select({
+      planId: votes.planId,
+      userId: votes.userId,
+      status: votes.status,
+    })
+    .from(votes)
+    .where(inArray(votes.planId, [planAId, planBId]));
+
+  const buildSide = (planId: string): CompareSheetSide | null => {
+    const row = planRows.find((p) => p.id === planId);
+    if (!row) return null;
+    let inCount = 0;
+    let outCount = 0;
+    let maybeCount = 0;
+    let myVote: CompareSheetSide["myVote"] = null;
+    for (const v of voteRows) {
+      if (v.planId !== planId) continue;
+      if (v.status === "in") inCount += 1;
+      else if (v.status === "out") outCount += 1;
+      else if (v.status === "maybe") maybeCount += 1;
+      if (v.userId === userId) myVote = v.status;
+    }
+    return {
+      planId: row.id,
+      circleSlug: row.circleSlug,
+      circleName: row.circleName,
+      circleColor: circleDotClass(row.circleId),
+      planTitle: row.title,
+      start: row.startsAt,
+      end: new Date(row.startsAt.getTime() + row.durationMinutes * 60_000),
+      isApproximate: row.isApproximate,
+      timeMode: row.timeMode,
+      status: row.status,
+      location: row.location,
+      inCount,
+      outCount,
+      maybeCount,
+      myVote,
+    };
+  };
+
+  const a = buildSide(planAId);
+  const b = buildSide(planBId);
+  if (!a || !b) return null;
+  return { a, b };
+}
+
 // Sheet trigger for Scenario 5 — user about to tap a counter-proposal. The
 // proposal's `starts_at` is the candidate lock time; we treat it as
 // equivalent to committing to the parent plan at that time for conflict

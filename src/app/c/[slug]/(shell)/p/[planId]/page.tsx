@@ -34,6 +34,11 @@ import {
   type ItsHappeningAddition,
 } from "@/components/plan/its-happening";
 import { SuggestAddition } from "@/components/plan/suggest-addition";
+import { ConflictCompareLauncher } from "@/components/plan/conflict-compare-launcher";
+import {
+  getCompareSheetData,
+  getConflictForVote,
+} from "@/lib/actions/conflicts";
 import { getPlanVariant } from "@/lib/plan-variant";
 import {
   TimeHeatmap,
@@ -152,10 +157,13 @@ function statusLine(
 
 export default async function PlanDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string; planId: string }>;
+  searchParams: Promise<{ conflictWith?: string }>;
 }) {
   const { slug, planId } = await params;
+  const { conflictWith } = await searchParams;
   const { userId } = await auth();
   if (!userId) notFound();
 
@@ -544,6 +552,30 @@ export default async function PlanDetailPage({
         description: calendarDescription,
       });
 
+  // M32.8 — if the URL carries ?conflictWith=<otherPlanId> (set by the
+  // `plan_conflict` push composer), load both plans' compare-sheet data
+  // server-side so the launcher opens without a fetch flash. Falls back to
+  // null when the other plan isn't visible to the user — the launcher
+  // simply doesn't mount in that case.
+  const compareData =
+    conflictWith && conflictWith !== plan.id
+      ? await getCompareSheetData(plan.id, conflictWith)
+      : null;
+
+  // M32.8 §4.4 — lock-time conflict strip on the "It's happening" surface.
+  // Only renders when the viewer is themselves committed to this confirmed
+  // plan (IN vote or creator auto-in); otherwise "you're also in for X" is
+  // a lie. We reuse `getConflictForVote`, which scans the user's other
+  // hard commitments overlapping this plan's window.
+  const myVoteOnPlan =
+    voteRows.find((v) => v.userId === userId)?.status ?? null;
+  const userIsCommittedHere =
+    myVoteOnPlan === "in" || plan.createdBy === userId;
+  const lockTimeConflict =
+    variant === "its-happening" && userIsCommittedHere
+      ? await getConflictForVote(plan.id)
+      : null;
+
   return (
     <CircleVotesProvider
       initialVoters={initialVoters}
@@ -551,6 +583,12 @@ export default async function PlanDetailPage({
       knownPlanIds={[plan.id]}
       currentUser={currentUser}
     >
+      {compareData ? (
+        <ConflictCompareLauncher
+          planAId={plan.id}
+          initialData={compareData}
+        />
+      ) : null}
       <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 pt-3 pb-32 sm:px-6">
         <header className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">
@@ -698,6 +736,7 @@ export default async function PlanDetailPage({
             mapsUrl={mapsUrl}
             icsUrl={icsUrl}
             commentsHref={`/c/${circle.slug}/p/${plan.id}#comments`}
+            conflict={lockTimeConflict}
           />
         ) : variant === "receipt" ? (
           <Receipt

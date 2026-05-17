@@ -17,6 +17,10 @@ import {
 import { tryAutoLock } from "@/lib/actions/auto-lock";
 import { recordPlanEvent } from "@/lib/actions/plan-events";
 import {
+  detectAndNotifyConflictsForUserPlan,
+  resolveConflictsForUserOnPlan,
+} from "@/lib/actions/conflict-notify";
+import {
   dispatchNotifications,
   resolvePlanAudience,
 } from "@/lib/notifications";
@@ -137,6 +141,23 @@ export async function castVote(
     ).catch((err) => {
       console.error("[votes.castVote] notify fanout failed", err);
     });
+
+    // M32.7 — same edge fires conflict detection. The user just locked in
+    // their commitment to this plan; if it overlaps another commitment they
+    // already have, they get a single `plan_conflict` push (ledger-deduped).
+    void detectAndNotifyConflictsForUserPlan(userId, data.planId).catch(
+      (err) => {
+        console.error("[votes.castVote] conflict detect failed", err);
+      },
+    );
+  } else if (previousVote === "in" && data.status !== "in") {
+    // M32.7 — IN → MAYBE/OUT. The user is no longer hard-committed to this
+    // plan, so any open ledger rows pairing this plan with another of their
+    // commitments resolve (with a resolution push if the original was within
+    // 7 days, per §5).
+    void resolveConflictsForUserOnPlan(userId, data.planId).catch((err) => {
+      console.error("[votes.castVote] conflict resolve failed", err);
+    });
   }
 
   return { status: data.status };
@@ -199,7 +220,23 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
 
   const { userId } = await requireMembership(plan.circleId);
 
+  // Capture the prior vote so we know whether to resolve conflicts (only
+  // matters when the removed vote was IN — anything else can't have
+  // produced a hard conflict).
+  const existing = await db
+    .select({ status: votes.status })
+    .from(votes)
+    .where(and(eq(votes.planId, data.planId), eq(votes.userId, userId)))
+    .limit(1);
+  const previousVote = existing[0]?.status ?? null;
+
   await db
     .delete(votes)
     .where(and(eq(votes.planId, data.planId), eq(votes.userId, userId)));
+
+  if (previousVote === "in") {
+    void resolveConflictsForUserOnPlan(userId, data.planId).catch((err) => {
+      console.error("[votes.removeVote] conflict resolve failed", err);
+    });
+  }
 }

@@ -3,7 +3,7 @@
 import { Suspense, use } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Calendar, ClipboardList, User, Users } from "lucide-react";
+import { Bell, Calendar, CalendarDays, ClipboardList, User, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { circleDotClass } from "@/lib/circle-color";
 import { SquadLogo } from "@/components/brand/squad-logo";
@@ -48,10 +48,12 @@ const NAV: {
   label: string;
   icon: typeof Calendar;
   href: (slug: string) => string;
-  key: "home" | "plans" | "squad" | "inbox" | "you";
+  key: "home" | "plans" | "calendar" | "squad" | "inbox" | "you";
 }[] = [
   { key: "home", label: "Home", icon: Calendar, href: (slug) => `/c/${slug}` },
   { key: "plans", label: "My plans", icon: ClipboardList, href: (slug) => `/c/${slug}/plans` },
+  // Cross-circle — `slug` is unused but the signature stays uniform.
+  { key: "calendar", label: "Calendar", icon: CalendarDays, href: () => `/calendar` },
   { key: "squad", label: "Squad", icon: Users, href: (slug) => `/c/${slug}/squad` },
   { key: "inbox", label: "Inbox", icon: Bell, href: (slug) => `/c/${slug}/notifications` },
   { key: "you", label: "You", icon: User, href: (slug) => `/c/${slug}/you` },
@@ -77,6 +79,9 @@ export function Sidebar({
   unreadInboxPromise: Promise<number>;
   activityPromise: Promise<Map<string, Date>>;
 }) {
+  // Per CONVERGENCE_PLAN.md §3: the cross-circle Calendar tab only surfaces
+  // when the user is in 2+ circles — single-circle users don't need it.
+  const showCalendar = circles.length >= 2;
   return (
     <>
       {/* Desktop sidebar — sticky, full viewport height, transparent. */}
@@ -99,11 +104,12 @@ export function Sidebar({
           <ThemeToggle className="-mr-1 size-7" />
         </div>
 
-        <Suspense fallback={<Nav slug={currentSlug} variant="desktop" unreadInbox={0} />}>
+        <Suspense fallback={<Nav slug={currentSlug} variant="desktop" unreadInbox={0} showCalendar={showCalendar} />}>
           <NavWithBadge
             slug={currentSlug}
             variant="desktop"
             unreadInboxPromise={unreadInboxPromise}
+            showCalendar={showCalendar}
           />
         </Suspense>
 
@@ -125,11 +131,12 @@ export function Sidebar({
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-ink/10 bg-paper-card pb-[env(safe-area-inset-bottom)] md:hidden"
       >
-        <Suspense fallback={<Nav slug={currentSlug} variant="mobile" unreadInbox={0} />}>
+        <Suspense fallback={<Nav slug={currentSlug} variant="mobile" unreadInbox={0} showCalendar={showCalendar} />}>
           <NavWithBadge
             slug={currentSlug}
             variant="mobile"
             unreadInboxPromise={unreadInboxPromise}
+            showCalendar={showCalendar}
           />
         </Suspense>
       </nav>
@@ -141,13 +148,22 @@ function NavWithBadge({
   slug,
   variant,
   unreadInboxPromise,
+  showCalendar,
 }: {
   slug: string;
   variant: "desktop" | "mobile";
   unreadInboxPromise: Promise<number>;
+  showCalendar: boolean;
 }) {
   const unreadInbox = use(unreadInboxPromise);
-  return <Nav slug={slug} variant={variant} unreadInbox={unreadInbox} />;
+  return (
+    <Nav
+      slug={slug}
+      variant={variant}
+      unreadInbox={unreadInbox}
+      showCalendar={showCalendar}
+    />
+  );
 }
 
 function AroundNowAsync({
@@ -172,15 +188,18 @@ function Nav({
   slug,
   variant,
   unreadInbox,
+  showCalendar,
 }: {
   slug: string;
   variant: "desktop" | "mobile";
   unreadInbox: number;
+  showCalendar: boolean;
 }) {
   const pathname = usePathname() ?? "";
   // 9+ cap — modern app convention (Instagram, WhatsApp). Anything over
   // the cap reads the same urgency regardless of the actual integer.
   const badgeText = unreadInbox > 9 ? "9+" : String(unreadInbox);
+  const items = showCalendar ? NAV : NAV.filter((n) => n.key !== "calendar");
   return (
     <ul
       className={cn(
@@ -189,7 +208,7 @@ function Nav({
           : "flex w-full items-center justify-around",
       )}
     >
-      {NAV.map((item) => {
+      {items.map((item) => {
         const href = item.href(slug);
         const active = pathname === href;
         const Icon = item.icon;

@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { CalendarPlus, MapPin, MessageCircle } from "lucide-react";
+import { AlertTriangle, CalendarPlus, MapPin, MessageCircle } from "lucide-react";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
+import { castVote } from "@/lib/actions/votes";
+import type { VoteConflict } from "@/lib/actions/conflicts";
 import { cn } from "@/lib/utils";
 
 // M31.8 — "It's happening" post-lock surface. Replaces M24 plan-detail
@@ -38,6 +40,10 @@ type Props = {
   mapsUrl: string | null;
   icsUrl: string | null;
   commentsHref: string;
+  // M32.8 §4.4 — the viewer's other commitment that overlaps this locked
+  // time. Null when there's no conflict (the common case) or when the
+  // viewer isn't themselves IN on the locked plan (server gates this).
+  conflict?: VoteConflict | null;
 };
 
 const HEADLINE_DATE = new Intl.DateTimeFormat("en-US", {
@@ -111,6 +117,7 @@ export function ItsHappening({
   mapsUrl,
   icsUrl,
   commentsHref,
+  conflict,
 }: Props) {
   const { voters } = useCircleVotes();
   const planVoters = useMemo(
@@ -195,6 +202,8 @@ export function ItsHappening({
         ) : null}
       </section>
 
+      {conflict ? <LockTimeConflictStrip conflict={conflict} /> : null}
+
       <section className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
           <span className="flex shrink-0 -space-x-1.5">
@@ -261,6 +270,70 @@ export function ItsHappening({
         </Link>
       </section>
     </article>
+  );
+}
+
+// M32.8 §4.4 — coral strip above the squad row. Two micro-actions: switch
+// the OTHER plan to maybe (since this one's already locked), or open it.
+// Spec deliberately keeps the strip narrow — the side-by-side compare
+// sheet is reachable from the conflict push directly, not via the strip.
+function LockTimeConflictStrip({ conflict }: { conflict: VoteConflict }) {
+  const [hidden, setHidden] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+
+  if (hidden) return null;
+
+  const switchOtherToMaybe = () => {
+    if (isPending) return;
+    startTransition(async () => {
+      try {
+        await castVote({ planId: conflict.planId, status: "maybe" });
+        setHidden(true); // resolved on this side; hide immediately
+      } catch {
+        setErr("Couldn't save. Try again.");
+      }
+    });
+  };
+
+  return (
+    <section
+      className="flex flex-col gap-2 rounded-2xl border border-coral/30 bg-coral-soft/40 px-4 py-3"
+      role="status"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-coral" aria-hidden />
+        <p className="text-sm leading-relaxed text-ink">
+          You&rsquo;re also in for{" "}
+          <span className="font-semibold">{conflict.planTitle}</span> at this
+          time
+          <span className="text-ink-muted">
+            {" "}
+            · {conflict.circleName}
+          </span>
+          .
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 pl-6">
+        <button
+          type="button"
+          onClick={switchOtherToMaybe}
+          disabled={isPending}
+          className="rounded-full bg-maybe/15 px-3 py-1 text-xs font-semibold text-maybe transition-colors hover:bg-maybe/25 disabled:opacity-60"
+        >
+          Switch to maybe on {conflict.planTitle}
+        </button>
+        <Link
+          href={`/c/${conflict.circleSlug}/p/${conflict.planId}`}
+          className="rounded-full border border-ink/15 px-3 py-1 text-xs font-semibold text-ink transition-colors hover:bg-ink/5"
+        >
+          Open the other plan
+        </Link>
+        {err ? (
+          <span className="basis-full text-[11px] text-out">{err}</span>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
