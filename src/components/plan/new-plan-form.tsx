@@ -70,18 +70,31 @@ function defaultStartsAt(now: Date): Date {
   return d;
 }
 
-// Day-of-week token in the hero. Sat/Sun → "this weekend"; today + evening
-// → "tonight"; today daytime → "today"; future weekday → that weekday name.
+// Day-of-week token in the hero. Same-day picks evening → "tonight" /
+// daytime → "today"; tomorrow → "tomorrow"; a Sat/Sun further out →
+// "this weekend"; any other future weekday → that weekday name. The
+// previous fallback returned "today" for every future weekday, which
+// read wrong when the user picked e.g. Thursday three days out.
 function heroToken(startsAt: Date | null, now: Date): string {
   if (!startsAt) return "tonight";
-  const isWeekend = startsAt.getDay() === 0 || startsAt.getDay() === 6;
   const sameDay =
     startsAt.getFullYear() === now.getFullYear() &&
     startsAt.getMonth() === now.getMonth() &&
     startsAt.getDate() === now.getDate();
-  if (isWeekend) return "this weekend";
   if (sameDay) return startsAt.getHours() >= 17 ? "tonight" : "today";
-  return "today";
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow =
+    startsAt.getFullYear() === tomorrow.getFullYear() &&
+    startsAt.getMonth() === tomorrow.getMonth() &&
+    startsAt.getDate() === tomorrow.getDate();
+  if (isTomorrow) return "tomorrow";
+
+  const isWeekend = startsAt.getDay() === 0 || startsAt.getDay() === 6;
+  if (isWeekend) return "this weekend";
+
+  return startsAt.toLocaleDateString("en-US", { weekday: "long" });
 }
 
 function decideBySubhead(

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/db/client";
 import { CIRCLE_TAGS } from "@/lib/circles";
@@ -113,6 +113,22 @@ export async function createPlan(
     recipientIds = requestedArr;
   }
 
+  // Eligible voter count = explicit recipients if set, else full circle.
+  // We clamp the M22 lock threshold (DB default 5) to this number so a
+  // 4-person squad's plan reads "Locks when 4+ are in" instead of an
+  // unreachable "5+". For squads ≥5, the original default holds.
+  let eligibleVoters: number;
+  if (recipientIds.length > 0) {
+    eligibleVoters = recipientIds.length;
+  } else {
+    const [row] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(memberships)
+      .where(eq(memberships.circleId, data.circleId));
+    eligibleVoters = row?.n ?? 1;
+  }
+  const lockThreshold = Math.max(1, Math.min(5, eligibleVoters));
+
   const planId = await db.transaction(async (tx) => {
     const [plan] = await tx
       .insert(plans)
@@ -129,6 +145,7 @@ export async function createPlan(
         decideBy,
         createdBy: userId,
         status: "active",
+        lockThreshold,
       })
       .returning({ id: plans.id });
 

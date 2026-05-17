@@ -473,7 +473,16 @@ export default async function PlanDetailPage({
     plan.timeZone,
   );
   const memberCount = memberRows.length;
-  const lockThreshold = plan.lockThreshold;
+  // Clamp the M22 threshold down to the eligible voter pool so a plan in
+  // a 4-person squad doesn't display the unreachable default of 5+ ins.
+  // Covers plans created before the createPlan clamp landed too.
+  const eligibleVoterCount = isAllRecipients
+    ? memberCount
+    : recipientIds.length;
+  const lockThreshold = Math.max(
+    1,
+    Math.min(plan.lockThreshold, eligibleVoterCount),
+  );
 
   const additionsForTicker: LiveTickerAddition[] = additionRows.map((r) => ({
     id: r.id,

@@ -185,6 +185,34 @@ function CirclesTab({ circles: list }: { circles: UserCircle[] }) {
   }
   return (
     <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {/* "+" tile lives at the top so it's reachable without scrolling
+          past existing circles. Dashed border + ghost fill keeps it
+          visually subordinate to actual circles. Routes to /onboarding
+          with mode=create so the chooser step is skipped — see
+          app/onboarding/page.tsx. */}
+      <li>
+        <Link
+          href="/onboarding?mode=create"
+          className="group flex h-full items-center gap-3 rounded-2xl border border-dashed border-ink-subtle bg-paper-card/40 p-4 transition-colors hover:border-coral/40 hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+        >
+          <span
+            aria-hidden
+            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-dashed border-ink-subtle text-ink-muted transition-colors group-hover:border-coral group-hover:text-coral"
+          >
+            <Plus className="size-5" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate font-medium text-ink">Create a circle</span>
+            <span className="text-xs text-ink-muted">
+              Spin up a new squad
+            </span>
+          </div>
+          <ChevronRight
+            className="size-4 shrink-0 text-ink-muted transition-transform group-hover:translate-x-0.5"
+            aria-hidden
+          />
+        </Link>
+      </li>
       {list.map((c) => (
         <li key={c.id}>
           <Link
@@ -214,33 +242,6 @@ function CirclesTab({ circles: list }: { circles: UserCircle[] }) {
           </Link>
         </li>
       ))}
-      {/* "+" tile lives at the end of the grid so it reads as part of the
-          same surface as existing circles. Dashed border + ghost fill keeps
-          it visually subordinate. Routes to /onboarding with mode=create so
-          the chooser step is skipped — see app/onboarding/page.tsx. */}
-      <li>
-        <Link
-          href="/onboarding?mode=create"
-          className="group flex h-full items-center gap-3 rounded-2xl border border-dashed border-ink-subtle bg-paper-card/40 p-4 transition-colors hover:border-coral/40 hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
-        >
-          <span
-            aria-hidden
-            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-dashed border-ink-subtle text-ink-muted transition-colors group-hover:border-coral group-hover:text-coral"
-          >
-            <Plus className="size-5" />
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate font-medium text-ink">Create a circle</span>
-            <span className="text-xs text-ink-muted">
-              Spin up a new squad
-            </span>
-          </div>
-          <ChevronRight
-            className="size-4 shrink-0 text-ink-muted transition-transform group-hover:translate-x-0.5"
-            aria-hidden
-          />
-        </Link>
-      </li>
     </ul>
   );
 }
