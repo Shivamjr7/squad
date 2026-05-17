@@ -14,7 +14,7 @@ export default async function SignInPage({
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-8 px-6 pb-12 pt-10 text-center">
-      <SquadLogo className="size-12 text-ink dark:text-paper" title="Squad" />
+      <SquadLogo className="size-12 text-ink" title="Squad" />
       <div className="flex flex-col gap-3">
         <h1 className="font-instrument-serif text-[44px] leading-[1.05] italic text-ink sm:text-[52px]">
           are we still on?
