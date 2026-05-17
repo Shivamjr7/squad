@@ -28,6 +28,11 @@ export type VoteInPayload = {
   // before a lock have starts_at = NULL-ish placeholder — call site sets
   // this to null and the composer drops the time suffix.
   startsAtIso: string | null;
+  // IANA zone of the plan (plans.time_zone). Required so the push body
+  // and in-app feed both render the hour the creator picked rather than
+  // the Vercel runtime's UTC default. Nullable when startsAtIso is null
+  // (open-mode plans before lock), to keep the two fields paired.
+  timeZone: string | null;
 };
 
 export type PlanCreatedPayload = {
@@ -45,6 +50,8 @@ export type PlanLockedPayload = {
   circleSlug: string;
   circleName: string;
   startsAtIso: string;
+  // IANA zone of the plan (plans.time_zone). See VoteInPayload.
+  timeZone: string;
   location: string | null;
   // Vote tally at the moment of lock — the push body reads "5 of 6 said yes"
   // from these. totalRecipients = recipient set size (or circle size if no
@@ -67,6 +74,8 @@ export type PlanLeaveSoonPayload = {
   circleSlug: string;
   circleName: string;
   startsAtIso: string;
+  // IANA zone of the plan (plans.time_zone). See VoteInPayload.
+  timeZone: string;
   location: string | null;
   // Minutes until starts_at at composition time. The 45-min cron usually
   // lands this in [40, 50]; we round to 5 for body copy ("Leave in ~45m").
@@ -82,6 +91,39 @@ export type PlanCancelledPayload = {
   cancellerName: string | null;
 };
 
+// M32 — cross-circle conflict + resolution payloads. Per CONVERGENCE_PLAN.md
+// §5, the OS tag is `conflict:{userId}:{planA}:{planB}` with canonical-sorted
+// plan ids so the two-way pair collapses to one bubble and the resolution
+// push overrides the conflict push on the shade. The userId rides on the
+// payload because the composer is per-row (the dispatcher writes one row per
+// recipient) and that's where the tag is built.
+//
+// `planId` is the *anchor* plan — the one whose change just triggered the
+// notification (the newly-created plan, the just-locked plan, the just-voted
+// plan). Click → that plan's detail page. `otherPlanId` is the existing
+// commitment that now collides.
+export type PlanConflictPayload = {
+  recipientUserId: string;
+  planId: string;
+  planTitle: string;
+  circleSlug: string;
+  circleName: string;
+  otherPlanId: string;
+  otherPlanTitle: string;
+  otherCircleName: string;
+};
+
+export type PlanConflictResolvedPayload = {
+  recipientUserId: string;
+  planId: string;
+  planTitle: string;
+  circleSlug: string;
+  circleName: string;
+  otherPlanId: string;
+  otherPlanTitle: string;
+  otherCircleName: string;
+};
+
 // Legacy — kept so the composer can still render plan_reminder rows that
 // landed in the table before M31. No trigger site writes this kind in M31+.
 export type PlanReminderPayload = {
@@ -90,17 +132,23 @@ export type PlanReminderPayload = {
   circleSlug: string;
   circleName: string;
   startsAtIso: string;
+  // IANA zone of the plan (plans.time_zone). See VoteInPayload. Legacy
+  // rows in the table predate this field — composer falls back to UTC.
+  timeZone?: string;
   location: string | null;
 };
 
-// Dispatch input — five active kinds. The dispatcher will not insert
-// `plan_reminder` because callers shouldn't be creating new reminder rows.
+// Dispatch input — seven active kinds (M31 five + M32 two). The dispatcher
+// will not insert `plan_reminder` because callers shouldn't be creating new
+// reminder rows.
 export type NotificationPayload =
   | { type: "vote_in"; payload: VoteInPayload }
   | { type: "plan_created"; payload: PlanCreatedPayload }
   | { type: "plan_locked"; payload: PlanLockedPayload }
   | { type: "plan_leave_soon"; payload: PlanLeaveSoonPayload }
-  | { type: "plan_cancelled"; payload: PlanCancelledPayload };
+  | { type: "plan_cancelled"; payload: PlanCancelledPayload }
+  | { type: "plan_conflict"; payload: PlanConflictPayload }
+  | { type: "plan_conflict_resolved"; payload: PlanConflictResolvedPayload };
 
 // Composer input — includes plan_reminder for legacy-row back-compat. Both
 // the Next.js dispatcher and the send-push edge function call
@@ -170,16 +218,27 @@ function publicAssetPath(name: string): string {
 export const DEFAULT_ICON = publicAssetPath("icon-192.png");
 export const DEFAULT_BADGE = publicAssetPath("icon-badge.png");
 
-// Format an ISO timestamp into the "8:30" body fragment. We intentionally
-// don't include AM/PM — the push body is short and the squad context is
-// already evening-skewed. Falls back to "soon" on parse error.
-function formatBodyTime(iso: string | null | undefined): string {
+// Format an ISO timestamp into the "8:30 PM" body fragment. We intentionally
+// don't include the date — the push body is short and reminders only fire
+// for plans starting within the hour, so "8:30 PM" is unambiguous. Falls
+// back to "soon" on parse error.
+//
+// `timeZone` is the plan's IANA zone (plans.time_zone). Required for new
+// payloads; legacy plan_reminder rows in the table may lack it, so we
+// accept undefined and fall back to UTC — better than silently rendering
+// the Vercel runtime's default (also UTC, but the explicit one tells the
+// reader why this matters).
+function formatBodyTime(
+  iso: string | null | undefined,
+  timeZone: string | null | undefined,
+): string {
   if (!iso) return "soon";
   try {
     return new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
+      timeZone: timeZone ?? "UTC",
     }).format(new Date(iso));
   } catch {
     return "soon";
@@ -234,7 +293,10 @@ export function composePushPayload(
   switch (input.type) {
     case "vote_in": {
       // "Karan: in for 8:30" — quote-voice copy per NOTIFICATIONS_PLAN §3.
-      const when = formatBodyTime(input.payload.startsAtIso);
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       return {
         title: input.payload.circleName,
         body: input.payload.startsAtIso
@@ -265,7 +327,10 @@ export function composePushPayload(
 
     case "plan_locked": {
       // "It's happening — 8:30 at Roxie · 5 of 6 said yes"
-      const when = formatBodyTime(input.payload.startsAtIso);
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       const where = input.payload.location?.trim() || input.payload.planTitle;
       const tally = `${input.payload.inCount} of ${input.payload.totalRecipients} said yes`;
       const directions =
@@ -331,12 +396,54 @@ export function composePushPayload(
     case "plan_reminder": {
       // Legacy. Kept so plan_reminder rows already in the DB still render
       // a sensible push body if the edge function ever replays them.
-      const when = formatBodyTime(input.payload.startsAtIso);
+      // timeZone may be missing on pre-M31 rows — formatBodyTime falls
+      // back to UTC in that case.
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       return {
         title: input.payload.planTitle,
         body: `Starts at ${when}.`,
         url,
         tag: `plan:${planId}:reminder`,
+        renotify: true,
+        icon: DEFAULT_ICON,
+        badge: DEFAULT_BADGE,
+        data: baseData,
+      };
+    }
+
+    case "plan_conflict": {
+      // Canonical-sorted pair tag — A↔B and B↔A collapse to the same shade
+      // entry, and the matching plan_conflict_resolved push overrides it.
+      const [a, b] = [input.payload.planId, input.payload.otherPlanId].sort();
+      // Push click lands on the anchor plan with `?conflictWith=…` so the
+      // page server-renders the compare sheet's data and the launcher pops
+      // it open on first paint. Notification feed click reuses the same URL.
+      const compareUrl = `${url}?conflictWith=${input.payload.otherPlanId}`;
+      return {
+        title: "Heads up",
+        body: `${input.payload.planTitle} clashes with ${input.payload.otherPlanTitle} in ${input.payload.otherCircleName}`,
+        url: compareUrl,
+        tag: `conflict:${input.payload.recipientUserId}:${a}:${b}`,
+        // false — §5 "same pair never re-fires". The ledger row enforces this
+        // server-side; renotify=false is a belt-and-braces guard against the
+        // OS re-buzzing if the row were ever re-dispatched.
+        renotify: false,
+        icon: DEFAULT_ICON,
+        badge: DEFAULT_BADGE,
+        data: { ...baseData, url: compareUrl },
+      };
+    }
+
+    case "plan_conflict_resolved": {
+      const [a, b] = [input.payload.planId, input.payload.otherPlanId].sort();
+      return {
+        title: "Sorted",
+        body: `${input.payload.planTitle} and ${input.payload.otherPlanTitle} no longer clash`,
+        url,
+        tag: `conflict:${input.payload.recipientUserId}:${a}:${b}`,
         renotify: true,
         icon: DEFAULT_ICON,
         badge: DEFAULT_BADGE,

@@ -37,18 +37,12 @@ export type IcsInput = {
   url: string;
 };
 
-export function buildIcs(input: IcsInput): string {
+function vevent(input: IcsInput, stamp: string): (string | null)[] {
   const start = formatIcsDate(input.startsAt);
   const end = formatIcsDate(
     input.endsAt ?? new Date(input.startsAt.getTime() + TWO_HOURS_MS),
   );
-  const stamp = formatIcsDate(new Date());
-  const lines: (string | null)[] = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Squad//EN",
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
+  return [
     "BEGIN:VEVENT",
     `UID:${input.uid}@squad`,
     `DTSTAMP:${stamp}`,
@@ -59,9 +53,34 @@ export function buildIcs(input: IcsInput): string {
     input.location ? `LOCATION:${escapeIcsText(input.location)}` : null,
     `URL:${escapeIcsText(input.url)}`,
     "END:VEVENT",
+  ];
+}
+
+function wrapVcalendar(blocks: (string | null)[][]): string {
+  const lines: (string | null)[] = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Squad//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    ...blocks.flat(),
     "END:VCALENDAR",
   ];
   return lines.filter((l): l is string => l !== null).join("\r\n") + "\r\n";
+}
+
+export function buildIcs(input: IcsInput): string {
+  const stamp = formatIcsDate(new Date());
+  return wrapVcalendar([vevent(input, stamp)]);
+}
+
+// M32.6 — single VCALENDAR wrapping N VEVENTs. UIDs are stable per plan id
+// (same form as the M25 per-plan endpoint), so a user who has imported a
+// plan via M25 won't get a duplicate when they later import the cross-
+// circle feed for the same window.
+export function buildIcsFeed(events: IcsInput[]): string {
+  const stamp = formatIcsDate(new Date());
+  return wrapVcalendar(events.map((e) => vevent(e, stamp)));
 }
 
 export type GoogleCalendarInput = {

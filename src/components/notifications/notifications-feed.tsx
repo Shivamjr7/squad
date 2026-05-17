@@ -48,13 +48,24 @@ function payloadNumber(p: Payload | null, key: string): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-function formatShortTime(iso: string | null): string {
+// Plan's IANA zone — written into every M31+ payload alongside startsAtIso
+// (see src/lib/notifications-payload.ts). Legacy rows lack it; the renderer
+// falls back to UTC so the value at least matches what the push body shows
+// (also UTC for legacy rows). New rows render in the creator's zone.
+function payloadTimeZone(p: Payload | null): string | undefined {
+  if (!p) return undefined;
+  const v = p["timeZone"];
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+function formatShortTime(iso: string | null, timeZone: string | undefined): string {
   if (!iso) return "soon";
   try {
     return new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
+      timeZone: timeZone ?? "UTC",
     }).format(new Date(iso));
   } catch {
     return "soon";
@@ -104,6 +115,12 @@ const TYPE_ICON: Record<
   plan_locked: { Icon: CheckCircle2, bg: "bg-in/15", fg: "text-in" },
   plan_leave_soon: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
   plan_cancelled: { Icon: BellOff, bg: "bg-out/15", fg: "text-out" },
+  // M32 placeholders. M32.7 wires the real conflict UI; until then no
+  // composer writes these kinds, so the entries are reachable only via
+  // backfilled rows. Keep them defined so Record<NotificationType, …>
+  // exhaustiveness holds.
+  plan_conflict: { Icon: Bell, bg: "bg-coral/20", fg: "text-coral" },
+  plan_conflict_resolved: { Icon: Bell, bg: "bg-in/15", fg: "text-in" },
 };
 
 type Decoded = {
@@ -134,7 +151,8 @@ function decode(row: NotificationRow): Decoded {
       const name = payloadString(p, "voterName") ?? "Someone";
       const seed = payloadString(p, "voterId") ?? name;
       const startsAtIso = payloadString(p, "startsAtIso");
-      const when = startsAtIso ? formatShortTime(startsAtIso) : null;
+      const tz = payloadTimeZone(p);
+      const when = startsAtIso ? formatShortTime(startsAtIso, tz) : null;
       // Quote voice: "Karan: in for 8:30" or "Karan: in for Movie night".
       return {
         actor: name,
@@ -164,7 +182,7 @@ function decode(row: NotificationRow): Decoded {
     case "plan_locked": {
       const startsAt = payloadString(p, "startsAtIso");
       const location = payloadString(p, "location");
-      const when = formatShortTime(startsAt);
+      const when = formatShortTime(startsAt, payloadTimeZone(p));
       const where = location?.trim() || planTitle;
       return {
         actor: null,
@@ -211,11 +229,46 @@ function decode(row: NotificationRow): Decoded {
       return {
         actor: null,
         actorSeed: null,
-        bodyText: `${planTitle} · Starts at ${formatShortTime(startsAt)}`,
+        bodyText: `${planTitle} · Starts at ${formatShortTime(startsAt, payloadTimeZone(p))}`,
         href,
         circleSlug: slug,
         circleName,
         tag: planId ? `plan:${planId}:reminder` : `row:${row.id}`,
+      };
+    }
+    case "plan_conflict": {
+      const otherTitle = payloadString(p, "otherPlanTitle") ?? "another plan";
+      const otherCircle = payloadString(p, "otherCircleName");
+      const otherPlanId = payloadString(p, "otherPlanId");
+      const tail = otherCircle ? ` in ${otherCircle}` : "";
+      // Compare-sheet launcher trigger — opens the side-by-side sheet
+      // automatically on the anchor plan's detail page.
+      const compareHref =
+        href && otherPlanId ? `${href}?conflictWith=${otherPlanId}` : href;
+      return {
+        actor: null,
+        actorSeed: null,
+        // Mirrors push body: "Movie clashes with Drinks in Folsom Crew."
+        bodyText: `${planTitle} clashes with ${otherTitle}${tail}`,
+        href: compareHref,
+        circleSlug: slug,
+        circleName,
+        // Per-pair tag is informational only — conflicts never collapse in
+        // the feed (the ledger guarantees one row per pair), but matching
+        // the OS shade tag keeps the surfaces parallel.
+        tag: planId ? `plan:${planId}:conflict:${row.id}` : `row:${row.id}`,
+      };
+    }
+    case "plan_conflict_resolved": {
+      const otherTitle = payloadString(p, "otherPlanTitle") ?? "another plan";
+      return {
+        actor: null,
+        actorSeed: null,
+        bodyText: `${planTitle} and ${otherTitle} no longer clash`,
+        href,
+        circleSlug: slug,
+        circleName,
+        tag: planId ? `plan:${planId}:conflict:${row.id}` : `row:${row.id}`,
       };
     }
   }

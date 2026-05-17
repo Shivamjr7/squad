@@ -18,6 +18,10 @@ import {
   votes,
 } from "@/db/schema";
 import { recordPlanEvent } from "@/lib/actions/plan-events";
+import {
+  detectAndNotifyConflictsForAudience,
+  resolveAllConflictsForPlan,
+} from "@/lib/actions/conflict-notify";
 import { canModifyPlan, requireMembership } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
 import {
@@ -311,6 +315,24 @@ export async function createPlan(
     console.error("[plans.createPlan] notify fanout failed", err);
   });
 
+  // M32.7 — conflict detection across the full audience (creator + every
+  // recipient, or creator + full-circle when no recipient subset was
+  // picked). Creator gets the dispatch too because their auto-vote IN means
+  // they immediately hold a commitment to the new plan, and that commitment
+  // might collide with one of their existing plans.
+  void (async () => {
+    try {
+      const audienceWithCreator = await resolvePlanAudience(
+        planId,
+        data.circleId,
+        null,
+      );
+      await detectAndNotifyConflictsForAudience(planId, audienceWithCreator);
+    } catch (err) {
+      console.error("[plans.createPlan] conflict detect failed", err);
+    }
+  })();
+
   return { planId, slug: circle.slug };
 }
 
@@ -390,6 +412,13 @@ export async function markPlanDone(input: PlanIdInput): Promise<void> {
     .update(plans)
     .set({ status: "done", cancelledAt: null })
     .where(eq(plans.id, plan.id));
+
+  // M32.7 — `done` is a terminal status, same as `cancelled` for the
+  // purpose of being a hard commitment. Resolve every ledger row pairing
+  // this plan with another. Status flipped → it's no longer eligible.
+  void resolveAllConflictsForPlan(plan.id).catch((err) => {
+    console.error("[plans.markPlanDone] conflict resolve failed", err);
+  });
 }
 
 export async function cancelPlan(input: PlanIdInput): Promise<void> {
@@ -448,6 +477,14 @@ export async function cancelPlan(input: PlanIdInput): Promise<void> {
     planId: plan.id,
     circleId: plan.circleId,
     cancellerId: userId,
+  });
+
+  // M32.7 — cancelled plan is no longer a commitment; clear ledger rows
+  // and let resolution pushes ride the OS tag back over the conflict
+  // bubbles. The 7-day window inside `resolveAllConflictsForPlan` filters
+  // stale pairs so we don't push to undo notifications the user never got.
+  void resolveAllConflictsForPlan(plan.id).catch((err) => {
+    console.error("[plans.cancelPlan] conflict resolve failed", err);
   });
 }
 

@@ -8,6 +8,7 @@ import {
   type InitialSlotVoter,
   type SlotMember,
 } from "@/lib/realtime/use-slot-votes";
+import { useMyHardCommitments } from "@/lib/use-hard-commitments";
 
 export type HeatmapSlot = {
   id: string;
@@ -39,6 +40,9 @@ type Props = {
   members: Record<string, SlotMember>;
   currentUserId: string;
   lockThreshold?: number;
+  // Each slot is fixed at 60 min (time_slots.duration_minutes default), so
+  // the dot calc uses 60 unless we surface a column later.
+  slotDurationMinutes?: number;
 };
 
 export function TimeHeatmap(props: Props) {
@@ -51,21 +55,45 @@ export function TimeHeatmap(props: Props) {
       currentUserId={props.currentUserId}
     >
       <HeatmapInner
+        planId={props.planId}
         slots={props.slots}
         lockThreshold={props.lockThreshold ?? 5}
+        slotDurationMinutes={props.slotDurationMinutes ?? 60}
       />
     </SlotVotesProvider>
   );
 }
 
 function HeatmapInner({
+  planId,
   slots,
   lockThreshold,
+  slotDurationMinutes,
 }: {
+  planId: string;
   slots: HeatmapSlot[];
   lockThreshold: number;
+  slotDurationMinutes: number;
 }) {
   const { count, isMine, toggle } = useSlotVotes();
+
+  // M32.4 — Scenario 4 (CONVERGENCE_PLAN.md §4.3). Cover the slot range
+  // ±slot-length so a commitment that brushes the first/last cell still
+  // paints a dot. Skip when there are no slots — `[null, null]` short-
+  // circuits the hook fetch.
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    if (slots.length === 0) return { rangeStart: null, rangeEnd: null };
+    const times = slots
+      .map((s) => new Date(s.startsAt).getTime())
+      .filter((t) => !Number.isNaN(t));
+    if (times.length === 0) return { rangeStart: null, rangeEnd: null };
+    const padMs = slotDurationMinutes * 60_000;
+    return {
+      rangeStart: new Date(Math.min(...times) - padMs),
+      rangeEnd: new Date(Math.max(...times) + padMs * 2),
+    };
+  }, [slots, slotDurationMinutes]);
+  const { findOverlap } = useMyHardCommitments(rangeStart, rangeEnd, planId);
 
   const { topCount, totalVoters } = useMemo(() => {
     let top = 0;
@@ -102,6 +130,13 @@ function HeatmapInner({
           const isTop = c > 0 && c === topCount;
           // Density 0..1 used to scale background alpha. Cap at 1 for visual.
           const density = topCount > 0 ? Math.min(1, c / topCount) : 0;
+          const slotStart = new Date(slot.startsAt);
+          const slotEnd = new Date(
+            slotStart.getTime() + slotDurationMinutes * 60_000,
+          );
+          const conflict = Number.isNaN(slotStart.getTime())
+            ? null
+            : findOverlap(slotStart, slotEnd);
           return (
             <button
               key={slot.id}
@@ -110,9 +145,11 @@ function HeatmapInner({
               aria-pressed={mine}
               aria-label={`${hourLabel(slot.startsAt)}, ${c} ${
                 c === 1 ? "person" : "people"
-              } free${mine ? ", you" : ""}`}
+              } free${mine ? ", you" : ""}${
+                conflict ? `, clashes with ${conflict.planTitle}` : ""
+              }`}
               className={cn(
-                "flex aspect-[3/4] min-h-16 flex-col items-center justify-between rounded-lg border px-1 py-2 text-center transition-colors",
+                "relative flex aspect-[3/4] min-h-16 flex-col items-center justify-between rounded-lg border px-1 py-2 text-center transition-colors",
                 isTop
                   ? "border-coral bg-coral text-white"
                   : c > 0
@@ -131,6 +168,18 @@ function HeatmapInner({
                   : undefined
               }
             >
+              {conflict ? (
+                <span
+                  aria-hidden
+                  title={`Clashes with ${conflict.planTitle}`}
+                  className={cn(
+                    "absolute right-1 top-1 size-1.5 rounded-full",
+                    // On top of the filled coral cell the dot needs to be
+                    // white to stay visible.
+                    isTop ? "bg-white" : "bg-coral",
+                  )}
+                />
+              ) : null}
               <span className="text-[10px] font-semibold uppercase tracking-wider">
                 {hourLabel(slot.startsAt)}
               </span>

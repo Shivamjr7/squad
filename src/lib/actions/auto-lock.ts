@@ -16,6 +16,10 @@ import {
 import { recordPlanEvent } from "@/lib/actions/plan-events";
 import { allEligibleVotersHaveVoted } from "@/lib/actions/eligibility";
 import {
+  detectAndNotifyConflictsForAudience,
+  reevaluateConflictsForPlan,
+} from "@/lib/actions/conflict-notify";
+import {
   dispatchNotifications,
   resolvePlanAudience,
 } from "@/lib/notifications";
@@ -66,6 +70,7 @@ export async function tryAutoLock(
       status: true,
       timeMode: true,
       startsAt: true,
+      timeZone: true,
       location: true,
       lockThreshold: true,
       decideBy: true,
@@ -299,10 +304,31 @@ export async function tryAutoLock(
       circleSlug: circle.slug,
       circleName: circle.name,
       startsAt: canonicalStartsAt,
+      timeZone: plan.timeZone,
       location: canonicalLocation,
       trigger,
     });
   }
+
+  // M32.7 — lock fan-out has two halves. Re-evaluation runs first because
+  // the canonical starts_at may have shifted via a counter-proposal (M22),
+  // so prior ledger rows that paired this plan with someone's other plan
+  // could now be stale. After that, detection re-runs across the full
+  // audience to catch new collisions the shifted window introduced
+  // (scenario 8). Both are fire-and-forget so a slow ledger query never
+  // blocks the lock path.
+  void (async () => {
+    try {
+      await reevaluateConflictsForPlan(planId);
+      const audience = await resolvePlanAudience(planId, plan.circleId, null);
+      await detectAndNotifyConflictsForAudience(planId, audience);
+    } catch (err) {
+      console.error("[auto-lock] conflict reconcile failed", {
+        planId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  })();
 
   return {
     locked: true,
@@ -321,6 +347,9 @@ async function dispatchPlanLockedNotification(args: {
   circleSlug: string;
   circleName: string;
   startsAt: Date;
+  // IANA zone of the plan — payloads ship this so the push body renders
+  // the locked hour in the creator's zone.
+  timeZone: string;
   location: string | null;
   trigger: "threshold" | "forced" | "all_voted";
 }): Promise<void> {
@@ -347,6 +376,7 @@ async function dispatchPlanLockedNotification(args: {
         circleSlug: args.circleSlug,
         circleName: args.circleName,
         startsAtIso: args.startsAt.toISOString(),
+        timeZone: args.timeZone,
         location: args.location,
         inCount,
         totalRecipients: audience.length,

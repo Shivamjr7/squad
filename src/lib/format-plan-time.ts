@@ -1,6 +1,9 @@
 // Pure formatter for a plan's start time. The `now` argument is injected so
-// callers can pin time for testing. Uses Intl.DateTimeFormat in the runtime's
-// local zone (which is the viewer's zone when called client-side via PlanTime).
+// callers can pin time for testing. `timeZone` is REQUIRED — every plan
+// carries an IANA zone (plans.time_zone, NOT NULL, default UTC), and rendering
+// in any zone other than the plan's drifts the displayed hour from what the
+// creator picked. Callers MUST pass plan.timeZone, never undefined / browser
+// default.
 //
 // Cases:
 //   approximate, past               → "Apr 22, 2026"
@@ -71,7 +74,7 @@ export function formatPlanTime(
   startsAt: Date,
   isApproximate: boolean,
   now: Date,
-  timeZone?: string,
+  timeZone: string,
 ): string {
   const diffMs = startsAt.getTime() - now.getTime();
   const isPast = diffMs < 0;

@@ -9,7 +9,11 @@ import { Button } from "@/components/ui/button";
 import { CircleChooser } from "@/components/onboarding/circle-chooser";
 import { requireDisplayNameSet } from "@/lib/auth";
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string }>;
+}) {
   const { userId } = await auth();
   if (!userId) {
     redirect("/sign-in");
@@ -27,6 +31,14 @@ export default async function OnboardingPage() {
   });
   const hasCircles = Boolean(existing);
   const backSlug = existing?.circle?.slug ?? null;
+
+  // `?mode=create` (from the home Circles tab "+" tile) skips the chooser
+  // step and renders CreateCircleForm directly. `?mode=join` is honoured
+  // symmetrically for invite deep-links. First-time visitors still land on
+  // the chooser by default.
+  const sp = await searchParams;
+  const initialMode =
+    sp.mode === "create" || sp.mode === "join" ? sp.mode : "chooser";
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-8 p-6 pt-12">
@@ -52,7 +64,7 @@ export default async function OnboardingPage() {
             : "Plan a thing. Vote. Show up."}
         </p>
       </header>
-      <CircleChooser />
+      <CircleChooser initialMode={initialMode} />
     </main>
   );
 }

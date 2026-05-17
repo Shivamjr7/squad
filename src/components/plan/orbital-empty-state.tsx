@@ -3,20 +3,32 @@
 // a wrapper rotated infinitely (transform-origin: center), with the dot
 // pinned to the wrapper's edge. Respects prefers-reduced-motion.
 
-export function OrbitalEmptyState({ children }: { children: React.ReactNode }) {
+export function OrbitalEmptyState({
+  children,
+  title,
+  body,
+}: {
+  children?: React.ReactNode;
+  title?: React.ReactNode;
+  body?: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center gap-7 px-6 py-10 text-center">
       <Orbit />
       <div className="flex flex-col gap-3">
         <h2 className="font-serif text-3xl font-semibold italic text-ink">
-          No plan yet.
+          {title ?? "No plan yet."}
         </h2>
         <p className="mx-auto max-w-xs text-sm leading-relaxed text-ink-muted">
-          Quiet weekend. Drop an &lsquo;anyone free?&rsquo; and the squad has
-          2h to converge.
+          {body ?? (
+            <>
+              Quiet weekend. Drop an &lsquo;anyone free?&rsquo; and the squad
+              has 2h to converge.
+            </>
+          )}
         </p>
       </div>
-      <div>{children}</div>
+      {children ? <div>{children}</div> : null}
     </div>
   );
 }

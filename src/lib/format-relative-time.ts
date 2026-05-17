@@ -41,10 +41,11 @@ function isTomorrow(a: Date, now: Date, timeZone?: string): boolean {
 
 // Future-only formatter — returns a short phrase suitable for the feed
 // card status row. `now` is injected so callers can pin time for tests.
+// `timeZone` is REQUIRED — see format-plan-time.ts for the rationale.
 export function formatRelativePlanTime(
   startsAt: Date,
   now: Date,
-  timeZone?: string,
+  timeZone: string,
 ): string {
   const diffMs = startsAt.getTime() - now.getTime();
 
@@ -89,7 +90,7 @@ export function formatRelativePlanTime(
 export function formatRelativePastTime(
   startsAt: Date,
   now: Date,
-  timeZone?: string,
+  timeZone: string,
 ): string {
   const diffMs = now.getTime() - startsAt.getTime();
   if (diffMs < 60 * 60_000) {

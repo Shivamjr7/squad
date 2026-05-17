@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Plus, Clock, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -10,6 +10,7 @@ import {
   type ProposalMember,
   type ProposalRow,
 } from "@/lib/realtime/use-time-proposals";
+import { useMyHardCommitments } from "@/lib/use-hard-commitments";
 
 const TIME_FMT = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -36,6 +37,10 @@ type Props = {
   members: Record<string, ProposalMember>;
   currentUserId: string;
   canSuggest: boolean;
+  // M32.4 — used to size the dot-check window per proposal row. Falls back
+  // to the schema default (`plans.duration_minutes = 120`) if the caller
+  // hasn't propagated it yet.
+  planDurationMinutes?: number;
 };
 
 export function TimeProposals(props: Props) {
@@ -47,12 +52,24 @@ export function TimeProposals(props: Props) {
       members={props.members}
       currentUserId={props.currentUserId}
     >
-      <TimeProposalsInner canSuggest={props.canSuggest} />
+      <TimeProposalsInner
+        planId={props.planId}
+        canSuggest={props.canSuggest}
+        planDurationMinutes={props.planDurationMinutes ?? 120}
+      />
     </TimeProposalsProvider>
   );
 }
 
-function TimeProposalsInner({ canSuggest }: { canSuggest: boolean }) {
+function TimeProposalsInner({
+  planId,
+  canSuggest,
+  planDurationMinutes,
+}: {
+  planId: string;
+  canSuggest: boolean;
+  planDurationMinutes: number;
+}) {
   const {
     proposals,
     count,
@@ -61,6 +78,25 @@ function TimeProposalsInner({ canSuggest }: { canSuggest: boolean }) {
     totalVoters,
     topProposalId,
   } = useTimeProposals();
+
+  // M32.4 — Scenario 5 visual (CONVERGENCE_PLAN.md §4.3). Sniff the proposal
+  // window once per render and feed it into the shared hook so we don't
+  // refetch on every row. Excluding `planId` keeps the current plan's own
+  // canonical `starts_at` from painting a dot on a counter-proposal that
+  // happens to match it (a degenerate but possible state).
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    if (proposals.length === 0) return { rangeStart: null, rangeEnd: null };
+    const times = proposals
+      .map((p) => new Date(p.startsAt).getTime())
+      .filter((t) => !Number.isNaN(t));
+    if (times.length === 0) return { rangeStart: null, rangeEnd: null };
+    const padMs = planDurationMinutes * 60_000;
+    return {
+      rangeStart: new Date(Math.min(...times) - padMs),
+      rangeEnd: new Date(Math.max(...times) + padMs * 2),
+    };
+  }, [proposals, planDurationMinutes]);
+  const { findOverlap } = useMyHardCommitments(rangeStart, rangeEnd, planId);
 
   if (proposals.length === 0) {
     // No counter-proposals yet — render only the "+ Suggest another time"
@@ -95,14 +131,26 @@ function TimeProposalsInner({ canSuggest }: { canSuggest: boolean }) {
           const mine = isMine(p.id);
           const isTop = topProposalId === p.id;
           const { day, time } = formatProposalTime(p.startsAt);
+          const proposalStart = new Date(p.startsAt);
+          const proposalEnd = new Date(
+            proposalStart.getTime() + planDurationMinutes * 60_000,
+          );
+          const conflict = Number.isNaN(proposalStart.getTime())
+            ? null
+            : findOverlap(proposalStart, proposalEnd);
           return (
             <li key={p.id}>
               <button
                 type="button"
                 onClick={() => vote(p.id)}
                 aria-pressed={mine}
+                aria-label={
+                  conflict
+                    ? `${time} ${day}, clashes with ${conflict.planTitle}`
+                    : undefined
+                }
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-xl border bg-paper px-4 py-3 text-left transition-colors",
+                  "relative flex w-full items-center gap-3 rounded-xl border bg-paper px-4 py-3 text-left transition-colors",
                   isTop
                     ? "border-coral bg-coral-soft"
                     : "border-ink/10 hover:border-ink/20",
@@ -110,6 +158,16 @@ function TimeProposalsInner({ canSuggest }: { canSuggest: boolean }) {
                   "disabled:cursor-not-allowed disabled:opacity-60",
                 )}
               >
+                {conflict ? (
+                  <span
+                    aria-hidden
+                    title={`Clashes with ${conflict.planTitle}`}
+                    className={cn(
+                      "absolute right-2 top-2 size-1.5 rounded-full",
+                      isTop ? "bg-white" : "bg-coral",
+                    )}
+                  />
+                ) : null}
                 <Clock
                   className={cn(
                     "size-4 shrink-0",

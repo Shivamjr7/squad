@@ -13,6 +13,11 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { getBrowserClient } from "./client";
+import { ConflictWarningSheet } from "@/components/plan/conflict-warning-sheet";
+import {
+  getConflictForProposalVote,
+  type VoteConflict,
+} from "@/lib/actions/conflicts";
 import {
   castProposalVote,
   proposeTime,
@@ -239,6 +244,60 @@ export function TimeProposalsProvider({
     return null;
   }, [state.votes, currentUserId]);
 
+  // M32.3 — pre-vote conflict sheet for counter-proposals (CONVERGENCE_PLAN
+  // scenario 5). Soft / approximate cases are filtered server-side, so when
+  // `conflict` is non-null we always show the sheet. The "pending" pair
+  // carries the proposal the user just tapped + the proposal they were on
+  // before, so confirm / cancel can commit or roll back.
+  const [conflict, setConflict] = useState<VoteConflict | null>(null);
+  const pendingPairRef = useRef<{
+    proposalId: string;
+    previousId: string | null;
+  } | null>(null);
+  const conflictGenRef = useRef(0);
+
+  // Pure state mutation: stamp the current user's vote onto `proposalId`,
+  // or clear it when `proposalId === null`. Used for both optimistic
+  // updates and rollbacks.
+  const applyVoteState = useCallback(
+    (proposalId: string | null) => {
+      const me = membersRef.current[currentUserId];
+      setState((prev) => {
+        const next = new Map(prev.votes);
+        for (const [id, inner] of next.entries()) {
+          if (inner.has(currentUserId)) {
+            const ni = new Map(inner);
+            ni.delete(currentUserId);
+            next.set(id, ni);
+          }
+        }
+        if (proposalId && me) {
+          const inner = new Map(next.get(proposalId) ?? new Map());
+          inner.set(currentUserId, me);
+          next.set(proposalId, inner);
+        }
+        return { ...prev, votes: next };
+      });
+    },
+    [currentUserId],
+  );
+
+  // Server commit; rolls UI back to `previousId` on failure.
+  const sendVote = useCallback(
+    (proposalId: string, previousId: string | null) => {
+      startTransition(async () => {
+        try {
+          await castProposalVote({ planId, proposalId });
+        } catch (err) {
+          applyVoteState(previousId);
+          const msg = err instanceof Error ? err.message : "Couldn't vote.";
+          toast.error(msg);
+        }
+      });
+    },
+    [planId, applyVoteState],
+  );
+
   const vote = useCallback(
     (proposalId: string) => {
       const me = membersRef.current[currentUserId];
@@ -251,50 +310,48 @@ export function TimeProposalsProvider({
       })();
       const isRetract = previousId === proposalId;
 
-      setState((prev) => {
-        const next = new Map(prev.votes);
-        for (const [id, inner] of next.entries()) {
-          if (inner.has(currentUserId)) {
-            const ni = new Map(inner);
-            ni.delete(currentUserId);
-            next.set(id, ni);
-          }
-        }
-        if (!isRetract) {
-          const inner = new Map(next.get(proposalId) ?? new Map());
-          inner.set(currentUserId, me);
-          next.set(proposalId, inner);
-        }
-        return { ...prev, votes: next };
-      });
+      applyVoteState(isRetract ? null : proposalId);
 
-      startTransition(async () => {
-        try {
-          await castProposalVote({ planId, proposalId });
-        } catch (err) {
-          setState((prev) => {
-            const next = new Map(prev.votes);
-            for (const [id, inner] of next.entries()) {
-              if (inner.has(currentUserId)) {
-                const ni = new Map(inner);
-                ni.delete(currentUserId);
-                next.set(id, ni);
-              }
-            }
-            if (previousId) {
-              const inner = new Map(next.get(previousId) ?? new Map());
-              inner.set(currentUserId, me);
-              next.set(previousId, inner);
-            }
-            return { ...prev, votes: next };
-          });
-          const msg = err instanceof Error ? err.message : "Couldn't vote.";
-          toast.error(msg);
-        }
-      });
+      // Retracts can't create a new commitment, so they bypass the check.
+      if (isRetract) {
+        sendVote(proposalId, previousId);
+        return;
+      }
+
+      const gen = ++conflictGenRef.current;
+      void getConflictForProposalVote(proposalId)
+        .then((c) => {
+          if (gen !== conflictGenRef.current) return;
+          if (!c) {
+            sendVote(proposalId, previousId);
+            return;
+          }
+          pendingPairRef.current = { proposalId, previousId };
+          setConflict(c);
+        })
+        .catch(() => {
+          // Conflict detection is best-effort. Never block a vote on it.
+          if (gen !== conflictGenRef.current) return;
+          sendVote(proposalId, previousId);
+        });
     },
-    [planId, state.votes, currentUserId],
+    [state.votes, currentUserId, applyVoteState, sendVote],
   );
+
+  const onConfirmConflict = useCallback(() => {
+    const pair = pendingPairRef.current;
+    pendingPairRef.current = null;
+    setConflict(null);
+    if (pair) sendVote(pair.proposalId, pair.previousId);
+  }, [sendVote]);
+
+  const onCancelConflict = useCallback(() => {
+    const pair = pendingPairRef.current;
+    pendingPairRef.current = null;
+    conflictGenRef.current += 1;
+    setConflict(null);
+    applyVoteState(pair?.previousId ?? null);
+  }, [applyVoteState]);
 
   const add = useCallback(
     async (startsAtLocal: string) => {
@@ -340,5 +397,17 @@ export function TimeProposalsProvider({
     ],
   );
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      <ConflictWarningSheet
+        open={conflict !== null}
+        conflict={conflict}
+        onConfirm={onConfirmConflict}
+        onCancel={onCancelConflict}
+        confirmLabel="Vote anyway"
+        headline="That time clashes with another plan."
+      />
+    </Ctx.Provider>
+  );
 }

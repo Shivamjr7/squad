@@ -1,6 +1,7 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   doublePrecision,
   index,
   integer,
@@ -21,6 +22,8 @@ export const membershipRole = pgEnum("membership_role", ["admin", "member"]);
 // plan_leave_soon, and plan_cancelled. `plan_reminder` is kept in the enum
 // for backward compat with rows already in the table, but no new sites write
 // it — `plan_leave_soon` replaces it as the pre-event nudge.
+// M32 extends with plan_conflict / plan_conflict_resolved (cross-circle
+// overlap notifications, see CONVERGENCE_PLAN.md §5).
 // Add new kinds at the end — Postgres enums grow forward only.
 export const notificationType = pgEnum("notification_type", [
   "vote_in",
@@ -29,6 +32,8 @@ export const notificationType = pgEnum("notification_type", [
   "plan_locked",
   "plan_leave_soon",
   "plan_cancelled",
+  "plan_conflict",
+  "plan_conflict_resolved",
 ]);
 
 export const planType = pgEnum("plan_type", [
@@ -237,6 +242,9 @@ export const plans = pgTable(
     startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
     timeMode: planTimeMode("time_mode").notNull().default("exact"),
     isApproximate: boolean("is_approximate").notNull().default(false),
+    // M32 — codifies the implicit 2h end the ICS export already assumes
+    // (`src/lib/calendar.ts`). Server-set; no creator UI in M32.
+    durationMinutes: integer("duration_minutes").notNull().default(120),
     location: text("location"),
     maxPeople: integer("max_people"),
     createdBy: text("created_by").references(() => users.id, {
@@ -276,6 +284,11 @@ export const plans = pgTable(
       table.circleId,
       table.startsAt,
     ),
+    // M32 — powers `getUserCommitments(userId, range)` (the calendar's hot
+    // query). Partial index keeps only live plans; cancelled/done are skipped.
+    startsAtStatusIdx: index("idx_plans_starts_at_status")
+      .on(table.startsAt)
+      .where(sql`${table.status} IN ('active', 'confirmed')`),
   }),
 );
 
@@ -304,6 +317,47 @@ export const votes = pgTable(
     userIdx: index("votes_user_id_idx").on(table.userId),
     // Index for joining votes with plans in activity queries
     planIdx: index("votes_plan_id_idx").on(table.planId),
+    // M32 — calendar's per-user commitment scan filters to in/maybe rows.
+    // Partial index trims out the OUT votes (the dominant status long-term).
+    userStatusInIdx: index("idx_votes_user_status_in")
+      .on(table.userId, table.status)
+      .where(sql`${table.status} IN ('in', 'maybe')`),
+  }),
+);
+
+// M32 — conflict-notification ledger. Records that we sent a `plan_conflict`
+// push for the (user, plan_a, plan_b) triple so the matching
+// `plan_conflict_resolved` push (when one plan is cancelled / vote flipped /
+// time moved away) only fires if the original ever shipped. CHECK enforces
+// canonical pair order so the unique key collapses (A,B) and (B,A) into one
+// row — same convention used by the OS notification tag in
+// CONVERGENCE_PLAN.md §5.
+export const conflictNotifications = pgTable(
+  "conflict_notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    planAId: uuid("plan_a_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    planBId: uuid("plan_b_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    sentAt: timestamp("sent_at", { mode: "date" }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { mode: "date" }),
+  },
+  (table) => ({
+    userPairUnique: uniqueIndex("conflict_notifications_user_pair_unique").on(
+      table.userId,
+      table.planAId,
+      table.planBId,
+    ),
+    canonicalPairCheck: check(
+      "conflict_notifications_canonical_pair_check",
+      sql`${table.planAId} < ${table.planBId}`,
+    ),
   }),
 );
 

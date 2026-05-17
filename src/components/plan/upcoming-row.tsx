@@ -17,7 +17,8 @@ export type UpcomingRowData = {
   title: string;
   type: PlanType;
   startsAt: Date;
-  timeZone?: string;
+  // Required — see PlanCardData / format-plan-time.ts.
+  timeZone: string;
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";

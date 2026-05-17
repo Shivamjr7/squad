@@ -11,7 +11,8 @@ export type FeaturedPlanData = {
   id: string;
   title: string;
   startsAt: Date;
-  timeZone?: string;
+  // Required — see PlanCardData / format-plan-time.ts.
+  timeZone: string;
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";

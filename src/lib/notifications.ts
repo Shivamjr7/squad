@@ -35,6 +35,8 @@ export type {
   ComposedPushPayload,
   NotificationPayload,
   PlanCancelledPayload,
+  PlanConflictPayload,
+  PlanConflictResolvedPayload,
   PlanCreatedPayload,
   PlanLeaveSoonPayload,
   PlanLockedPayload,

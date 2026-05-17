@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { Plus, Sparkles, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, ChevronDown, Plus, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Form,
@@ -16,6 +16,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { createPlan } from "@/lib/actions/plans";
 import { SuggestDrawer } from "@/components/plan/suggest-drawer";
+import { WhereAutocomplete } from "@/components/plan/where-autocomplete";
+import { formatPlanTime } from "@/lib/format-plan-time";
+import { useMyHardCommitments } from "@/lib/use-hard-commitments";
 import {
   createPlanSchema,
   type CreatePlanInput,
@@ -217,6 +220,27 @@ export function NewPlanForm({
   const decideBy = computeDecideBy(decidePreset, startsAt, now);
   const token = heroToken(startsAt, now);
   const subhead = decideBySubhead(decidePreset, decideBy, now);
+
+  // M32.4 — Scenario 3 (CONVERGENCE_PLAN.md §4.2). Fetch hard commitments
+  // spanning the next ~14 days once; the warning row reads from the same
+  // in-memory cache as the user nudges the start-time picker. Open-mode
+  // plans haven't picked a real time yet, so no warning. Default plan
+  // duration matches the server default (`plans.duration_minutes = 120`).
+  const conflictRangeStart = useMemo(() => now, [now]);
+  const conflictRangeEnd = useMemo(
+    () => new Date(now.getTime() + 14 * 24 * 3600_000),
+    [now],
+  );
+  const { findOverlap } = useMyHardCommitments(
+    conflictRangeStart,
+    conflictRangeEnd,
+  );
+  const startsConflict = useMemo(() => {
+    if (timeMode !== "exact" || !startsAt) return null;
+    const end = new Date(startsAt.getTime() + 120 * 60_000);
+    return findOverlap(startsAt, end);
+  }, [timeMode, startsAt, findOverlap]);
+  const [conflictExpanded, setConflictExpanded] = useState(false);
 
   const isTitleValid = title.trim().length >= 3;
   const isWhenValid = startsAt !== null && startsAt.getTime() > now.getTime();
@@ -430,7 +454,9 @@ export function NewPlanForm({
               ) : null}
             </div>
 
-            {/* WHERE */}
+            {/* WHERE — Google Places autocomplete. Free typing still works
+                if the user prefers not to pick; the dropdown is purely a
+                suggestion layer. See WhereAutocomplete + searchPlaces. */}
             <FormField
               control={form.control}
               name="location"
@@ -441,29 +467,33 @@ export function NewPlanForm({
                 <FormItem className="flex flex-col gap-2">
                   <CapsLabel>Where</CapsLabel>
                   <FormControl>
-                    <Input
-                      {...field}
+                    <WhereAutocomplete
+                      circleId={circleId}
+                      value={field.value}
+                      onChange={(v) =>
+                        field.onChange({ target: { value: v } })
+                      }
                       placeholder="Karan's place, Jubilee Hills"
-                      autoComplete="off"
-                      maxLength={100}
-                      className="h-11 border-0 border-b border-ink/15 bg-transparent px-0 text-base shadow-none focus-visible:border-coral focus-visible:ring-0"
+                      ariaLabel="Where"
+                      inputClassName="h-11 border-0 border-b border-ink/15 bg-transparent px-0 text-base shadow-none focus-visible:border-coral focus-visible:ring-0"
                     />
                   </FormControl>
                   {extraLocations.map((value, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <Input
+                    <div key={idx} className="flex items-start gap-2">
+                      <WhereAutocomplete
+                        circleId={circleId}
                         value={value}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const next = [...extraLocations];
-                          next[idx] = e.target.value;
+                          next[idx] = v;
                           form.setValue("extraLocations", next, {
                             shouldDirty: true,
                           });
                         }}
                         placeholder={`Option ${idx + 2}`}
-                        autoComplete="off"
-                        maxLength={100}
-                        className="h-11 flex-1 border-0 border-b border-ink/15 bg-transparent px-0 text-base shadow-none focus-visible:border-coral focus-visible:ring-0"
+                        ariaLabel={`Where option ${idx + 2}`}
+                        className="flex-1"
+                        inputClassName="h-11 border-0 border-b border-ink/15 bg-transparent px-0 text-base shadow-none focus-visible:border-coral focus-visible:ring-0"
                       />
                       <button
                         type="button"
@@ -475,7 +505,7 @@ export function NewPlanForm({
                             shouldDirty: true,
                           });
                         }}
-                        className="text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+                        className="mt-3 text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
                         aria-label={`Remove option ${idx + 2}`}
                       >
                         <X className="size-4" aria-hidden />
@@ -554,6 +584,15 @@ export function NewPlanForm({
                       className="h-11 border-0 border-b border-ink/15 bg-transparent px-0 text-base shadow-none focus-visible:border-coral focus-visible:ring-0 [appearance:none]"
                     />
                   </FormControl>
+
+                  {startsConflict ? (
+                    <ConflictRow
+                      conflict={startsConflict}
+                      expanded={conflictExpanded}
+                      onToggle={() => setConflictExpanded((v) => !v)}
+                      now={now}
+                    />
+                  ) : null}
 
                   <div className="flex flex-col gap-2 pt-1">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
@@ -763,6 +802,66 @@ function SegmentButton({
     >
       {children}
     </button>
+  );
+}
+
+function ConflictRow({
+  conflict,
+  expanded,
+  onToggle,
+  now,
+}: {
+  conflict: {
+    planTitle: string;
+    circleName: string;
+    start: Date;
+    // IANA zone of the conflicting plan — render its hour, not the viewer's.
+    timeZone: string;
+  };
+  expanded: boolean;
+  onToggle: () => void;
+  now: Date;
+}) {
+  const timeLabel = formatPlanTime(conflict.start, false, now, conflict.timeZone);
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex items-center gap-2 rounded-xl border border-coral/30 bg-coral-soft/40 px-3 py-2 text-left text-xs text-ink transition-colors hover:bg-coral-soft/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+      >
+        <AlertTriangle className="size-3.5 shrink-0 text-coral" aria-hidden />
+        <span className="flex-1 truncate">
+          You&apos;re already in for{" "}
+          <span className="font-semibold">{conflict.planTitle}</span> at this
+          time.
+        </span>
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-ink-muted transition-transform",
+            expanded && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {expanded ? (
+        <div className="flex flex-col gap-1 rounded-xl border border-coral/20 bg-paper-card/60 px-3 py-2 text-xs">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate font-semibold text-ink">
+              {conflict.planTitle}
+            </span>
+            <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+              {conflict.circleName}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-ink-muted">
+            <CalendarClock className="size-3.5" aria-hidden />
+            <span>{timeLabel}</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

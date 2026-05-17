@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Copy, Check, Link as LinkIcon, Share2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { WhatsAppIcon } from "@/components/brand/whatsapp-icon";
 import {
   Dialog,
   DialogContent,
@@ -127,6 +128,16 @@ export function InviteButton({
     }
   }
 
+  function onShareWhatsApp(invite: DisplayInvite) {
+    // `wa.me` is the WhatsApp universal link: opens the app on mobile when
+    // installed (iOS + Android both honour the deep link), falls back to
+    // WhatsApp Web in a new tab on desktop. No app-id required and no
+    // platform sniffing — same href works everywhere.
+    const text = `Join my circle on Squad: ${invite.url}`;
+    const href = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(href, "_blank", "noopener");
+  }
+
   return (
     <Dialog
       open={open}
@@ -240,6 +251,18 @@ export function InviteButton({
                 <code className="min-w-0 flex-1 truncate font-mono text-xs">
                   {invite.url}
                 </code>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => onShareWhatsApp(invite)}
+                  aria-label="Share via WhatsApp"
+                  // text-[#25D366] is WhatsApp's brand green — keeps the
+                  // affordance instantly recognisable next to the neutral
+                  // copy/share icons without a coloured background.
+                  className="text-[#25D366] hover:text-[#1da750]"
+                >
+                  <WhatsAppIcon className="size-4" />
+                </Button>
                 <Button
                   size="icon"
                   variant="ghost"
