@@ -162,8 +162,8 @@ function CompareCard({
   onVoted: (newVote: CompareSheetSide["myVote"]) => void;
 }) {
   const timeLabel = side.isApproximate
-    ? formatPlanTime(side.start, true, new Date())
-    : formatPlanTime(side.start, false, new Date());
+    ? formatPlanTime(side.start, true, new Date(), side.timeZone)
+    : formatPlanTime(side.start, false, new Date(), side.timeZone);
   return (
     <article className="flex flex-col gap-2.5 rounded-xl border border-ink/10 bg-paper-card p-3">
       <header className="flex items-baseline justify-between gap-2">

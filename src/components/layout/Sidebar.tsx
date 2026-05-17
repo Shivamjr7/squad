@@ -3,11 +3,12 @@
 import { Suspense, use } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Calendar, CalendarDays, ClipboardList, User, Users } from "lucide-react";
+import { Calendar, CalendarDays, User, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { circleDotClass } from "@/lib/circle-color";
 import { SquadLogo } from "@/components/brand/squad-logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { NotificationsBellLink } from "@/components/notifications/notifications-bell-link";
 
 const RECENT_WINDOW_MS = 30 * 60_000;
 
@@ -44,18 +45,24 @@ export type SidebarCircle = {
   memberCount: number;
 };
 
+// Four-tab bar. The previous six-item layout shipped Plans + Inbox as their
+// own tabs; those moved out of the bar to surface elsewhere:
+//   - Plans  → segmented "All plans / My plans" toggle on /c/[slug] and
+//              /c/[slug]/plans (the existing routes stay alive as the two
+//              halves of that toggle).
+//   - Inbox  → top-right bell (NotificationsBellLink) in the desktop sidebar
+//              header + the mobile top bar in AppShell.
+// Calendar is now always shown — the previous 2+ circles gate was removed.
 const NAV: {
   label: string;
   icon: typeof Calendar;
   href: (slug: string) => string;
-  key: "home" | "plans" | "calendar" | "squad" | "inbox" | "you";
+  key: "home" | "calendar" | "squad" | "you";
 }[] = [
   { key: "home", label: "Home", icon: Calendar, href: (slug) => `/c/${slug}` },
-  { key: "plans", label: "My plans", icon: ClipboardList, href: (slug) => `/c/${slug}/plans` },
   // Cross-circle — `slug` is unused but the signature stays uniform.
   { key: "calendar", label: "Calendar", icon: CalendarDays, href: () => `/calendar` },
   { key: "squad", label: "Squad", icon: Users, href: (slug) => `/c/${slug}/squad` },
-  { key: "inbox", label: "Inbox", icon: Bell, href: (slug) => `/c/${slug}/notifications` },
   { key: "you", label: "You", icon: User, href: (slug) => `/c/${slug}/you` },
 ];
 
@@ -79,9 +86,6 @@ export function Sidebar({
   unreadInboxPromise: Promise<number>;
   activityPromise: Promise<Map<string, Date>>;
 }) {
-  // Per CONVERGENCE_PLAN.md §3: the cross-circle Calendar tab only surfaces
-  // when the user is in 2+ circles — single-circle users don't need it.
-  const showCalendar = circles.length >= 2;
   return (
     <>
       {/* Desktop sidebar — sticky, full viewport height, transparent. */}
@@ -89,9 +93,9 @@ export function Sidebar({
         {/* Brandmark — anchors the authed app to the Squad identity.
             Coral dots + uppercase wordmark, same pairing as landing nav.
             Links to "/" (the Circles/Plans tabs home, the user's
-            cross-circle picker), NOT the current circle. Theme toggle
-            pinned at the right; -mr-1 cancels px-3 of the aside so the
-            toggle button sits flush. */}
+            cross-circle picker), NOT the current circle. Theme toggle +
+            notification bell pinned at the right; -mr-1 cancels px-3 of the
+            aside so the trailing controls sit flush. */}
         <div className="flex items-center justify-between gap-2 pl-2 pr-1">
           <Link
             href="/"
@@ -101,17 +105,18 @@ export function Sidebar({
             <SquadLogo className="size-[18px] text-coral" />
             SQUAD
           </Link>
-          <ThemeToggle className="-mr-1 size-7" />
+          <div className="-mr-1 flex items-center gap-0.5">
+            <Suspense fallback={<NotificationsBellLink slug={currentSlug} count={0} className="size-7" />}>
+              <BellWithBadge
+                slug={currentSlug}
+                unreadInboxPromise={unreadInboxPromise}
+              />
+            </Suspense>
+            <ThemeToggle className="size-7" />
+          </div>
         </div>
 
-        <Suspense fallback={<Nav slug={currentSlug} variant="desktop" unreadInbox={0} showCalendar={showCalendar} />}>
-          <NavWithBadge
-            slug={currentSlug}
-            variant="desktop"
-            unreadInboxPromise={unreadInboxPromise}
-            showCalendar={showCalendar}
-          />
-        </Suspense>
+        <Nav slug={currentSlug} variant="desktop" />
 
         <FavouritesSection circles={circles} />
 
@@ -126,44 +131,30 @@ export function Sidebar({
 
       {/* Mobile bottom tab bar — icon-only, the single source of truth on
           mobile. Solid bg + safe-area inset so it sits above the iOS home
-          indicator and reads cleanly on every viewport. */}
+          indicator and reads cleanly on every viewport. The notification
+          bell lives in the mobile top bar (see AppShell), not down here. */}
       <nav
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-ink/10 bg-paper-card pb-[env(safe-area-inset-bottom)] md:hidden"
       >
-        <Suspense fallback={<Nav slug={currentSlug} variant="mobile" unreadInbox={0} showCalendar={showCalendar} />}>
-          <NavWithBadge
-            slug={currentSlug}
-            variant="mobile"
-            unreadInboxPromise={unreadInboxPromise}
-            showCalendar={showCalendar}
-          />
-        </Suspense>
+        <Nav slug={currentSlug} variant="mobile" />
       </nav>
     </>
   );
 }
 
-function NavWithBadge({
+// Small wrapper so the Suspense boundary above can `use()` the
+// unreadInboxPromise without converting NotificationsBellLink itself into a
+// client+Suspense component.
+function BellWithBadge({
   slug,
-  variant,
   unreadInboxPromise,
-  showCalendar,
 }: {
   slug: string;
-  variant: "desktop" | "mobile";
   unreadInboxPromise: Promise<number>;
-  showCalendar: boolean;
 }) {
-  const unreadInbox = use(unreadInboxPromise);
-  return (
-    <Nav
-      slug={slug}
-      variant={variant}
-      unreadInbox={unreadInbox}
-      showCalendar={showCalendar}
-    />
-  );
+  const count = use(unreadInboxPromise);
+  return <NotificationsBellLink slug={slug} count={count} className="size-7" />;
 }
 
 function AroundNowAsync({
@@ -187,19 +178,11 @@ function AroundNowAsync({
 function Nav({
   slug,
   variant,
-  unreadInbox,
-  showCalendar,
 }: {
   slug: string;
   variant: "desktop" | "mobile";
-  unreadInbox: number;
-  showCalendar: boolean;
 }) {
   const pathname = usePathname() ?? "";
-  // 9+ cap — modern app convention (Instagram, WhatsApp). Anything over
-  // the cap reads the same urgency regardless of the actual integer.
-  const badgeText = unreadInbox > 9 ? "9+" : String(unreadInbox);
-  const items = showCalendar ? NAV : NAV.filter((n) => n.key !== "calendar");
   return (
     <ul
       className={cn(
@@ -208,21 +191,16 @@ function Nav({
           : "flex w-full items-center justify-around",
       )}
     >
-      {items.map((item) => {
+      {NAV.map((item) => {
         const href = item.href(slug);
         const active = pathname === href;
         const Icon = item.icon;
-        const showBadge = item.key === "inbox" && unreadInbox > 0;
         if (variant === "mobile") {
           return (
             <li key={item.label} className="flex-1">
               <Link
                 href={href}
-                aria-label={
-                  showBadge
-                    ? `${item.label}, ${unreadInbox} unread`
-                    : item.label
-                }
+                aria-label={item.label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "relative flex items-center justify-center py-3 transition-colors",
@@ -230,14 +208,6 @@ function Nav({
                 )}
               >
                 <Icon className="size-5" aria-hidden />
-                {showBadge ? (
-                  <span
-                    aria-hidden
-                    className="absolute top-1.5 right-[calc(50%-14px)] flex h-4 min-w-4 animate-badge-pulse items-center justify-center rounded-full bg-coral px-1 text-[10px] font-semibold leading-none text-white"
-                  >
-                    {badgeText}
-                  </span>
-                ) : null}
               </Link>
             </li>
           );
@@ -256,14 +226,6 @@ function Nav({
             >
               <Icon className="size-4 shrink-0" aria-hidden />
               <span className="truncate">{item.label}</span>
-              {showBadge ? (
-                <span
-                  className="ml-auto inline-flex h-4 min-w-4 animate-badge-pulse items-center justify-center rounded-full bg-coral px-1 text-[10px] font-semibold leading-none text-white"
-                  aria-hidden
-                >
-                  {badgeText}
-                </span>
-              ) : null}
             </Link>
           </li>
         );

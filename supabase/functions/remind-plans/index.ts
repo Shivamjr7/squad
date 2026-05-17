@@ -100,6 +100,7 @@ type OpenPlan = {
   title: string;
   location: string | null;
   circle_id: string;
+  time_zone: string;
 };
 
 type SlotRow = { id: string; starts_at: string };
@@ -109,7 +110,7 @@ async function processOpenTimeLocks(now: Date): Promise<number> {
   const cutoff = now.toISOString();
   const { data: openPlans, error } = await supabase
     .from("plans")
-    .select("id, title, location, circle_id")
+    .select("id, title, location, circle_id, time_zone")
     .eq("time_mode", "open")
     .eq("status", "active")
     .not("decide_by", "is", null)
@@ -177,6 +178,7 @@ async function processOpenTimeLocks(now: Date): Promise<number> {
         circleId: plan.circle_id,
         title: plan.title,
         startsAtIso: winner.starts_at,
+        timeZone: plan.time_zone,
         location: plan.location,
         trigger: "forced",
       });
@@ -202,6 +204,7 @@ type ExactPlan = {
   starts_at: string;
   location: string | null;
   circle_id: string;
+  time_zone: string;
 };
 type ProposalRow = { id: string; starts_at: string; created_at: string };
 type ProposalVoteRow = { proposal_id: string };
@@ -230,7 +233,7 @@ async function processExactTimeLocks(now: Date): Promise<number> {
   const cutoff = now.toISOString();
   const { data: exactPlans, error } = await supabase
     .from("plans")
-    .select("id, title, starts_at, location, circle_id")
+    .select("id, title, starts_at, location, circle_id, time_zone")
     .eq("time_mode", "exact")
     .eq("status", "active")
     .not("decide_by", "is", null)
@@ -328,6 +331,7 @@ async function processExactTimeLocks(now: Date): Promise<number> {
         circleId: plan.circle_id,
         title: plan.title,
         startsAtIso: canonicalStartsAt,
+        timeZone: plan.time_zone,
         location: canonicalLocation,
         trigger: "forced",
       });
@@ -350,6 +354,7 @@ type ClaimedPlan = {
   starts_at: string;
   location: string | null;
   circle_id: string;
+  time_zone: string;
 };
 
 type VoterRow = { user_id: string };
@@ -394,6 +399,10 @@ async function dispatchPlanLeaveSoon(
     circleSlug,
     circleName,
     startsAtIso: plan.starts_at,
+    // Pair with startsAtIso so the in-app feed renderer can format the
+    // "Leave in ~45m · Roxie" body row in the plan's zone, not the
+    // viewer's. See src/lib/notifications-payload.ts PlanLeaveSoonPayload.
+    timeZone: plan.time_zone,
     location: plan.location,
     minutesUntilStart,
   };
@@ -431,6 +440,9 @@ async function dispatchPlanLocked(args: {
   circleId: string;
   title: string;
   startsAtIso: string;
+  // Plan's IANA zone — composer reads this to render "It's happening — 8:30
+  // at Roxie" in the creator's hour, not the runtime's UTC default.
+  timeZone: string;
   location: string | null;
   trigger: "threshold" | "forced" | "all_voted";
 }): Promise<number> {
@@ -451,6 +463,7 @@ async function dispatchPlanLocked(args: {
     circleSlug: circle.data.slug,
     circleName: circle.data.name,
     startsAtIso: args.startsAtIso,
+    timeZone: args.timeZone,
     location: args.location,
     inCount,
     totalRecipients: audience.length,
@@ -537,7 +550,7 @@ Deno.serve(async (req) => {
     .gte("starts_at", lower)
     .lte("starts_at", upper)
     .is("leave_push_sent_at", null)
-    .select("id, title, starts_at, location, circle_id")
+    .select("id, title, starts_at, location, circle_id, time_zone")
     .returns<ClaimedPlan[]>();
 
   if (claimErr) {

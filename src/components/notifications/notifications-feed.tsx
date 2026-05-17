@@ -48,13 +48,24 @@ function payloadNumber(p: Payload | null, key: string): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-function formatShortTime(iso: string | null): string {
+// Plan's IANA zone — written into every M31+ payload alongside startsAtIso
+// (see src/lib/notifications-payload.ts). Legacy rows lack it; the renderer
+// falls back to UTC so the value at least matches what the push body shows
+// (also UTC for legacy rows). New rows render in the creator's zone.
+function payloadTimeZone(p: Payload | null): string | undefined {
+  if (!p) return undefined;
+  const v = p["timeZone"];
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+function formatShortTime(iso: string | null, timeZone: string | undefined): string {
   if (!iso) return "soon";
   try {
     return new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
+      timeZone: timeZone ?? "UTC",
     }).format(new Date(iso));
   } catch {
     return "soon";
@@ -140,7 +151,8 @@ function decode(row: NotificationRow): Decoded {
       const name = payloadString(p, "voterName") ?? "Someone";
       const seed = payloadString(p, "voterId") ?? name;
       const startsAtIso = payloadString(p, "startsAtIso");
-      const when = startsAtIso ? formatShortTime(startsAtIso) : null;
+      const tz = payloadTimeZone(p);
+      const when = startsAtIso ? formatShortTime(startsAtIso, tz) : null;
       // Quote voice: "Karan: in for 8:30" or "Karan: in for Movie night".
       return {
         actor: name,
@@ -170,7 +182,7 @@ function decode(row: NotificationRow): Decoded {
     case "plan_locked": {
       const startsAt = payloadString(p, "startsAtIso");
       const location = payloadString(p, "location");
-      const when = formatShortTime(startsAt);
+      const when = formatShortTime(startsAt, payloadTimeZone(p));
       const where = location?.trim() || planTitle;
       return {
         actor: null,
@@ -217,7 +229,7 @@ function decode(row: NotificationRow): Decoded {
       return {
         actor: null,
         actorSeed: null,
-        bodyText: `${planTitle} · Starts at ${formatShortTime(startsAt)}`,
+        bodyText: `${planTitle} · Starts at ${formatShortTime(startsAt, payloadTimeZone(p))}`,
         href,
         circleSlug: slug,
         circleName,

@@ -5,20 +5,28 @@ import { cn } from "@/lib/utils";
 import type { PlanType } from "@/lib/validation/plan";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
 
-const DAY_FMT = new Intl.DateTimeFormat("en-US", {
-  weekday: "short",
-});
-
-const DATE_FMT = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-
-const TIME_FMT = new Intl.DateTimeFormat(undefined, {
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+// All three formatters take the plan's IANA zone (plans.time_zone) so the
+// strip renders the day / date / hour the creator picked. Module-level
+// caching isn't safe here because the zone changes per plan — call them
+// fresh per render.
+function dayLabel(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone }).format(d);
+}
+function dateLabel(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone,
+  }).format(d);
+}
+function timeLabel(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  }).format(d);
+}
 
 const TYPE_BAR: Record<PlanType, string> = {
   eat: "bg-[#4CAF50]",
@@ -33,7 +41,8 @@ export type UpcomingStripPlan = {
   title: string;
   type: PlanType;
   startsAt: Date;
-  timeZone?: string;
+  // Required — see PlanCardData / format-plan-time.ts.
+  timeZone: string;
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
@@ -75,13 +84,15 @@ function UpcomingCard({
   plan: UpcomingStripPlan;
   slug: string;
 }) {
-  const dayLabel = plan.isApproximate
+  const dayText = plan.isApproximate
     ? "TBD"
-    : DAY_FMT.format(plan.startsAt).toUpperCase();
-  const dateLabel = plan.isApproximate
+    : dayLabel(plan.startsAt, plan.timeZone).toUpperCase();
+  const dateText = plan.isApproximate
     ? ""
-    : DATE_FMT.format(plan.startsAt).toUpperCase();
-  const timeLabel = plan.isApproximate ? "" : TIME_FMT.format(plan.startsAt);
+    : dateLabel(plan.startsAt, plan.timeZone).toUpperCase();
+  const timeText = plan.isApproximate
+    ? ""
+    : timeLabel(plan.startsAt, plan.timeZone);
 
   const venueLabel = plan.venueSummary
     ? plan.venueSummary.label
@@ -103,8 +114,8 @@ function UpcomingCard({
             aria-hidden
             className={cn("size-1.5 rounded-full", TYPE_BAR[plan.type])}
           />
-          <span>{dayLabel}</span>
-          {dateLabel ? <span>· {dateLabel}</span> : null}
+          <span>{dayText}</span>
+          {dateText ? <span>· {dateText}</span> : null}
         </span>
         <StatusBadge tone={status.tone} label={status.label} />
       </div>
@@ -112,7 +123,7 @@ function UpcomingCard({
         {plan.title}
       </h3>
       <div className="flex flex-col gap-0.5 text-xs text-ink-muted">
-        {timeLabel ? <span>{timeLabel}</span> : null}
+        {timeText ? <span>{timeText}</span> : null}
         {venueLabel ? (
           <span className="truncate">{venueLabel}</span>
         ) : null}

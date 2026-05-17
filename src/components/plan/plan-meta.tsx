@@ -52,7 +52,8 @@ export function PlanMeta({
   type: PlanType;
   startsAt: Date | string;
   isApproximate: boolean;
-  timeZone?: string;
+  // Required — see PlanTime. Plans always have plans.time_zone set.
+  timeZone: string;
   location: string | null;
   className?: string;
 }) {

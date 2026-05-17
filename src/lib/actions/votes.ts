@@ -43,6 +43,7 @@ export async function castVote(
       status: true,
       title: true,
       startsAt: true,
+      timeZone: true,
       timeMode: true,
     },
     where: eq(plans.id, data.planId),
@@ -132,12 +133,16 @@ export async function castVote(
     // time suffix.
     const startsAtIso =
       plan.timeMode === "exact" ? plan.startsAt.toISOString() : null;
+    // Pair timeZone with startsAtIso: when starts is null (open-mode plan
+    // before lock), zone is null too — the composer drops the time suffix.
+    const planTimeZone = plan.timeMode === "exact" ? plan.timeZone : null;
     void notifyVoteIn(
       data.planId,
       plan.circleId,
       plan.title,
       userId,
       startsAtIso,
+      planTimeZone,
     ).catch((err) => {
       console.error("[votes.castVote] notify fanout failed", err);
     });
@@ -169,6 +174,7 @@ async function notifyVoteIn(
   planTitle: string,
   voterId: string,
   startsAtIso: string | null,
+  timeZone: string | null,
 ): Promise<void> {
   const [circle, voter] = await Promise.all([
     db.query.circles.findFirst({
@@ -196,6 +202,7 @@ async function notifyVoteIn(
       voterName: voter?.displayName ?? "Someone",
       voterId,
       startsAtIso,
+      timeZone,
     },
   });
 }

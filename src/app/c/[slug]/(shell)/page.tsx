@@ -18,6 +18,7 @@ import {
 } from "@/components/plan/upcoming-strip";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { CircleViewToggle } from "@/components/circle/circle-view-toggle";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import { InstallBanner } from "@/components/pwa/install-banner";
 import { WeatherChip } from "@/components/circle/weather-chip";
@@ -320,6 +321,10 @@ export default async function CircleHomePage({
           <UserButton />
         </div>
       </header>
+
+      <div className="px-4 pt-3 sm:px-6">
+        <CircleViewToggle slug={circle.slug} active="all" />
+      </div>
 
       <CircleVotesProvider
         initialVoters={initialVoters}

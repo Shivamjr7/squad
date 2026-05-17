@@ -53,7 +53,7 @@ export function MonthView({
               key={key}
               href={`/calendar?view=day&date=${key}`}
               className={cn(
-                "flex aspect-square min-h-[52px] flex-col items-center justify-start gap-1 border-b border-r border-ink/5 px-1 py-1 text-xs transition-colors hover:bg-paper-card",
+                "flex aspect-square min-h-[52px] flex-col items-center justify-start gap-1 border-b border-r border-ink/15 px-1 py-1 text-xs transition-colors hover:bg-paper-card",
                 !inMonth && "text-ink-muted/60",
                 isToday && "bg-paper-card",
               )}

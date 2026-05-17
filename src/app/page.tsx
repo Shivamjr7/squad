@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
-import { Bell, ChevronRight } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { and, asc, count, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -47,6 +47,7 @@ import { LandingStatsTestimonial } from "@/components/landing/stats-testimonial"
 import { LandingFinalCta } from "@/components/landing/final-cta";
 import { LandingFooter } from "@/components/landing/footer";
 import { PrefetchCircle } from "@/components/home/prefetch-circle";
+import { NotificationsBellLink } from "@/components/notifications/notifications-bell-link";
 
 const FEED_LIMIT = 30;
 
@@ -131,7 +132,7 @@ async function SignedInHome({
         </Link>
         <div className="flex items-center gap-1">
           <ThemeToggle />
-          <NotificationsBellLink fallbackSlug={fallbackSlug} count={unread} />
+          <NotificationsBellLink slug={fallbackSlug} count={unread} />
           <UserButton />
         </div>
       </header>
@@ -166,10 +167,19 @@ async function SignedInHome({
 function CirclesTab({ circles: list }: { circles: UserCircle[] }) {
   if (list.length === 0) {
     // SignedInHome already redirects to /onboarding when there are no
-    // memberships, so this state is unreachable in practice — defensive.
+    // memberships, so this state is unreachable in practice — keep the
+    // explicit CTA anyway so the page doesn't dead-end if the redirect ever
+    // races a stale render.
     return (
-      <div className="rounded-2xl border border-dashed border-ink-subtle bg-paper-card/40 px-6 py-12 text-center text-sm text-ink-muted">
-        No circles yet.
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink-subtle bg-paper-card/40 px-6 py-12 text-center text-sm text-ink-muted">
+        <p>No circles yet.</p>
+        <Link
+          href="/onboarding?mode=create"
+          className="inline-flex items-center gap-1.5 rounded-full bg-coral px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-coral/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+        >
+          <Plus className="size-4" aria-hidden />
+          New circle
+        </Link>
       </div>
     );
   }
@@ -204,6 +214,33 @@ function CirclesTab({ circles: list }: { circles: UserCircle[] }) {
           </Link>
         </li>
       ))}
+      {/* "+" tile lives at the end of the grid so it reads as part of the
+          same surface as existing circles. Dashed border + ghost fill keeps
+          it visually subordinate. Routes to /onboarding with mode=create so
+          the chooser step is skipped — see app/onboarding/page.tsx. */}
+      <li>
+        <Link
+          href="/onboarding?mode=create"
+          className="group flex h-full items-center gap-3 rounded-2xl border border-dashed border-ink-subtle bg-paper-card/40 p-4 transition-colors hover:border-coral/40 hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+        >
+          <span
+            aria-hidden
+            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-dashed border-ink-subtle text-ink-muted transition-colors group-hover:border-coral group-hover:text-coral"
+          >
+            <Plus className="size-5" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate font-medium text-ink">Create a circle</span>
+            <span className="text-xs text-ink-muted">
+              Spin up a new squad
+            </span>
+          </div>
+          <ChevronRight
+            className="size-4 shrink-0 text-ink-muted transition-transform group-hover:translate-x-0.5"
+            aria-hidden
+          />
+        </Link>
+      </li>
     </ul>
   );
 }
@@ -590,38 +627,6 @@ function PlansEmpty() {
         circle.
       </p>
     </div>
-  );
-}
-
-function NotificationsBellLink({
-  fallbackSlug,
-  count,
-}: {
-  fallbackSlug: string;
-  count: number;
-}) {
-  const badge = count > 9 ? "9+" : String(count);
-  return (
-    <Link
-      href={`/c/${fallbackSlug}/notifications`}
-      aria-label={
-        count > 0 ? `Notifications, ${count} unread` : "Notifications"
-      }
-      className="relative inline-flex size-9 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-paper-card hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
-    >
-      <Bell className="size-5" aria-hidden />
-      {count > 0 ? (
-        <span
-          aria-hidden
-          className={cn(
-            "absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-coral px-1 text-[10px] font-semibold leading-none text-white",
-            "animate-badge-pulse",
-          )}
-        >
-          {badge}
-        </span>
-      ) : null}
-    </Link>
   );
 }
 

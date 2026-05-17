@@ -70,6 +70,7 @@ export async function tryAutoLock(
       status: true,
       timeMode: true,
       startsAt: true,
+      timeZone: true,
       location: true,
       lockThreshold: true,
       decideBy: true,
@@ -303,6 +304,7 @@ export async function tryAutoLock(
       circleSlug: circle.slug,
       circleName: circle.name,
       startsAt: canonicalStartsAt,
+      timeZone: plan.timeZone,
       location: canonicalLocation,
       trigger,
     });
@@ -345,6 +347,9 @@ async function dispatchPlanLockedNotification(args: {
   circleSlug: string;
   circleName: string;
   startsAt: Date;
+  // IANA zone of the plan — payloads ship this so the push body renders
+  // the locked hour in the creator's zone.
+  timeZone: string;
   location: string | null;
   trigger: "threshold" | "forced" | "all_voted";
 }): Promise<void> {
@@ -371,6 +376,7 @@ async function dispatchPlanLockedNotification(args: {
         circleSlug: args.circleSlug,
         circleName: args.circleName,
         startsAtIso: args.startsAt.toISOString(),
+        timeZone: args.timeZone,
         location: args.location,
         inCount,
         totalRecipients: audience.length,

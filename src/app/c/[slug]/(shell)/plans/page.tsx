@@ -4,6 +4,7 @@ import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { comments, plans, votes } from "@/db/schema";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { CircleViewToggle } from "@/components/circle/circle-view-toggle";
 import { MyPlansPage, type MyPlansPagePlan } from "@/components/plan/my-plans-page";
 import {
   getCircleBySlug,
@@ -146,6 +147,10 @@ export default async function MyPlansRoute({
           My plans
         </span>
       </header>
+
+      <div className="px-4 pt-3 sm:px-6">
+        <CircleViewToggle slug={circle.slug} active="mine" />
+      </div>
 
       <div className="px-4 pt-6 sm:px-6">
         <CircleVotesProvider

@@ -28,6 +28,11 @@ export type VoteInPayload = {
   // before a lock have starts_at = NULL-ish placeholder — call site sets
   // this to null and the composer drops the time suffix.
   startsAtIso: string | null;
+  // IANA zone of the plan (plans.time_zone). Required so the push body
+  // and in-app feed both render the hour the creator picked rather than
+  // the Vercel runtime's UTC default. Nullable when startsAtIso is null
+  // (open-mode plans before lock), to keep the two fields paired.
+  timeZone: string | null;
 };
 
 export type PlanCreatedPayload = {
@@ -45,6 +50,8 @@ export type PlanLockedPayload = {
   circleSlug: string;
   circleName: string;
   startsAtIso: string;
+  // IANA zone of the plan (plans.time_zone). See VoteInPayload.
+  timeZone: string;
   location: string | null;
   // Vote tally at the moment of lock — the push body reads "5 of 6 said yes"
   // from these. totalRecipients = recipient set size (or circle size if no
@@ -67,6 +74,8 @@ export type PlanLeaveSoonPayload = {
   circleSlug: string;
   circleName: string;
   startsAtIso: string;
+  // IANA zone of the plan (plans.time_zone). See VoteInPayload.
+  timeZone: string;
   location: string | null;
   // Minutes until starts_at at composition time. The 45-min cron usually
   // lands this in [40, 50]; we round to 5 for body copy ("Leave in ~45m").
@@ -123,6 +132,9 @@ export type PlanReminderPayload = {
   circleSlug: string;
   circleName: string;
   startsAtIso: string;
+  // IANA zone of the plan (plans.time_zone). See VoteInPayload. Legacy
+  // rows in the table predate this field — composer falls back to UTC.
+  timeZone?: string;
   location: string | null;
 };
 
@@ -206,16 +218,27 @@ function publicAssetPath(name: string): string {
 export const DEFAULT_ICON = publicAssetPath("icon-192.png");
 export const DEFAULT_BADGE = publicAssetPath("icon-badge.png");
 
-// Format an ISO timestamp into the "8:30" body fragment. We intentionally
-// don't include AM/PM — the push body is short and the squad context is
-// already evening-skewed. Falls back to "soon" on parse error.
-function formatBodyTime(iso: string | null | undefined): string {
+// Format an ISO timestamp into the "8:30 PM" body fragment. We intentionally
+// don't include the date — the push body is short and reminders only fire
+// for plans starting within the hour, so "8:30 PM" is unambiguous. Falls
+// back to "soon" on parse error.
+//
+// `timeZone` is the plan's IANA zone (plans.time_zone). Required for new
+// payloads; legacy plan_reminder rows in the table may lack it, so we
+// accept undefined and fall back to UTC — better than silently rendering
+// the Vercel runtime's default (also UTC, but the explicit one tells the
+// reader why this matters).
+function formatBodyTime(
+  iso: string | null | undefined,
+  timeZone: string | null | undefined,
+): string {
   if (!iso) return "soon";
   try {
     return new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
+      timeZone: timeZone ?? "UTC",
     }).format(new Date(iso));
   } catch {
     return "soon";
@@ -270,7 +293,10 @@ export function composePushPayload(
   switch (input.type) {
     case "vote_in": {
       // "Karan: in for 8:30" — quote-voice copy per NOTIFICATIONS_PLAN §3.
-      const when = formatBodyTime(input.payload.startsAtIso);
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       return {
         title: input.payload.circleName,
         body: input.payload.startsAtIso
@@ -301,7 +327,10 @@ export function composePushPayload(
 
     case "plan_locked": {
       // "It's happening — 8:30 at Roxie · 5 of 6 said yes"
-      const when = formatBodyTime(input.payload.startsAtIso);
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       const where = input.payload.location?.trim() || input.payload.planTitle;
       const tally = `${input.payload.inCount} of ${input.payload.totalRecipients} said yes`;
       const directions =
@@ -367,7 +396,12 @@ export function composePushPayload(
     case "plan_reminder": {
       // Legacy. Kept so plan_reminder rows already in the DB still render
       // a sensible push body if the edge function ever replays them.
-      const when = formatBodyTime(input.payload.startsAtIso);
+      // timeZone may be missing on pre-M31 rows — formatBodyTime falls
+      // back to UTC in that case.
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       return {
         title: input.payload.planTitle,
         body: `Starts at ${when}.`,

@@ -8,8 +8,8 @@ import { JoinViaCodeForm } from "./join-via-code-form";
 
 type Mode = "chooser" | "create" | "join";
 
-export function CircleChooser() {
-  const [mode, setMode] = useState<Mode>("chooser");
+export function CircleChooser({ initialMode = "chooser" }: { initialMode?: Mode } = {}) {
+  const [mode, setMode] = useState<Mode>(initialMode);
 
   if (mode === "create") {
     return (

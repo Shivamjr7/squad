@@ -137,6 +137,9 @@ export type VoteConflict = {
   start: Date;
   end: Date;
   venue: string | null;
+  // IANA zone of the conflicting plan (plans.time_zone). Required so the
+  // warning sheet renders the hour the creator picked, not the viewer's.
+  timeZone: string;
 };
 
 // Hard-only commitment query, scoped tightly enough to skip the broader
@@ -162,6 +165,7 @@ async function findHardConflict(
       startsAt: plans.startsAt,
       endsAt: planEnd,
       location: plans.location,
+      timeZone: plans.timeZone,
     })
     .from(plans)
     .innerJoin(circles, eq(circles.id, plans.circleId))
@@ -200,6 +204,7 @@ async function findHardConflict(
     start: row.startsAt,
     end: row.endsAt instanceof Date ? row.endsAt : new Date(row.endsAt),
     venue: row.location,
+    timeZone: row.timeZone,
   };
 }
 
@@ -250,6 +255,10 @@ export type MyHardCommitment = {
   circleName: string;
   start: Date;
   end: Date;
+  // IANA zone of the conflicting plan — needed so the create-plan conflict
+  // row in NewPlanForm renders the time the creator picked rather than the
+  // viewer's browser zone.
+  timeZone: string;
 };
 
 // Authed range query for dot decorations. Returns every hard commitment
@@ -284,6 +293,7 @@ export async function getMyHardCommitmentsInRange(
       circleName: circles.name,
       startsAt: plans.startsAt,
       endsAt: planEnd,
+      timeZone: plans.timeZone,
     })
     .from(plans)
     .innerJoin(circles, eq(circles.id, plans.circleId))
@@ -306,6 +316,7 @@ export async function getMyHardCommitmentsInRange(
     circleName: row.circleName,
     start: row.startsAt,
     end: row.endsAt instanceof Date ? row.endsAt : new Date(row.endsAt),
+    timeZone: row.timeZone,
   }));
 }
 
@@ -415,6 +426,10 @@ export type CompareSheetSide = {
   timeMode: "exact" | "open";
   status: "active" | "confirmed" | "done" | "cancelled";
   location: string | null;
+  // IANA zone of the plan (plans.time_zone). Required so each compare card
+  // renders the hour the creator picked, even when the viewer is in a
+  // different zone from one or both circles.
+  timeZone: string;
   inCount: number;
   outCount: number;
   maybeCount: number;
@@ -450,6 +465,7 @@ export async function getCompareSheetData(
       timeMode: plans.timeMode,
       status: plans.status,
       location: plans.location,
+      timeZone: plans.timeZone,
     })
     .from(plans)
     .innerJoin(circles, eq(circles.id, plans.circleId))
@@ -501,6 +517,7 @@ export async function getCompareSheetData(
       timeMode: row.timeMode,
       status: row.status,
       location: row.location,
+      timeZone: row.timeZone,
       inCount,
       outCount,
       maybeCount,

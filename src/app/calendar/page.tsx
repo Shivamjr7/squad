@@ -1,11 +1,9 @@
 import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { getCalendarCommitments } from "@/lib/actions/conflicts";
-import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import { CalendarControls } from "@/components/calendar/calendar-controls";
-import { WeekView } from "@/components/calendar/week-view";
-import { DayView } from "@/components/calendar/day-view";
-import { MonthView } from "@/components/calendar/month-view";
+import { CalendarPageClient } from "@/components/calendar/calendar-page-client";
+import type { LauncherCircle } from "@/components/calendar/calendar-create-launcher";
 import {
   formatDateParam,
   isCalendarView,
@@ -15,6 +13,12 @@ import {
   type CalendarView,
 } from "@/components/calendar/calendar-date";
 import { annotateConflicts } from "@/components/calendar/calendar-conflicts";
+import {
+  getCircleMembers,
+  getUserCircles,
+  type CircleMemberRow,
+} from "@/lib/circles";
+import type { FormMember } from "@/components/plan/new-plan-form";
 
 export const metadata = {
   title: "Calendar — Squad",
@@ -34,40 +38,57 @@ export default async function CalendarPage({
   const todayKey = formatDateParam(startOfDayLocal(new Date()));
 
   const { from, to } = windowForView(view, anchor);
-  const rawCommitments = await getCalendarCommitments(from, to);
+  // userCircles is cached at the function level (lib/circles.ts), and
+  // getCircleMembers fans out in parallel. For typical N=1-4 circles with
+  // ~5-12 members each this is a handful of small queries — cheap enough to
+  // do up-front so the create launcher's "Which circle?" + the form's
+  // recipient chips are ready on first tap with no spinner.
+  const [rawCommitments, userCircles] = await Promise.all([
+    getCalendarCommitments(from, to),
+    getUserCircles(userId),
+  ]);
   const commitments = annotateConflicts(rawCommitments);
 
-  // We only want to show the orbital empty state when there's truly nothing
-  // in the visible window — not just an empty current week. Month view's
-  // grid is meaningful even with zero plans, so we still render the grid.
-  const showEmpty =
-    commitments.length === 0 && (view === "week" || view === "day");
+  const memberRowsByCircle = await Promise.all(
+    userCircles.map(
+      (c) => getCircleMembers(c.id) as Promise<CircleMemberRow[]>,
+    ),
+  );
+
+  const launcherCircles: LauncherCircle[] = userCircles.map((c, i) => {
+    const members: FormMember[] = (memberRowsByCircle[i] ?? [])
+      .map((m) =>
+        m.user
+          ? {
+              userId: m.user.id,
+              displayName: m.user.displayName,
+              avatarUrl: m.user.avatarUrl,
+            }
+          : null,
+      )
+      .filter((m): m is FormMember => m !== null);
+    return {
+      id: c.id,
+      slug: c.slug,
+      name: c.name,
+      memberCount: c.memberCount,
+      members,
+    };
+  });
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6">
       <CalendarControls view={view} anchor={anchor} />
 
       <div className="mt-6">
-        {showEmpty ? (
-          <OrbitalEmptyState
-            title="Nothing on the books."
-            body="No plans you're in for in this window. Tap a circle to start one."
-          />
-        ) : view === "week" ? (
-          <WeekView
-            anchor={anchor}
-            commitments={commitments}
-            todayKey={todayKey}
-          />
-        ) : view === "day" ? (
-          <DayView anchor={anchor} commitments={commitments} />
-        ) : (
-          <MonthView
-            anchor={anchor}
-            commitments={commitments}
-            todayKey={todayKey}
-          />
-        )}
+        <CalendarPageClient
+          view={view}
+          anchor={anchor}
+          todayKey={todayKey}
+          commitments={commitments}
+          circles={launcherCircles}
+          currentUserId={userId}
+        />
       </div>
     </main>
   );

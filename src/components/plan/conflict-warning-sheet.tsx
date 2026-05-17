@@ -81,13 +81,15 @@ export function ConflictWarningSheet({
 }
 
 function ConflictCard({ conflict }: { conflict: VoteConflict }) {
-  // Display in the viewer's local zone; per §5 we don't reveal data from a
-  // circle the user isn't in, and getConflictForVote already enforces that
-  // via the memberships join.
+  // Render in the plan's own zone (conflict.timeZone) so the hour matches
+  // what the creator picked and what the rest of the app shows. Privacy
+  // gate per §5 is enforced by getConflictForVote's memberships join — by
+  // the time we get here, the viewer is allowed to see this plan.
   const timeLabel = formatPlanTime(
     new Date(conflict.start),
     false,
     new Date(),
+    conflict.timeZone,
   );
   return (
     <div className="flex gap-3 rounded-xl border border-coral/30 bg-coral-soft/40 p-3">
