@@ -114,9 +114,10 @@ export async function createPlan(
   }
 
   // Eligible voter count = explicit recipients if set, else full circle.
-  // We clamp the M22 lock threshold (DB default 5) to this number so a
-  // 4-person squad's plan reads "Locks when 4+ are in" instead of an
-  // unreachable "5+". For squads ≥5, the original default holds.
+  // The creator may pass an explicit lockThreshold via the "Locks when"
+  // chips in NewPlanForm; we always re-clamp on the server so a stale
+  // form value or a tampered request can't request an unreachable
+  // threshold like 7-of-4. When omitted, default to min(5, eligibleVoters).
   let eligibleVoters: number;
   if (recipientIds.length > 0) {
     eligibleVoters = recipientIds.length;
@@ -127,7 +128,11 @@ export async function createPlan(
       .where(eq(memberships.circleId, data.circleId));
     eligibleVoters = row?.n ?? 1;
   }
-  const lockThreshold = Math.max(1, Math.min(5, eligibleVoters));
+  const requestedThreshold = data.lockThreshold ?? Math.min(5, eligibleVoters);
+  const lockThreshold = Math.max(
+    1,
+    Math.min(requestedThreshold, eligibleVoters),
+  );
 
   const planId = await db.transaction(async (tx) => {
     const [plan] = await tx

@@ -35,6 +35,11 @@ type FormValues = {
   decidePreset: DecideByPreset;
   location: string;
   extraLocations: string[];
+  // Number of `in` votes that auto-locks the plan (M22). Default sits at
+  // min(5, members) per the createPlan clamp; user can shift it via the
+  // "Locks when" chips below decide-by. Encoded as a literal count even
+  // for "Everyone" — that chip just writes the current member count.
+  lockThreshold: number;
 };
 
 export type FormMember = {
@@ -219,6 +224,7 @@ export function NewPlanForm({
       decidePreset: "2h",
       location: initialLocation ?? "",
       extraLocations: [],
+      lockThreshold: Math.min(5, Math.max(2, members.length)),
     },
     mode: "onChange",
   });
@@ -228,6 +234,7 @@ export function NewPlanForm({
   const timeMode = form.watch("timeMode");
   const decidePreset = form.watch("decidePreset");
   const extraLocations = form.watch("extraLocations");
+  const lockThreshold = form.watch("lockThreshold");
 
   const startsAt = fromDateTimeLocal(startsAtLocal);
   const decideBy = computeDecideBy(decidePreset, startsAt, now);
@@ -352,6 +359,7 @@ export function NewPlanForm({
       maxPeople: null,
       recipientUserIds,
       suggestions: allSuggestions,
+      lockThreshold: values.lockThreshold,
     };
 
     const parsed = createPlanSchema.safeParse(input);
@@ -660,6 +668,63 @@ export function NewPlanForm({
                       </button>
                     </div>
                   </div>
+
+                  {/* Lock-threshold chips. Picks how many `in` votes
+                      auto-confirm the plan. "Everyone" writes the
+                      current eligible-voter count; server re-clamps so
+                      this stays valid if recipients change later. */}
+                  <div className="flex flex-col gap-2 pt-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+                      Locks when
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[2, 3, 4, 5]
+                        .filter((n) => n < selectedCount)
+                        .map((n) => {
+                          const isActive = lockThreshold === n;
+                          return (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() =>
+                                form.setValue("lockThreshold", n, {
+                                  shouldDirty: true,
+                                })
+                              }
+                              className={cn(
+                                "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                                isActive
+                                  ? "border-ink bg-ink text-paper-card"
+                                  : "border-ink/15 bg-paper-card/40 text-ink hover:bg-paper-card",
+                              )}
+                              aria-pressed={isActive}
+                            >
+                              {n}+ in
+                            </button>
+                          );
+                        })}
+                      {selectedCount >= 2 ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            form.setValue("lockThreshold", selectedCount, {
+                              shouldDirty: true,
+                            })
+                          }
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                            lockThreshold >= selectedCount
+                              ? "border-ink bg-ink text-paper-card"
+                              : "border-ink/15 bg-paper-card/40 text-ink hover:bg-paper-card",
+                          )}
+                          aria-pressed={lockThreshold >= selectedCount}
+                        >
+                          Everyone ({selectedCount})
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
                   <FormMessage />
                 </FormItem>
               )}

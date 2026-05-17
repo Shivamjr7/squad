@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import {
   SlotVotesProvider,
@@ -8,12 +8,11 @@ import {
   type InitialSlotVoter,
   type SlotMember,
 } from "@/lib/realtime/use-slot-votes";
-import { useMyHardCommitments } from "@/lib/use-hard-commitments";
 
 export type HeatmapSlot = {
   id: string;
-  // ISO string from the server. We parse client-side for label rendering so
-  // each viewer sees the slot in their own time zone.
+  // ISO string from the server. Parsed client-side so each viewer sees
+  // labels in their own time zone.
   startsAt: string;
 };
 
@@ -25,12 +24,43 @@ const HOUR_FMT = new Intl.DateTimeFormat(undefined, {
 function hourLabel(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  // "8 PM" → "8" + "PM" split for layout (only AM/PM trailing if it's a
-  // boundary). Keep it terse for narrow phone layouts.
   const parts = HOUR_FMT.formatToParts(d);
   const hour = parts.find((p) => p.type === "hour")?.value ?? "";
   const period = parts.find((p) => p.type === "dayPeriod")?.value ?? "";
   return `${hour}${period.toLowerCase()}`;
+}
+
+function bestTimeFormat(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(d);
+}
+
+// "tonight" / "today" / day-of-week label for the best-time subline,
+// based on the slot's local date relative to now.
+function whenLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "today";
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) return d.getHours() >= 17 ? "tonight" : "today";
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (
+    d.getFullYear() === tomorrow.getFullYear() &&
+    d.getMonth() === tomorrow.getMonth() &&
+    d.getDate() === tomorrow.getDate()
+  ) {
+    return "tomorrow";
+  }
+  return d.toLocaleDateString(undefined, { weekday: "long" }).toLowerCase();
 }
 
 type Props = {
@@ -40,8 +70,7 @@ type Props = {
   members: Record<string, SlotMember>;
   currentUserId: string;
   lockThreshold?: number;
-  // Each slot is fixed at 60 min (time_slots.duration_minutes default), so
-  // the dot calc uses 60 unless we surface a column later.
+  // Each slot is fixed at 60 min (time_slots.duration_minutes default).
   slotDurationMinutes?: number;
 };
 
@@ -55,151 +84,195 @@ export function TimeHeatmap(props: Props) {
       currentUserId={props.currentUserId}
     >
       <HeatmapInner
-        planId={props.planId}
         slots={props.slots}
+        members={props.members}
+        currentUserId={props.currentUserId}
         lockThreshold={props.lockThreshold ?? 5}
-        slotDurationMinutes={props.slotDurationMinutes ?? 60}
       />
     </SlotVotesProvider>
   );
 }
 
 function HeatmapInner({
-  planId,
   slots,
+  members,
+  currentUserId,
   lockThreshold,
-  slotDurationMinutes,
 }: {
-  planId: string;
   slots: HeatmapSlot[];
+  members: Record<string, SlotMember>;
+  currentUserId: string;
   lockThreshold: number;
-  slotDurationMinutes: number;
 }) {
-  const { count, isMine, toggle } = useSlotVotes();
+  const { state, toggle } = useSlotVotes();
 
-  // M32.4 — Scenario 4 (CONVERGENCE_PLAN.md §4.3). Cover the slot range
-  // ±slot-length so a commitment that brushes the first/last cell still
-  // paints a dot. Skip when there are no slots — `[null, null]` short-
-  // circuits the hook fetch.
-  const { rangeStart, rangeEnd } = useMemo(() => {
-    if (slots.length === 0) return { rangeStart: null, rangeEnd: null };
-    const times = slots
-      .map((s) => new Date(s.startsAt).getTime())
-      .filter((t) => !Number.isNaN(t));
-    if (times.length === 0) return { rangeStart: null, rangeEnd: null };
-    const padMs = slotDurationMinutes * 60_000;
-    return {
-      rangeStart: new Date(Math.min(...times) - padMs),
-      rangeEnd: new Date(Math.max(...times) + padMs * 2),
-    };
-  }, [slots, slotDurationMinutes]);
-  const { findOverlap } = useMyHardCommitments(rangeStart, rangeEnd, planId);
+  // Member order: current user first, then alphabetical by display name.
+  // Keeps "You" pinned at the top so the interactive row is the easiest
+  // one to find on a phone.
+  const memberList = useMemo(() => {
+    const list = Object.values(members);
+    list.sort((a, b) => {
+      if (a.userId === currentUserId) return -1;
+      if (b.userId === currentUserId) return 1;
+      return a.displayName.localeCompare(b.displayName);
+    });
+    return list;
+  }, [members, currentUserId]);
 
-  const { topCount, totalVoters } = useMemo(() => {
-    let top = 0;
-    const all = new Set<string>();
+  // Per-slot voter set lookup — direct read from the provider's state.
+  const isVoted = (slotId: string, userId: string) =>
+    state.slots.get(slotId)?.has(userId) ?? false;
+
+  // Best slot = highest count; ties broken by earliest start. Surfaces
+  // as the bottom "Best time" recommendation card.
+  const { bestSlot, bestCount, perSlotCount } = useMemo(() => {
+    const counts = new Map<string, number>();
+    let best: HeatmapSlot | null = null;
+    let bestC = 0;
+    let bestT = Infinity;
     for (const s of slots) {
-      const c = count(s.id);
-      if (c > top) top = c;
+      const c = state.slots.get(s.id)?.size ?? 0;
+      counts.set(s.id, c);
+      const t = new Date(s.startsAt).getTime();
+      if (c > bestC || (c === bestC && c > 0 && t < bestT)) {
+        best = s;
+        bestC = c;
+        bestT = t;
+      }
     }
-    return { topCount: top, totalVoters: all.size };
-  }, [slots, count]);
+    return { bestSlot: best, bestCount: bestC, perSlotCount: counts };
+  }, [slots, state.slots]);
+
+  const totalMembers = memberList.length;
+  const gridTemplate = `minmax(72px, auto) repeat(${slots.length}, minmax(0, 1fr))`;
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-paper-card p-5 shadow-card">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="eyebrow text-ink-muted">
-          Pick the hours you&apos;re free
+    <section className="flex flex-col gap-5 rounded-2xl bg-paper-card p-5 shadow-card">
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          When?
         </span>
-        {totalVoters > 0 ? (
-          <span className="text-[11px] text-ink-muted">{topCount} max</span>
-        ) : null}
+        <h2 className="font-serif text-3xl font-semibold leading-[1.05] text-ink">
+          When works for{" "}
+          <em className="font-instrument-serif italic text-coral">everyone</em>
+          ?
+        </h2>
+        <p className="text-sm text-ink-muted">
+          Tap each hour you&apos;re free. We&apos;ll pick the time the most
+          squad can make.
+        </p>
       </div>
 
       <div
-        role="group"
-        aria-label="Time-slot heatmap"
-        className="grid gap-1.5"
-        style={{
-          gridTemplateColumns: `repeat(${slots.length}, minmax(0, 1fr))`,
-        }}
+        role="grid"
+        aria-label="Time-consensus availability grid"
+        className="grid gap-x-2 gap-y-1.5"
+        style={{ gridTemplateColumns: gridTemplate }}
       >
-        {slots.map((slot) => {
-          const c = count(slot.id);
-          const mine = isMine(slot.id);
-          const isTop = c > 0 && c === topCount;
-          // Density 0..1 used to scale background alpha. Cap at 1 for visual.
-          const density = topCount > 0 ? Math.min(1, c / topCount) : 0;
-          const slotStart = new Date(slot.startsAt);
-          const slotEnd = new Date(
-            slotStart.getTime() + slotDurationMinutes * 60_000,
-          );
-          const conflict = Number.isNaN(slotStart.getTime())
-            ? null
-            : findOverlap(slotStart, slotEnd);
+        {/* Header row — empty corner + hour labels */}
+        <div aria-hidden />
+        {slots.map((s) => (
+          <div
+            key={`hdr-${s.id}`}
+            className="text-center text-[11px] font-semibold uppercase tracking-wider text-ink-muted"
+          >
+            {hourLabel(s.startsAt)}
+          </div>
+        ))}
+
+        {/* One row per member; current user is interactive, others read-only */}
+        {memberList.map((m) => {
+          const isOwn = m.userId === currentUserId;
+          const initial = m.displayName.trim()[0]?.toUpperCase() ?? "?";
           return (
-            <button
-              key={slot.id}
-              type="button"
-              onClick={() => toggle(slot.id)}
-              aria-pressed={mine}
-              aria-label={`${hourLabel(slot.startsAt)}, ${c} ${
-                c === 1 ? "person" : "people"
-              } free${mine ? ", you" : ""}${
-                conflict ? `, clashes with ${conflict.planTitle}` : ""
-              }`}
-              className={cn(
-                "relative flex aspect-[3/4] min-h-16 flex-col items-center justify-between rounded-lg border px-1 py-2 text-center transition-colors",
-                isTop
-                  ? "border-coral bg-coral text-white"
-                  : c > 0
-                    ? "border-ink/15 text-ink"
-                    : "border-ink/10 text-ink-muted",
-                mine && !isTop && "ring-2 ring-coral ring-offset-1 ring-offset-paper-card",
-                "disabled:cursor-not-allowed disabled:opacity-60",
-              )}
-              style={
-                !isTop && c > 0
-                  ? {
-                      backgroundColor: `color-mix(in oklch, var(--coral-soft) ${
-                        Math.round(20 + density * 60)
-                      }%, transparent)`,
-                    }
-                  : undefined
-              }
-            >
-              {conflict ? (
+            <Fragment key={m.userId}>
+              <div className="flex items-center gap-2 pr-1">
                 <span
                   aria-hidden
-                  title={`Clashes with ${conflict.planTitle}`}
                   className={cn(
-                    "absolute right-1 top-1 size-1.5 rounded-full",
-                    // On top of the filled coral cell the dot needs to be
-                    // white to stay visible.
-                    isTop ? "bg-white" : "bg-coral",
+                    "flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold uppercase text-white",
+                    isOwn ? "bg-coral" : "bg-ink/70",
                   )}
-                />
-              ) : null}
-              <span className="text-[10px] font-semibold uppercase tracking-wider">
-                {hourLabel(slot.startsAt)}
-              </span>
-              <span
-                className={cn(
-                  "font-serif text-2xl font-semibold leading-none",
-                  c === 0 && "opacity-40",
-                )}
-              >
-                {c}
-              </span>
-              <span className="text-[9px] uppercase tracking-wide opacity-80">
-                {mine ? "you ✓" : ""}
-              </span>
-            </button>
+                >
+                  {initial}
+                </span>
+                <span className="truncate text-sm font-medium text-ink">
+                  {isOwn ? "You" : m.displayName.split(" ")[0]}
+                </span>
+              </div>
+              {slots.map((s) => {
+                const voted = isVoted(s.id, m.userId);
+                const isBest = bestSlot?.id === s.id && voted;
+                return (
+                  <button
+                    key={`${m.userId}-${s.id}`}
+                    type="button"
+                    role="gridcell"
+                    aria-pressed={voted}
+                    aria-label={`${m.displayName}, ${hourLabel(s.startsAt)}, ${
+                      voted ? "free" : "not free"
+                    }`}
+                    onClick={isOwn ? () => toggle(s.id) : undefined}
+                    disabled={!isOwn}
+                    className={cn(
+                      "aspect-square min-h-8 w-full rounded-md border transition-colors",
+                      isBest
+                        ? "border-coral bg-coral"
+                        : voted
+                          ? "border-ink bg-ink"
+                          : "border-ink/10 bg-paper-card",
+                      isOwn &&
+                        "cursor-pointer hover:border-coral focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral",
+                      !isOwn && "cursor-default",
+                    )}
+                  />
+                );
+              })}
+            </Fragment>
+          );
+        })}
+
+        {/* Totals row — "FREE  1  3  5  5  4  2" */}
+        <div className="pt-3 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+          Free
+        </div>
+        {slots.map((s) => {
+          const c = perSlotCount.get(s.id) ?? 0;
+          const isBest = bestSlot?.id === s.id && c > 0;
+          return (
+            <div
+              key={`tot-${s.id}`}
+              className={cn(
+                "pt-3 text-center text-base font-semibold tabular-nums",
+                isBest ? "text-coral" : "text-ink",
+              )}
+            >
+              {c}
+            </div>
           );
         })}
       </div>
 
-      <p className="pt-1 text-center eyebrow text-ink-muted">
+      {/* Best-time recommendation card. Hidden when nobody's voted yet. */}
+      {bestSlot && bestCount > 0 ? (
+        <div className="flex items-center justify-between gap-4 rounded-xl bg-ink px-5 py-4 text-paper-card">
+          <div className="flex items-baseline gap-4">
+            <span className="font-serif text-3xl font-semibold leading-none tabular-nums">
+              {bestTimeFormat(bestSlot.startsAt)}
+            </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">
+                Best time {whenLabel(bestSlot.startsAt)}
+              </span>
+              <span className="text-xs text-paper-card/60">
+                {bestCount}/{totalMembers} free
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
         Plan locks if {lockThreshold}+ converge on one hour
       </p>
     </section>

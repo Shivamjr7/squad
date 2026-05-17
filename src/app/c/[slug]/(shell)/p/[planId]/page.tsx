@@ -721,6 +721,8 @@ export default async function PlanDetailPage({
             additions={additionsForTicker}
             shiftedFromTime={null}
             now={now}
+            canManage={canMutateStatus}
+            circleSlug={slug}
             suggestAddOnSlot={
               canParticipate ? (
                 <SuggestAddition
