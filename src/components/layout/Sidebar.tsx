@@ -102,7 +102,7 @@ export function Sidebar({
             aria-label="Squad — home"
             className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink transition-opacity hover:opacity-80"
           >
-            <SquadLogo className="size-[18px] text-ink dark:text-paper" />
+            <SquadLogo className="size-[18px] text-ink" />
             SQUAD
           </Link>
           <div className="-mr-1 flex items-center gap-0.5">
