@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse, userAgent } from "next/server";
 
 const isPublicRoute = createRouteMatcher([
   "/",
@@ -13,6 +14,19 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // Mobile users hitting / unauthenticated → straight to sign-in. Same
+  // pattern X / Instagram / LinkedIn use on mobile web: the marketing
+  // landing exists for desktop discovery, but on a phone the app's first
+  // surface should be auth.
+  if (req.nextUrl.pathname === "/") {
+    const { userId } = await auth();
+    if (!userId && userAgent(req).device.type === "mobile") {
+      const url = req.nextUrl.clone();
+      url.pathname = "/sign-in";
+      return NextResponse.redirect(url);
+    }
+  }
+
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
