@@ -49,13 +49,21 @@ function payloadNumber(p: Payload | null, key: string): number | null {
 }
 
 // Plan's IANA zone — written into every M31+ payload alongside startsAtIso
-// (see src/lib/notifications-payload.ts). Legacy rows lack it; the renderer
-// falls back to UTC so the value at least matches what the push body shows
-// (also UTC for legacy rows). New rows render in the creator's zone.
+// (see src/lib/notifications-payload.ts). When a payload is missing it (legacy
+// rows, or a stale dispatch path that didn't persist the field) we fall back
+// to the viewer's local zone rather than UTC — this surface runs in the
+// browser, so the viewer's zone is the closest reasonable approximation of
+// the plan creator's wall clock for a friend-group app where everyone tends
+// to be co-located.
 function payloadTimeZone(p: Payload | null): string | undefined {
   if (!p) return undefined;
   const v = p["timeZone"];
-  return typeof v === "string" && v.length > 0 ? v : undefined;
+  if (typeof v === "string" && v.length > 0 && v !== "UTC") return v;
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
 }
 
 function formatShortTime(iso: string | null, timeZone: string | undefined): string {
@@ -65,7 +73,7 @@ function formatShortTime(iso: string | null, timeZone: string | undefined): stri
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
-      timeZone: timeZone ?? "UTC",
+      timeZone,
     }).format(new Date(iso));
   } catch {
     return "soon";
@@ -126,10 +134,15 @@ const TYPE_ICON: Record<
 type Decoded = {
   actor: string | null;
   actorSeed: string | null;
-  // OS-quote-voice body, per M31 NOTIFICATIONS_PLAN §3 / §7. The composer
-  // intentionally returns a plain string so the feed can prefix the actor
-  // name as a separate bold span without HTML-soup.
-  bodyText: string;
+  // Primary line — bold, sets the moment. "It's happening", "Karan is in".
+  primary: string;
+  // Secondary line — muted, supplies the supporting detail (time + venue,
+  // plan title, vote tally). Null = no second line; row collapses to one
+  // text row.
+  secondary: string | null;
+  // Optional rightmost pill ("2 of 2 in", "~45m"). Renders next to the
+  // relative-time stamp when present.
+  meta: string | null;
   href: string | null;
   circleSlug: string | null;
   circleName: string | null;
@@ -153,11 +166,12 @@ function decode(row: NotificationRow): Decoded {
       const startsAtIso = payloadString(p, "startsAtIso");
       const tz = payloadTimeZone(p);
       const when = startsAtIso ? formatShortTime(startsAtIso, tz) : null;
-      // Quote voice: "Karan: in for 8:30" or "Karan: in for Movie night".
       return {
         actor: name,
         actorSeed: seed,
-        bodyText: when ? `in for ${when}` : `in for ${planTitle}`,
+        primary: `${name} is in`,
+        secondary: when ? `${when} · ${planTitle}` : planTitle,
+        meta: null,
         href,
         circleSlug: slug,
         circleName,
@@ -167,12 +181,12 @@ function decode(row: NotificationRow): Decoded {
     case "plan_created": {
       const name = payloadString(p, "creatorName") ?? "Someone";
       const seed = payloadString(p, "creatorId") ?? name;
-      // "Mira started a plan · Movie night" — body without actor; the
-      // renderer prepends "Mira" as a bold span.
       return {
         actor: name,
         actorSeed: seed,
-        bodyText: `started a plan · ${planTitle}`,
+        primary: `${name} started a plan`,
+        secondary: planTitle,
+        meta: null,
         href,
         circleSlug: slug,
         circleName,
@@ -183,11 +197,21 @@ function decode(row: NotificationRow): Decoded {
       const startsAt = payloadString(p, "startsAtIso");
       const location = payloadString(p, "location");
       const when = formatShortTime(startsAt, payloadTimeZone(p));
-      const where = location?.trim() || planTitle;
+      const where = location?.trim();
+      const inCount = payloadNumber(p, "inCount");
+      const total = payloadNumber(p, "totalRecipients");
+      const tally =
+        inCount != null && total != null ? `${inCount} of ${total} in` : null;
+      const secondaryParts = [when, where].filter(
+        (s): s is string => typeof s === "string" && s.length > 0,
+      );
       return {
         actor: null,
         actorSeed: null,
-        bodyText: `It's happening — ${when} at ${where}`,
+        primary: `It's happening · ${planTitle}`,
+        secondary:
+          secondaryParts.length > 0 ? secondaryParts.join(" · ") : null,
+        meta: tally,
         href,
         circleSlug: slug,
         circleName,
@@ -202,9 +226,9 @@ function decode(row: NotificationRow): Decoded {
       return {
         actor: null,
         actorSeed: null,
-        bodyText: where
-          ? `Leave in ~${minutes}m · ${where}`
-          : `Leave in ~${minutes}m`,
+        primary: `Leave soon · ${planTitle}`,
+        secondary: where ? `~${minutes}m to ${where}` : `~${minutes}m until you go`,
+        meta: null,
         href,
         circleSlug: slug,
         circleName,
@@ -215,7 +239,9 @@ function decode(row: NotificationRow): Decoded {
       return {
         actor: null,
         actorSeed: null,
-        bodyText: `Plan off — ${planTitle} cancelled`,
+        primary: `Plan off · ${planTitle}`,
+        secondary: "Cancelled",
+        meta: null,
         href,
         circleSlug: slug,
         circleName,
@@ -223,13 +249,13 @@ function decode(row: NotificationRow): Decoded {
       };
     }
     case "plan_reminder": {
-      // Legacy back-compat for rows already in the table — no new triggers
-      // fire this kind in M31+, but the composer keeps the shape.
       const startsAt = payloadString(p, "startsAtIso");
       return {
         actor: null,
         actorSeed: null,
-        bodyText: `${planTitle} · Starts at ${formatShortTime(startsAt, payloadTimeZone(p))}`,
+        primary: planTitle,
+        secondary: `Starts at ${formatShortTime(startsAt, payloadTimeZone(p))}`,
+        meta: null,
         href,
         circleSlug: slug,
         circleName,
@@ -241,21 +267,17 @@ function decode(row: NotificationRow): Decoded {
       const otherCircle = payloadString(p, "otherCircleName");
       const otherPlanId = payloadString(p, "otherPlanId");
       const tail = otherCircle ? ` in ${otherCircle}` : "";
-      // Compare-sheet launcher trigger — opens the side-by-side sheet
-      // automatically on the anchor plan's detail page.
       const compareHref =
         href && otherPlanId ? `${href}?conflictWith=${otherPlanId}` : href;
       return {
         actor: null,
         actorSeed: null,
-        // Mirrors push body: "Movie clashes with Drinks in Folsom Crew."
-        bodyText: `${planTitle} clashes with ${otherTitle}${tail}`,
+        primary: "Heads up — plans clash",
+        secondary: `${planTitle} ↔ ${otherTitle}${tail}`,
+        meta: null,
         href: compareHref,
         circleSlug: slug,
         circleName,
-        // Per-pair tag is informational only — conflicts never collapse in
-        // the feed (the ledger guarantees one row per pair), but matching
-        // the OS shade tag keeps the surfaces parallel.
         tag: planId ? `plan:${planId}:conflict:${row.id}` : `row:${row.id}`,
       };
     }
@@ -264,7 +286,9 @@ function decode(row: NotificationRow): Decoded {
       return {
         actor: null,
         actorSeed: null,
-        bodyText: `${planTitle} and ${otherTitle} no longer clash`,
+        primary: "Sorted",
+        secondary: `${planTitle} and ${otherTitle} no longer clash`,
+        meta: null,
         href,
         circleSlug: slug,
         circleName,
@@ -338,7 +362,7 @@ function buildFeedItems(rows: NotificationRow[]): FeedItem[] {
 // Build the collapsed-row label for a vote_in group. Unique actors only —
 // the trigger only fires on the IN edge per user, so duplicates are rare,
 // but defensive de-dupe keeps the count honest if it ever happens.
-function groupedActorLine(decoded: Decoded[]): string {
+function groupedPrimaryLine(decoded: Decoded[]): string {
   const seen = new Set<string>();
   const ordered: string[] = [];
   for (const d of decoded) {
@@ -348,17 +372,17 @@ function groupedActorLine(decoded: Decoded[]): string {
     seen.add(key);
     ordered.push(d.actor);
   }
-  if (ordered.length === 0) return "are in";
-  if (ordered.length === 1) return `is in`;
-  if (ordered.length === 2) return `and ${ordered[1]} are in`;
-  return `+ ${ordered.length - 1} others are in`;
+  if (ordered.length === 0) return "Someone is in";
+  if (ordered.length === 1) return `${ordered[0]} is in`;
+  if (ordered.length === 2) return `${ordered[0]} & ${ordered[1]} are in`;
+  return `${ordered[0]} + ${ordered.length - 1} others are in`;
 }
 
 function groupedAvatars(decoded: Decoded[]): Decoded[] {
   const seen = new Set<string>();
   const ordered: Decoded[] = [];
   for (const d of decoded) {
-    const key = d.actorSeed ?? d.actor ?? d.bodyText;
+    const key = d.actorSeed ?? d.actor ?? d.primary;
     if (seen.has(key)) continue;
     seen.add(key);
     ordered.push(d);
@@ -444,11 +468,20 @@ export function NotificationsFeed({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-ink-muted">
-          {unreadCount > 0 ? `${unreadCount} unread` : "All caught up."}
-        </p>
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-coral/15 px-2.5 py-1 text-xs font-semibold text-coral">
+              <span className="size-1.5 rounded-full bg-coral" aria-hidden />
+              {unreadCount} new
+            </span>
+          ) : (
+            <span className="text-xs font-medium text-ink-muted">
+              All caught up
+            </span>
+          )}
+        </div>
         {unreadCount > 0 ? (
           <button
             type="button"
@@ -462,7 +495,7 @@ export function NotificationsFeed({
         ) : null}
       </div>
 
-      <ul className="flex flex-col gap-1">
+      <ul className="flex flex-col gap-1.5">
         {feedItems.map((item) => {
           if (item.kind === "single") {
             return (
@@ -477,61 +510,69 @@ export function NotificationsFeed({
           const isExpanded = expanded.has(item.key);
           const anyUnread = item.rows.some((r) => r.readAt === null);
           const newest = item.rows[0]!;
+          const groupPrimary = groupedPrimaryLine(item.decoded);
+          const firstSecondary = item.decoded[0]?.secondary ?? null;
           return (
             <li key={item.key} className="flex flex-col gap-1">
               <button
                 type="button"
                 onClick={() => toggleGroup(item.key)}
                 aria-expanded={isExpanded}
-                className="block w-full rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+                className="block w-full rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
               >
                 <div
                   className={cn(
-                    "relative flex items-start gap-3 rounded-xl px-3 py-3 transition-colors",
+                    "relative flex items-start gap-3 rounded-2xl px-3 py-3 transition-colors",
                     anyUnread
-                      ? "bg-paper-card"
+                      ? "bg-paper-card ring-1 ring-ink-subtle/60"
                       : "bg-transparent hover:bg-paper-card/50",
                   )}
                 >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "pointer-events-none absolute top-1/2 left-1 size-2 -translate-y-1/2 rounded-full bg-coral transition-opacity duration-300",
-                      anyUnread ? "opacity-100" : "opacity-0",
-                    )}
-                  />
+                  {anyUnread ? (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute top-3 left-1 size-2 rounded-full bg-coral"
+                    />
+                  ) : null}
                   <GroupedAvatarStack decoded={groupedAvatars(item.decoded)} />
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex items-start gap-2">
-                      <p className="min-w-0 flex-1 text-sm leading-snug text-ink-muted">
-                        <span className="font-semibold text-ink">
-                          {item.decoded[0]?.actor ?? "Someone"}
-                        </span>{" "}
-                        {groupedActorLine(item.decoded)}
+                      <p className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink">
+                        {groupPrimary}
                       </p>
                       <span
-                        className="shrink-0 text-xs tabular-nums text-ink-muted"
+                        className="shrink-0 text-[11px] font-medium tabular-nums text-ink-muted"
                         aria-label={newest.createdAt.toLocaleString()}
                       >
                         {compactRelative(newest.createdAt)}
                       </span>
                     </div>
-                    <CircleChip
-                      slug={item.decoded[0]?.circleSlug ?? null}
-                      name={item.decoded[0]?.circleName ?? null}
-                    />
+                    {firstSecondary ? (
+                      <p className="truncate text-[13px] leading-snug text-ink-muted">
+                        {firstSecondary}
+                      </p>
+                    ) : null}
+                    <div className="mt-1 flex items-center gap-2">
+                      <CircleChip
+                        slug={item.decoded[0]?.circleSlug ?? null}
+                        name={item.decoded[0]?.circleName ?? null}
+                      />
+                      <span className="ml-auto text-[11px] font-medium text-ink-muted">
+                        {isExpanded ? "Hide" : "Show all"}
+                      </span>
+                      <ChevronDown
+                        aria-hidden
+                        className={cn(
+                          "size-3.5 text-ink-muted transition-transform duration-200",
+                          isExpanded ? "rotate-180" : "rotate-0",
+                        )}
+                      />
+                    </div>
                   </div>
-                  <ChevronDown
-                    aria-hidden
-                    className={cn(
-                      "size-4 shrink-0 self-center text-ink-muted transition-transform duration-200",
-                      isExpanded ? "rotate-180" : "rotate-0",
-                    )}
-                  />
                 </div>
               </button>
               {isExpanded ? (
-                <ul className="ml-3 flex flex-col gap-1 border-l border-ink-subtle pl-2">
+                <ul className="ml-5 flex flex-col gap-1 border-l border-ink-subtle/60 pl-3">
                   {item.rows.map((row, idx) => (
                     <FeedRow
                       key={row.id}
@@ -564,74 +605,92 @@ function FeedRow({
 }) {
   const isUnread = row.readAt === null;
   const typeIcon = TYPE_ICON[row.type];
+  const useActorAvatar = Boolean(decoded.actor && decoded.actorSeed);
   const inner = (
     <div
       className={cn(
-        "relative flex items-start gap-3 rounded-xl px-3 py-3 transition-colors",
-        compact ? "py-2" : "py-3",
-        isUnread ? "bg-paper-card" : "bg-transparent hover:bg-paper-card/50",
+        "relative flex items-start gap-3 rounded-2xl transition-colors",
+        compact ? "px-2.5 py-2" : "px-3 py-3",
+        isUnread && !compact
+          ? "bg-paper-card ring-1 ring-ink-subtle/60"
+          : compact
+            ? "bg-transparent hover:bg-paper-card/40"
+            : "bg-transparent hover:bg-paper-card/50",
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute top-1/2 left-1 size-2 -translate-y-1/2 rounded-full bg-coral transition-opacity duration-300",
-          isUnread ? "opacity-100" : "opacity-0",
-        )}
-      />
+      {isUnread && !compact ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-3 left-1 size-2 rounded-full bg-coral"
+        />
+      ) : null}
 
       <span
         className={cn(
           "flex shrink-0 items-center justify-center rounded-full",
-          compact ? "size-7" : "size-9",
-          decoded.actor && decoded.actorSeed
-            ? actorColor(decoded.actorSeed)
+          compact ? "size-7" : "size-10",
+          useActorAvatar
+            ? actorColor(decoded.actorSeed!)
             : `${typeIcon.bg} ${typeIcon.fg}`,
         )}
         aria-hidden
       >
-        {decoded.actor && decoded.actorSeed ? (
+        {useActorAvatar ? (
           <span
             className={cn(
               "font-semibold uppercase",
-              compact ? "text-[11px]" : "text-sm",
+              compact ? "text-[11px]" : "text-[15px]",
             )}
           >
             {initial(decoded.actor)}
           </span>
         ) : (
-          <typeIcon.Icon className={cn(compact ? "size-3.5" : "size-4")} />
+          <typeIcon.Icon
+            className={cn(compact ? "size-3.5" : "size-[18px]")}
+          />
         )}
       </span>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-start gap-2">
           <p
             className={cn(
-              "min-w-0 flex-1 leading-snug text-ink-muted",
-              compact ? "text-[13px]" : "text-sm",
+              "min-w-0 flex-1 font-semibold leading-snug text-ink",
+              compact ? "text-[13px]" : "text-[15px]",
             )}
           >
-            {decoded.actor ? (
-              <>
-                <span className="font-semibold text-ink">{decoded.actor}</span>
-                <span aria-hidden>: </span>
-              </>
-            ) : null}
-            {decoded.bodyText}
+            {decoded.primary}
           </p>
           <span
             className={cn(
-              "shrink-0 tabular-nums text-ink-muted",
-              compact ? "text-[11px]" : "text-xs",
+              "shrink-0 font-medium tabular-nums text-ink-muted",
+              compact ? "text-[11px]" : "text-[11px]",
             )}
             aria-label={row.createdAt.toLocaleString()}
           >
             {compactRelative(row.createdAt)}
           </span>
         </div>
-        {!compact ? (
-          <CircleChip slug={decoded.circleSlug} name={decoded.circleName} />
+        {decoded.secondary ? (
+          <p
+            className={cn(
+              "leading-snug text-ink-muted",
+              compact ? "text-[12px]" : "text-[13px]",
+              compact ? "truncate" : "",
+            )}
+          >
+            {decoded.secondary}
+          </p>
+        ) : null}
+        {!compact && (decoded.meta || (decoded.circleSlug && decoded.circleName)) ? (
+          <div className="mt-1 flex items-center gap-2">
+            <CircleChip slug={decoded.circleSlug} name={decoded.circleName} />
+            {decoded.meta ? (
+              <span className="inline-flex items-center rounded-full bg-in/12 px-2 py-0.5 text-[11px] font-semibold text-in">
+                {decoded.meta}
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </div>
@@ -644,7 +703,7 @@ function FeedRow({
           href={decoded.href}
           onClick={onClick}
           prefetch={false}
-          className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+          className="block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
         >
           {inner}
         </Link>
@@ -656,7 +715,7 @@ function FeedRow({
       <button
         type="button"
         onClick={onClick}
-        className="block w-full rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+        className="block w-full rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
       >
         {inner}
       </button>
@@ -682,14 +741,14 @@ function CircleChip({
 
 function GroupedAvatarStack({ decoded }: { decoded: Decoded[] }) {
   return (
-    <span className="flex shrink-0 -space-x-2">
+    <span className="flex shrink-0 -space-x-2.5">
       {decoded.map((d, idx) => {
         const seed = d.actorSeed ?? d.actor ?? `idx-${idx}`;
         return (
           <span
             key={seed}
             className={cn(
-              "flex size-8 items-center justify-center rounded-full text-sm font-semibold uppercase ring-2 ring-paper",
+              "flex size-10 items-center justify-center rounded-full text-[15px] font-semibold uppercase ring-2 ring-paper",
               actorColor(seed),
             )}
             aria-hidden

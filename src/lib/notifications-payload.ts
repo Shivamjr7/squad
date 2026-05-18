@@ -223,22 +223,28 @@ export const DEFAULT_BADGE = publicAssetPath("icon-badge.png");
 // for plans starting within the hour, so "8:30 PM" is unambiguous. Falls
 // back to "soon" on parse error.
 //
-// `timeZone` is the plan's IANA zone (plans.time_zone). Required for new
-// payloads; legacy plan_reminder rows in the table may lack it, so we
-// accept undefined and fall back to UTC — better than silently rendering
-// the Vercel runtime's default (also UTC, but the explicit one tells the
-// reader why this matters).
+// `timeZone` is the plan's IANA zone (plans.time_zone). When missing or set
+// to the schema default of "UTC" (which usually means it was never written),
+// we still try to render a wall-clock — Intl resolves an undefined zone to
+// the runtime's local zone, which is the right answer in the browser and a
+// no-worse answer than UTC on the server. The previous behavior of always
+// falling back to UTC produced visibly wrong times on the OS shade ("2:30 PM"
+// when the plan was at 8:00 PM IST).
 function formatBodyTime(
   iso: string | null | undefined,
   timeZone: string | null | undefined,
 ): string {
   if (!iso) return "soon";
+  const zone =
+    typeof timeZone === "string" && timeZone.length > 0 && timeZone !== "UTC"
+      ? timeZone
+      : undefined;
   try {
     return new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
-      timeZone: timeZone ?? "UTC",
+      timeZone: zone,
     }).format(new Date(iso));
   } catch {
     return "soon";
