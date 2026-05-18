@@ -5,7 +5,7 @@
 // in the network. We only fall back to a tiny offline shell when nav fails.
 //
 // Bump CACHE_VERSION whenever the precache list changes to invalidate.
-const CACHE_VERSION = "squad-shell-v4";
+const CACHE_VERSION = "squad-shell-v5";
 const PRECACHE = [
   "/offline",
   "/manifest.webmanifest",
@@ -91,9 +91,42 @@ async function cacheFirst(req) {
 // the user's push endpoint. The browser decrypts and hands us the JSON via
 // event.data. Shape (kept in sync with lib/notifications.ts):
 //   { title, body, url, tag?, image?, renotify?, vibrate?, actions?,
-//     type?, planId?, directionsUrl? }
+//     type?, planId?, directionsUrl?, startsAtIso?, timeZone? }
 // iOS Safari silently ignores image/badge/actions/vibrate — we always emit
 // the rich shape and let the OS strip what it can't render.
+//
+// Time substitution: the composer in src/lib/notifications-payload.ts cannot
+// know the recipient's local zone (it runs in the Supabase Edge Deno runtime,
+// which is always UTC), so any time-bearing body ships with a "{TIME}"
+// placeholder plus startsAtIso/timeZone in data. We format on the device
+// using the plan's IANA zone when it's a real value, otherwise the browser's
+// local zone — matching how src/components/notifications/notifications-feed.tsx
+// renders the in-app feed.
+const PUSH_TIME_PLACEHOLDER = "{TIME}";
+
+function formatPushTime(iso, timeZone) {
+  if (typeof iso !== "string" || iso.length === 0) return "soon";
+  let zone;
+  if (typeof timeZone === "string" && timeZone.length > 0 && timeZone !== "UTC") {
+    zone = timeZone;
+  } else {
+    try {
+      zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      zone = undefined;
+    }
+  }
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: zone,
+    }).format(new Date(iso));
+  } catch {
+    return "soon";
+  }
+}
 self.addEventListener("push", (event) => {
   let data = { title: "Squad", body: "" };
   try {
@@ -104,8 +137,26 @@ self.addEventListener("push", (event) => {
   }
 
   const title = typeof data.title === "string" ? data.title : "Squad";
-  const body = typeof data.body === "string" ? data.body : "";
+  let body = typeof data.body === "string" ? data.body : "";
   const url = typeof data.url === "string" ? data.url : "/";
+  // Substitute the composer's {TIME} placeholder with a device-formatted
+  // wall-clock. The composer ships startsAtIso/timeZone at the top level
+  // (older payloads) and inside data (post-fix); read both for back-compat.
+  if (body.includes(PUSH_TIME_PLACEHOLDER)) {
+    const startsAtIso =
+      (data.data && typeof data.data.startsAtIso === "string"
+        ? data.data.startsAtIso
+        : null) ??
+      (typeof data.startsAtIso === "string" ? data.startsAtIso : null);
+    const timeZone =
+      (data.data && typeof data.data.timeZone === "string"
+        ? data.data.timeZone
+        : null) ??
+      (typeof data.timeZone === "string" ? data.timeZone : null);
+    body = body.split(PUSH_TIME_PLACEHOLDER).join(
+      formatPushTime(startsAtIso, timeZone),
+    );
+  }
   const tag = typeof data.tag === "string" ? data.tag : undefined;
   const image = typeof data.image === "string" ? data.image : undefined;
   // `renotify` only takes effect alongside a `tag` — gate it.
