@@ -59,23 +59,29 @@ export function SuggestPanel({
 
   return (
     <>
+      {/* Panel surface aligned with SquadPulse + LockingSoon — same
+          rounded-3xl ink-hairline border + paper-card fill. The sparkle
+          stays coral as the only chromatic accent so the card reads as
+          "suggestion" without painting the whole panel coral. */}
       <section
         aria-labelledby="suggest-panel-heading"
-        className="rounded-3xl border border-coral/20 bg-coral-soft/40 p-4 shadow-sm"
+        className="rounded-3xl border border-ink/10 bg-paper-card p-4 shadow-sm"
       >
         <div className="flex items-center gap-2">
-          <span className="inline-flex size-7 items-center justify-center rounded-full bg-coral/20 text-coral">
+          <span className="inline-flex size-7 items-center justify-center rounded-full bg-coral-soft text-coral-strong">
             <Sparkles className="size-3.5" aria-hidden />
           </span>
           <h2
             id="suggest-panel-heading"
-            className="text-[11px] font-semibold uppercase tracking-[0.18em] text-coral"
+            className="eyebrow text-ink-muted"
           >
             Suggest a plan
           </h2>
         </div>
         <p className="mt-3 font-serif text-lg leading-tight text-ink">
-          Not sure where to go?
+          Not sure{" "}
+          <em className="font-serif italic font-normal text-coral">where</em>{" "}
+          to go?
         </p>
         <p className="mt-1 text-xs text-ink-muted">
           We&apos;ll pick a few spots nearby based on tonight&apos;s vibe.
@@ -84,7 +90,7 @@ export function SuggestPanel({
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="rounded-full bg-ink px-3 py-1.5 text-xs font-semibold text-paper-card transition hover:bg-ink/90"
+            className="rounded-full bg-ink px-3 py-1.5 text-xs font-semibold text-paper transition hover:bg-ink/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
           >
             Show me picks
           </button>

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { castVote, removeVote } from "@/lib/actions/votes";
 import { VoteButtons } from "@/components/votes/vote-buttons";
+import { offerShareImIn } from "./share-im-in";
 import type { VoteStatus } from "@/lib/validation/vote";
 import { cn } from "@/lib/utils";
 
@@ -21,9 +22,18 @@ const COMMIT_DEBOUNCE_MS = 200;
 export function FeedVoteAction({
   planId,
   initialVote,
+  // Optional context the post-commit share affordance uses to compose
+  // the share text + URL. When omitted, the share toast is suppressed.
+  shareContext,
 }: {
   planId: string;
   initialVote: VoteStatus | null;
+  shareContext?: {
+    title: string;
+    startsAt: string; // ISO
+    circleSlug: string;
+    timeZone?: string;
+  };
 }) {
   const [ownVote, setOwnVote] = useState<VoteStatus | null>(initialVote);
   const [expanded, setExpanded] = useState<boolean>(initialVote === null);
@@ -40,6 +50,18 @@ export function FeedVoteAction({
             await removeVote({ planId });
           } else {
             await castVote({ planId, status: next });
+            // Surface the share affordance only on a successful In
+            // commit, and only when the caller wired shareContext.
+            // The helper itself dedupes per session.
+            if (next === "in" && shareContext) {
+              offerShareImIn({
+                planId,
+                title: shareContext.title,
+                startsAt: shareContext.startsAt,
+                circleSlug: shareContext.circleSlug,
+                timeZone: shareContext.timeZone,
+              });
+            }
           }
         } catch (err) {
           const message =

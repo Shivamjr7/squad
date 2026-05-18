@@ -35,13 +35,29 @@
   --out-soft: oklch(0.94 0.08 28);
   --out-strong: oklch(0.46 0.20 28);
 
+  /* Voting — multi-venue / multi-option in-progress. Cool blue-violet so it
+     reads as related to coral (deciding) but visually distinct. Replaces
+     ad-hoc bg-blue-500 / text-blue-300 strings. */
+  --voting: oklch(0.58 0.18 268);
+  --voting-soft: oklch(0.93 0.06 268);
+  --voting-strong: oklch(0.42 0.18 268);
+
   /* Plan-type bars — deeper on cream so the type-color ribbons aren't
-     pastel mush. */
+     pastel mush. *-soft variants are for tinted card surfaces. */
   --type-eat: #2E8B3E;
+  --type-eat-soft: oklch(0.94 0.06 145);
   --type-play: #1F6FE8;
+  --type-play-soft: oklch(0.93 0.06 248);
   --type-chai: #E07B00;
+  --type-chai-soft: oklch(0.94 0.07 65);
   --type-stay-in: #6B7280;
+  --type-stay-in-soft: oklch(0.94 0.005 280);
   --type-other: #6B7280;
+  --type-other-soft: oklch(0.94 0.005 280);
+
+  /* Hairline — softer than --ink-subtle for internal dividers that should
+     whisper, not separate. */
+  --ink-hairline: oklch(0.88 0.015 75 / 0.4);
 
   /* Elevation — soft warm shadows on light. */
   --shadow-card:
@@ -114,11 +130,22 @@
   --out-soft: oklch(0.30 0.12 25);
   --out-strong: oklch(0.82 0.20 25);
 
+  --voting: oklch(0.74 0.18 268);
+  --voting-soft: oklch(0.30 0.10 268);
+  --voting-strong: oklch(0.84 0.16 268);
+
   --type-eat: oklch(0.72 0.18 145);
+  --type-eat-soft: oklch(0.28 0.10 145);
   --type-play: oklch(0.72 0.17 248);
+  --type-play-soft: oklch(0.28 0.10 248);
   --type-chai: oklch(0.78 0.18 65);
+  --type-chai-soft: oklch(0.30 0.10 65);
   --type-stay-in: oklch(0.66 0.012 280);
+  --type-stay-in-soft: oklch(0.28 0.008 280);
   --type-other: oklch(0.66 0.012 280);
+  --type-other-soft: oklch(0.28 0.008 280);
+
+  --ink-hairline: oklch(0.30 0.012 280 / 0.5);
 
   --shadow-card:
     0 1px 2px rgba(0, 0, 0, 0.30),
@@ -170,13 +197,22 @@
   --color-out: var(--out);
   --color-out-soft: var(--out-soft);
   --color-out-strong: var(--out-strong);
+  --color-voting: var(--voting);
+  --color-voting-soft: var(--voting-soft);
+  --color-voting-strong: var(--voting-strong);
   --color-coral-strong: var(--coral-strong);
   --color-ink-subtle: var(--ink-subtle);
+  --color-ink-hairline: var(--ink-hairline);
   --color-type-eat: var(--type-eat);
+  --color-type-eat-soft: var(--type-eat-soft);
   --color-type-play: var(--type-play);
+  --color-type-play-soft: var(--type-play-soft);
   --color-type-chai: var(--type-chai);
+  --color-type-chai-soft: var(--type-chai-soft);
   --color-type-stay-in: var(--type-stay-in);
+  --color-type-stay-in-soft: var(--type-stay-in-soft);
   --color-type-other: var(--type-other);
+  --color-type-other-soft: var(--type-other-soft);
   --color-paper-elevated: var(--paper-elevated);
   --font-serif: var(--font-serif);
   --font-instrument-serif: var(--font-instrument-serif);
@@ -191,6 +227,27 @@
   --shadow-glow-coral: var(--shadow-glow-coral);
   --animate-pulse-soft: pulse-soft 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-badge-pulse: badge-pulse 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+  /* Imminent — used by StatusCountdownPill in the final <5 min window so
+     the dot pulses harder than the calm pulse-soft. Same easing curve,
+     faster cycle, deeper minimum. */
+  --animate-pulse-urgent: pulse-urgent 0.85s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  /* Subtle textual wobble — 1px sine on translateY. Reads "alive but not
+     nagging" on the LOCKING ANY MOMENT NOW label. */
+  --animate-wobble-imminent: wobble-imminent 2.8s ease-in-out infinite;
+  /* Lock-moment "print-in" — one-shot enter animation for the Receipt
+     when the user lands on a freshly-locked plan. Drops in with a tiny
+     paper-shuffle (slide + rotate + settle). Fires once, guarded by
+     sessionStorage in the consumer. */
+  --animate-receipt-print: receipt-print 520ms cubic-bezier(0.16, 1, 0.3, 1) 1 both;
+  /* Voter-ring arrival — used by FeaturedPlanVoters when a new avatar
+     enters the stack via realtime. Spring up + scale-in + soft settle.
+     Fires once per (planId × userId) via a useRef seen-set. */
+  --animate-voter-arrive: voter-arrive 420ms cubic-bezier(0.34, 1.56, 0.64, 1) 1 both;
+  /* Vote-cast spring — applied to the chosen vote pill the moment it
+     becomes selected. Overshoot scale (1 → 1.08 → 1) reads as a
+     satisfying commit. Fires once via a transient className in
+     VoteButtons; cleared shortly after so re-renders don't re-trigger. */
+  --animate-vote-pop: vote-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1) 1 both;
 }
 
 /* A quieter pulse than Tailwind's default (which dips to 0.5 opacity) —
@@ -210,9 +267,61 @@
   100% { transform: scale(1); }
 }
 
+@keyframes pulse-urgent {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.25); }
+}
+
+@keyframes wobble-imminent {
+  0%, 100% { transform: translateY(0); }
+  25% { transform: translateY(-0.5px); }
+  75% { transform: translateY(0.5px); }
+}
+
+@keyframes receipt-print {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) rotate(-1.2deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-2px) rotate(0.4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotate(0);
+  }
+}
+
+@keyframes voter-arrive {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes vote-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse-soft,
-  .animate-badge-pulse {
+  .animate-badge-pulse,
+  .animate-pulse-urgent,
+  .animate-wobble-imminent,
+  .animate-receipt-print,
+  .animate-voter-arrive,
+  .animate-vote-pop {
     animation: none;
   }
 }

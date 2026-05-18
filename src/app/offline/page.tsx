@@ -1,3 +1,5 @@
+import { HeroQuestion } from "@/components/ui/hero-question";
+
 export const dynamic = "force-static";
 
 export default function OfflinePage() {
@@ -6,10 +8,12 @@ export default function OfflinePage() {
       <span className="eyebrow text-ink-muted">
         Offline
       </span>
-      <h1 className="font-serif text-[34px] leading-[1.1] font-semibold text-ink">
-        No signal,{" "}
-        <em className="font-serif italic font-normal text-coral">yet</em>.
-      </h1>
+      <HeroQuestion
+        prefix="No signal,"
+        accent="yet"
+        suffix="."
+        size="lg"
+      />
       <p className="text-sm text-ink-muted">
         Squad needs the network to show the latest plans. Try again once
         you&rsquo;re back online.

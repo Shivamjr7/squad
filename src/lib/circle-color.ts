@@ -3,11 +3,15 @@
 // circle always gets the same dot color across Sidebar, cross-circle feed,
 // and notification chips.
 
+// Palette is intentionally a mix of semantic tokens (coral/in/maybe/voting)
+// and a couple of Tailwind hues to keep enough chromatic variety for 6+
+// circles. Semantic tokens flip cleanly in dark mode; the two purple/
+// emerald entries already read well in both themes.
 export const CIRCLE_DOT_PALETTE = [
   "bg-coral",
   "bg-in",
   "bg-maybe",
-  "bg-blue-500",
+  "bg-voting",
   "bg-purple-500",
   "bg-emerald-500",
 ] as const;

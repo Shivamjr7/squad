@@ -119,7 +119,10 @@ export default async function YouPage({
             </p>
           </div>
 
-          <div className="flex flex-col gap-8 px-0 sm:px-0">
+          {/* Two-column on ≥md: Profile on the left, Preferences + Devices
+              on the right. Account section spans the full width below since
+              it's destructive-adjacent and deserves its own visual zone. */}
+          <div className="grid grid-cols-1 gap-8 px-0 sm:px-0 md:grid-cols-2 md:gap-x-10">
             <section className="flex flex-col gap-3">
               <h2 className="eyebrow text-ink-muted">
                 Profile
@@ -133,35 +136,44 @@ export default async function YouPage({
               </div>
             </section>
 
-            <section className="flex flex-col gap-3">
-              <h2 className="eyebrow text-ink-muted">
-                Preferences
-              </h2>
-              <ThemeToggle variant="row" />
-            </section>
+            <div className="flex flex-col gap-8">
+              <section className="flex flex-col gap-3">
+                <h2 className="eyebrow text-ink-muted">
+                  Preferences
+                </h2>
+                <div className="flex flex-col gap-2 rounded-lg border border-ink/10 bg-paper-card/40 px-4 py-3">
+                  <span className="text-xs uppercase tracking-wide text-ink-muted">
+                    Theme
+                  </span>
+                  <ThemeToggle variant="segment" />
+                </div>
+              </section>
 
-            <section className="flex flex-col gap-3">
-              <h2 className="eyebrow text-ink-muted">
-                Manage devices
-              </h2>
-              <p className="text-xs text-ink-muted">
-                Squad pings you when a new plan drops, when one&apos;s about to
-                lock, and 45 minutes before you should leave. One row per
-                device you&apos;ve enabled.
-              </p>
-              <ManageDevices devices={devices} />
-            </section>
+              <section className="flex flex-col gap-3">
+                <h2 className="eyebrow text-ink-muted">
+                  Manage devices
+                </h2>
+                <p className="text-xs text-ink-muted">
+                  Squad pings you when a new plan drops, when one&apos;s about
+                  to lock, and 45 minutes before you should leave. One row per
+                  device you&apos;ve enabled.
+                </p>
+                <ManageDevices devices={devices} />
+              </section>
+            </div>
 
-            <section className="flex flex-col gap-3">
+            <section className="flex flex-col gap-3 md:col-span-2 md:border-t md:border-ink-hairline md:pt-6">
               <h2 className="eyebrow text-ink-muted">
                 Account
               </h2>
-              <YouSignOutButton />
-              <LeaveCircleButton
-                circleId={circle.id}
-                circleName={circle.name}
-                isLastAdmin={isLastAdmin}
-              />
+              <div className="flex flex-col gap-3 md:max-w-md">
+                <YouSignOutButton />
+                <LeaveCircleButton
+                  circleId={circle.id}
+                  circleName={circle.name}
+                  isLastAdmin={isLastAdmin}
+                />
+              </div>
             </section>
           </div>
         </div>

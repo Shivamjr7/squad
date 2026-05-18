@@ -9,6 +9,7 @@ import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { planEvents, plans } from "@/db/schema";
 import { Button } from "@/components/ui/button";
+import { HeroQuestion } from "@/components/ui/hero-question";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { CircleCollisionBanner } from "@/components/plan/circle-collision-banner";
 import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
@@ -28,6 +29,10 @@ import {
   SquadPulseAsync,
   SquadPulseSkeleton,
 } from "@/components/circle/squad-pulse-async";
+import {
+  LockingSoonPanel,
+  LockingSoonSkeleton,
+} from "@/components/circle/locking-soon-panel";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import {
   getCircleBySlug,
@@ -355,13 +360,12 @@ export default async function CircleHomePage({
             </div>
 
             <div className="flex flex-col gap-2">
-              <h1 className="font-serif text-[34px] leading-[1.1] font-semibold text-ink sm:text-[40px]">
-                {heroPrefix}{" "}
-                <em className="font-serif italic font-normal text-coral">
-                  {circle.name}
-                </em>
-                ?
-              </h1>
+              <HeroQuestion
+                prefix={heroPrefix}
+                accent={circle.name}
+                suffix="?"
+                size="lg"
+              />
               <HomeSubline
                 decidingCount={decidingCount}
                 decideBy={featured?.decideBy ?? null}
@@ -381,7 +385,20 @@ export default async function CircleHomePage({
                   members={sidebarMembers}
                   nowMs={now.getTime()}
                   variant="mobile"
+                  featuredPlanId={featured?.id ?? null}
                 />
+              </Suspense>
+            </div>
+
+            {/* Mobile-only "locking soon" — surfaces cross-circle plans
+                with decideBy <2h before the featured card so the user
+                catches an imminent lock without leaving home. Returns
+                null on quiet days (no card noise). Desktop has the
+                same panel in the right aside; lg:hidden prevents
+                duplication. */}
+            <div className="lg:hidden">
+              <Suspense fallback={<LockingSoonSkeleton />}>
+                <LockingSoonPanel userId={userId} />
               </Suspense>
             </div>
 
@@ -406,8 +423,10 @@ export default async function CircleHomePage({
                       : null,
                     lastEditAt: featuredLastEditAt,
                     canEdit: isAdmin || featured.createdBy === userId,
+                    vibe: featured.vibe,
                   }}
                   slug={circle.slug}
+                  circleId={circle.id}
                   now={now}
                   mapsUrl={featuredMapsUrl}
                 />
@@ -519,7 +538,11 @@ export default async function CircleHomePage({
                 members={sidebarMembers}
                 nowMs={now.getTime()}
                 variant="desktop"
+                featuredPlanId={featured?.id ?? null}
               />
+            </Suspense>
+            <Suspense fallback={<LockingSoonSkeleton />}>
+              <LockingSoonPanel userId={userId} />
             </Suspense>
             <SuggestPanel
               circleId={circle.id}

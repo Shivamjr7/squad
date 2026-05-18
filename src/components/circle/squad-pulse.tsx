@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import type { VoteStatus } from "@/lib/validation/vote";
 
 export type PulseMember = {
   userId: string;
@@ -7,6 +8,23 @@ export type PulseMember = {
   // Last in-app activity timestamp (max of votes.voted_at and plans.created_at
   // for plans they created). Null = no recorded activity.
   lastActiveAt: Date | null;
+};
+
+// Optional per-user vote on the current featured plan. Drives a small
+// presence-dot in the corner of each pulse avatar so the strip answers
+// "who's around" AND "where they landed on tonight's plan".
+type VoteByUser = Record<string, VoteStatus>;
+
+const VOTE_DOT_CLASS: Record<VoteStatus, string> = {
+  in: "bg-in",
+  maybe: "bg-maybe",
+  out: "bg-out",
+};
+
+const VOTE_LABEL: Record<VoteStatus, string> = {
+  in: "in",
+  maybe: "maybe",
+  out: "out",
 };
 
 const DAY_MS = 86_400_000;
@@ -37,7 +55,7 @@ function colorForUser(userId: string): string {
     "bg-coral/20 text-coral",
     "bg-in/15 text-in",
     "bg-maybe/25 text-maybe",
-    "bg-blue-500/15 text-blue-300",
+    "bg-voting/15 text-voting-strong",
     "bg-purple-500/15 text-purple-300",
   ];
   let hash = 0;
@@ -50,9 +68,11 @@ function colorForUser(userId: string): string {
 export function SquadPulse({
   members,
   now,
+  voteByUser,
 }: {
   members: PulseMember[];
   now: Date;
+  voteByUser?: VoteByUser;
 }) {
   const rows = members
     .map((m) => ({
@@ -94,6 +114,7 @@ export function SquadPulse({
                 displayName={member.displayName}
                 avatarUrl={member.avatarUrl}
                 userId={member.userId}
+                voteStatus={voteByUser?.[member.userId]}
               />
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate font-medium text-ink">
@@ -114,9 +135,11 @@ export function SquadPulse({
 export function SquadPulseInline({
   members,
   now,
+  voteByUser,
 }: {
   members: PulseMember[];
   now: Date;
+  voteByUser?: VoteByUser;
 }) {
   // Show every member as a chip on mobile so the strip always renders;
   // fall back to "—" when there's no in-app activity to time-stamp.
@@ -141,21 +164,29 @@ export function SquadPulseInline({
       <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
         Pulse
       </span>
-      {rows.map(({ member, label }) => (
-        <span
-          key={member.userId}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-ink/10 bg-paper-card px-2.5 py-1 text-xs"
-          title={`${member.displayName} · ${label}`}
-        >
-          <Avatar
-            displayName={member.displayName}
-            avatarUrl={member.avatarUrl}
-            userId={member.userId}
-            size="sm"
-          />
-          <span className="text-ink-muted">{label}</span>
-        </span>
-      ))}
+      {rows.map(({ member, label }) => {
+        const vote = voteByUser?.[member.userId];
+        return (
+          <span
+            key={member.userId}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-ink/10 bg-paper-card px-2.5 py-1 text-xs"
+            title={
+              vote
+                ? `${member.displayName} · ${label} · ${VOTE_LABEL[vote]}`
+                : `${member.displayName} · ${label}`
+            }
+          >
+            <Avatar
+              displayName={member.displayName}
+              avatarUrl={member.avatarUrl}
+              userId={member.userId}
+              size="sm"
+              voteStatus={vote}
+            />
+            <span className="text-ink-muted">{label}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -165,27 +196,24 @@ function Avatar({
   avatarUrl,
   userId,
   size = "md",
+  voteStatus,
 }: {
   displayName: string;
   avatarUrl: string | null;
   userId: string;
   size?: "sm" | "md";
+  voteStatus?: VoteStatus;
 }) {
   const dim = size === "sm" ? "size-5 text-[10px]" : "size-8 text-xs";
-  if (avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarUrl}
-        alt=""
-        className={cn(
-          "shrink-0 rounded-full object-cover",
-          dim,
-        )}
-      />
-    );
-  }
-  return (
+  const dotSize = size === "sm" ? "size-1.5" : "size-2.5";
+  const inner = avatarUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={avatarUrl}
+      alt=""
+      className={cn("shrink-0 rounded-full object-cover", dim)}
+    />
+  ) : (
     <span
       className={cn(
         "flex shrink-0 items-center justify-center rounded-full font-medium uppercase",
@@ -194,6 +222,24 @@ function Avatar({
       )}
     >
       {initialFor(displayName)}
+    </span>
+  );
+
+  // No vote → plain avatar (no extra wrapper). Adding a wrapper only when
+  // we have the status dot keeps the simple case allocation-free.
+  if (!voteStatus) return inner;
+
+  return (
+    <span className={cn("relative inline-block shrink-0", dim)}>
+      {inner}
+      <span
+        aria-label={`Voted ${VOTE_LABEL[voteStatus]}`}
+        className={cn(
+          "absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-paper-card",
+          dotSize,
+          VOTE_DOT_CLASS[voteStatus],
+        )}
+      />
     </span>
   );
 }

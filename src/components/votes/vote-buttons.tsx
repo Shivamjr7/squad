@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { VoteStatus } from "@/lib/validation/vote";
 
@@ -47,10 +48,27 @@ export function VoteButtons({
   size = "default",
 }: Props) {
   const isLg = size === "lg";
+
+  // Pop the pill that just *became* selected (not the one that was
+  // already selected on first paint). Diff against a ref so the spring
+  // only fires on the moment of commit. Cleared after the animation
+  // window so re-renders don't loop it.
+  const prevSelectedRef = useRef<VoteStatus | null>(selected);
+  const [poppingStatus, setPoppingStatus] = useState<VoteStatus | null>(null);
+  useEffect(() => {
+    const prev = prevSelectedRef.current;
+    prevSelectedRef.current = selected;
+    if (selected === null || selected === prev) return;
+    setPoppingStatus(selected);
+    const t = setTimeout(() => setPoppingStatus(null), 260);
+    return () => clearTimeout(t);
+  }, [selected]);
+
   return (
     <div className="flex w-full gap-2">
       {ORDER.map((status) => {
         const isSelected = selected === status;
+        const isPopping = poppingStatus === status;
         return (
           <button
             key={status}
@@ -59,6 +77,15 @@ export function VoteButtons({
             aria-pressed={isSelected}
             onClick={(e) => {
               e.stopPropagation();
+              // Soft haptic on the commit. navigator.vibrate is no-op on
+              // desktop and on iOS Safari (no Vibration API support);
+              // wrapped in a feature check so we don't throw in SSR.
+              if (
+                typeof navigator !== "undefined" &&
+                typeof navigator.vibrate === "function"
+              ) {
+                navigator.vibrate(10);
+              }
               onChange(isSelected ? null : status);
             }}
             className={cn(
@@ -66,6 +93,7 @@ export function VoteButtons({
               isLg ? "h-12 text-base" : "h-10 text-sm",
               isSelected ? STYLE[status].selected : STYLE[status].unselected,
               STYLE[status].ring,
+              isPopping && "animate-vote-pop",
               disabled && "opacity-60",
             )}
           >

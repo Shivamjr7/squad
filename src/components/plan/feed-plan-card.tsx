@@ -7,6 +7,7 @@ import {
   formatRelativePlanTime,
 } from "@/lib/format-relative-time";
 import { FeedVoteAction } from "./feed-vote-action";
+import { Pill, type PillTone } from "@/components/ui/pill";
 import type { VoteStatus } from "@/lib/validation/vote";
 
 // effectiveStatus is derived at read time from raw status + startsAt — see
@@ -38,37 +39,24 @@ export type FeedPlanCardData = {
   // voted. Used to surface "You're In ✓" chip + Change vote link on the
   // Plans tab, or "You were In" muted label on past plans.
   myVote: VoteStatus | null;
+  // UI Phase 7 — optional one-word vibe set at create time. Renders as
+  // a small chip next to the status pill when present.
+  vibe?: string | null;
 };
 
-// Status → left-bar + pill color. Aligned to the design tokens we already
-// have so the feed reads as part of the same system as in-circle cards.
+// Status → pill tone. The left ribbon now carries CIRCLE identity (so
+// each circle's cards form a visual cohort across the cross-circle feed);
+// status is communicated by the pill + label, which is already where the
+// eye lands.
 const STATUS_STYLE: Record<
   EffectiveStatus,
-  { bar: string; pill: string; label: string }
+  { tone: PillTone; label: string }
 > = {
-  deciding: {
-    bar: "bg-maybe",
-    pill: "bg-maybe-soft text-maybe-strong",
-    label: "Deciding",
-  },
-  voting: {
-    bar: "bg-blue-500",
-    pill: "bg-blue-500/15 text-blue-300",
-    label: "Voting",
-  },
-  locked: {
-    bar: "bg-in",
-    pill: "bg-in-soft text-in-strong",
-    label: "Locked",
-  },
-  past: {
-    bar: "bg-ink-subtle",
-    pill: "bg-paper-card text-ink-muted ring-1 ring-ink-subtle",
-    label: "Past",
-  },
+  deciding: { tone: "maybe", label: "Deciding" },
+  voting: { tone: "voting", label: "Voting" },
+  locked: { tone: "in", label: "Locked" },
+  past: { tone: "muted", label: "Past" },
 };
-
-const MAX_DOTS = 10;
 
 export function FeedPlanCard({
   plan,
@@ -85,11 +73,17 @@ export function FeedPlanCard({
   const isPast = plan.effectiveStatus === "past";
   const isLocked = plan.effectiveStatus === "locked";
   const style = STATUS_STYLE[plan.effectiveStatus];
-  const dotCount = Math.min(plan.recipientCount, MAX_DOTS);
-  const overflow = Math.max(0, plan.recipientCount - MAX_DOTS);
   const timeLine = isPast
     ? formatRelativePastTime(plan.startsAt, now, plan.timeZone)
     : formatRelativePlanTime(plan.startsAt, now, plan.timeZone);
+
+  // Progress sliver math. The bar layers two fills: in-count (green) on
+  // top of voter-count (muted), so a glance reveals both how many have
+  // weighed in AND how many of those are committed-in. Falls back to a
+  // single empty track when recipientCount is 0 (defensive).
+  const recipients = Math.max(plan.recipientCount, 1);
+  const votedPct = Math.min(100, (plan.voterCount / recipients) * 100);
+  const inPct = Math.min(100, (plan.inCount / recipients) * 100);
 
   return (
     <article
@@ -104,7 +98,9 @@ export function FeedPlanCard({
         aria-hidden
         className={cn(
           "pointer-events-none absolute top-0 bottom-0 left-0 w-1",
-          style.bar,
+          // Past plans drop the chromatic ribbon — they shouldn't compete
+          // for visual weight with active circles in the feed.
+          isPast ? "bg-ink-subtle" : circleDotClass(plan.circle.id),
         )}
       />
 
@@ -137,55 +133,50 @@ export function FeedPlanCard({
           {plan.title}
         </Link>
 
-        {/* Status pill + relative time */}
+        {/* Status pill + vibe chip + relative time */}
         <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
-              style.pill,
-            )}
+          <Pill
+            tone={style.tone}
+            size="sm"
+            leading={isLocked ? <Lock className="size-3" aria-hidden /> : null}
           >
-            {isLocked ? <Lock className="size-3" aria-hidden /> : null}
             {style.label}
-          </span>
+          </Pill>
+          {plan.vibe ? (
+            <Pill tone="ink" size="sm" variant="outline">
+              {plan.vibe}
+            </Pill>
+          ) : null}
           <span className="text-sm text-ink-muted">{timeLine}</span>
         </div>
 
-        {/* Vote progress — filled dots = weighed in, empty = pending.
-            Hidden on past plans (vote section is muted per spec). */}
+        {/* Vote progress — single sliver. Background = empty recipients;
+            the wider underlay = total voters (any status); the narrower
+            top fill = "in" voters. Far more glanceable than the dot row
+            when recipientCount > 6. Hidden on past plans. */}
         {!isPast ? (
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-1.5">
             <div
-              className="flex items-center gap-1"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={plan.recipientCount}
+              aria-valuenow={plan.voterCount}
               aria-label={`${plan.voterCount} of ${plan.recipientCount} weighed in`}
+              className={cn(
+                "relative h-1.5 w-full overflow-hidden rounded-full bg-ink-subtle/40",
+                isLocked && "opacity-60",
+              )}
             >
-              {Array.from({ length: dotCount }).map((_, i) => {
-                const filled = i < plan.voterCount;
-                const isInVote = i < plan.inCount;
-                return (
-                  <span
-                    key={i}
-                    aria-hidden
-                    className={cn(
-                      "size-2 rounded-full transition-colors",
-                      filled
-                        ? isInVote
-                          ? "bg-in"
-                          : "bg-ink-muted/50"
-                        : "border border-ink-subtle bg-paper",
-                      // Mute the cluster on locked plans — the decision is
-                      // made; the live vote progress no longer needs to
-                      // pull the eye.
-                      isLocked && "opacity-60",
-                    )}
-                  />
-                );
-              })}
-              {overflow > 0 ? (
-                <span className="ml-1 text-[11px] text-ink-muted tabular-nums">
-                  +{overflow}
-                </span>
-              ) : null}
+              <span
+                aria-hidden
+                className="absolute inset-y-0 left-0 rounded-full bg-ink-muted/40 transition-[width] duration-300"
+                style={{ width: `${votedPct}%` }}
+              />
+              <span
+                aria-hidden
+                className="absolute inset-y-0 left-0 rounded-full bg-in transition-[width] duration-300"
+                style={{ width: `${inPct}%` }}
+              />
             </div>
             <span
               className={cn(
@@ -215,7 +206,16 @@ export function FeedPlanCard({
             churn (users can still flip via the plan detail page). */}
         {showVoteActions && !isPast && !isLocked ? (
           <div className="pt-1">
-            <FeedVoteAction planId={plan.id} initialVote={plan.myVote} />
+            <FeedVoteAction
+              planId={plan.id}
+              initialVote={plan.myVote}
+              shareContext={{
+                title: plan.title,
+                startsAt: plan.startsAt.toISOString(),
+                circleSlug: plan.circle.slug,
+                timeZone: plan.timeZone,
+              }}
+            />
           </div>
         ) : null}
       </div>

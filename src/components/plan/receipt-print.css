@@ -1,3 +1,45 @@
+/* Receipt paper-grain overlay — a faint SVG noise via a pseudo-element so
+   the receipt reads as a physical artifact, not a generic card. Opacity is
+   intentionally low (~3% on light, ~5% on dark since the lower base
+   lightness eats more of the texture). Sits BELOW receipt content via
+   z-index so taps and selection still hit the actual rows. The grain is a
+   single SVG <feTurbulence> filter inlined as a data: URI — no asset file
+   and no new dependency. */
+.plan-receipt {
+  position: relative;
+  isolation: isolate;
+}
+.plan-receipt::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-size: 220px 220px;
+  mix-blend-mode: multiply;
+}
+[data-theme="dark"] .plan-receipt::before {
+  opacity: 0.06;
+  mix-blend-mode: screen;
+}
+/* Lift content above the noise layer. */
+.plan-receipt > * {
+  position: relative;
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Pure-static texture stays visible — it's not animated, just decorative —
+     but we drop blend-mode quirks that some users with motion sensitivity
+     also dislike (mainly the dark-mode screen). */
+  [data-theme="dark"] .plan-receipt::before {
+    mix-blend-mode: normal;
+    opacity: 0.04;
+  }
+}
+
 /* M24 — print-friendly receipt. Strips chrome (header, comments, tabs) and
    crops to the receipt card so users can screenshot/share cleanly via
    Cmd-P → Save as PDF or the share sheet. */
@@ -28,5 +70,10 @@
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
     margin: 0 auto;
     max-width: 480px;
+  }
+  /* Grain texture is a screen-only flourish — drop it on print so the
+     output stays clean black ink on white paper. */
+  .plan-receipt::before {
+    display: none !important;
   }
 }

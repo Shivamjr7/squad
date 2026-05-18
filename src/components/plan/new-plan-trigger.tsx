@@ -40,13 +40,14 @@ export function NewPlanTrigger({
   return (
     <>
       {mode === "fab" ? (
-        // Coral FAB on dark = the brand color claiming the most important
-        // action on the page. shadow-glow-coral gives the "electric"
-        // signature without animation cost.
+        // Primary CTA on ink — matches the rest of the Sunset-Editorial
+        // primary surface (header buttons, "Mark as set", etc.). Coral
+        // stays reserved for status accents (deciding, urgency) and the
+        // italic-serif hero so the brand stays focused.
         <Button
           size="lg"
           onClick={() => setOpen(true)}
-          className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full bg-coral px-6 text-white shadow-glow-coral hover:bg-coral/90 sm:hidden"
+          className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full bg-ink px-6 text-paper shadow-float hover:bg-ink/90 sm:hidden"
         >
           <Plus className="size-5" />
           New plan
@@ -55,7 +56,7 @@ export function NewPlanTrigger({
         <Button
           size="lg"
           onClick={() => setOpen(true)}
-          className="h-12 rounded-full bg-coral px-6 text-white shadow-glow-coral hover:bg-coral/90"
+          className="h-12 rounded-full bg-ink px-6 text-paper shadow-float hover:bg-ink/90"
         >
           <Plus className="size-5" />
           Start a plan
@@ -66,7 +67,7 @@ export function NewPlanTrigger({
           size="icon"
           onClick={() => setOpen(true)}
           aria-label="New plan"
-          className="size-9 rounded-full bg-coral text-white hover:bg-coral/90"
+          className="size-9 rounded-full bg-ink text-paper hover:bg-ink/90"
         >
           <Plus className="size-5" />
         </Button>

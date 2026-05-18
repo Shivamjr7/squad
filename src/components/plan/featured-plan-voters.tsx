@@ -1,14 +1,54 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
 import { cn } from "@/lib/utils";
+import { GradientAvatar } from "@/components/ui/gradient-avatar";
 
 const AVATAR_LIMIT = 5;
 
 export function FeaturedPlanVoters({ planId }: { planId: string }) {
   const { voters } = useCircleVotes();
   const planVoters = useMemo(() => voters[planId] ?? [], [voters, planId]);
+
+  // Track which voter ids we've already seen so realtime arrivals get the
+  // one-shot spring-in animation but initial paint stays static. The
+  // first-paint set is seeded synchronously on mount; anything appearing
+  // afterwards is treated as "new".
+  const seenRef = useRef<Set<string> | null>(null);
+  const [arrivingIds, setArrivingIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (seenRef.current === null) {
+      // Initial population — seed without animating anyone.
+      seenRef.current = new Set(planVoters.map((v) => v.userId));
+      return;
+    }
+    const fresh: string[] = [];
+    for (const v of planVoters) {
+      if (!seenRef.current.has(v.userId)) {
+        fresh.push(v.userId);
+        seenRef.current.add(v.userId);
+      }
+    }
+    if (fresh.length === 0) return;
+    setArrivingIds((prev) => {
+      const next = new Set(prev);
+      for (const id of fresh) next.add(id);
+      return next;
+    });
+    // Animation runs ~420ms; clear the flag a bit after so re-renders
+    // don't restart it. Independent timeout per batch keeps the logic
+    // simple — overlapping batches naturally merge into the Set.
+    const t = setTimeout(() => {
+      setArrivingIds((prev) => {
+        const next = new Set(prev);
+        for (const id of fresh) next.delete(id);
+        return next;
+      });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [planVoters]);
 
   const counts = useMemo(() => {
     let inN = 0;
@@ -49,9 +89,11 @@ export function FeaturedPlanVoters({ planId }: { planId: string }) {
         {stack.map((v) => (
           <Avatar
             key={v.userId}
+            userId={v.userId}
             displayName={v.displayName}
             avatarUrl={v.avatarUrl}
             ring={v.status}
+            arriving={arrivingIds.has(v.userId)}
           />
         ))}
       </span>
@@ -61,38 +103,36 @@ export function FeaturedPlanVoters({ planId }: { planId: string }) {
 }
 
 function Avatar({
+  userId,
   displayName,
   avatarUrl,
   ring,
+  arriving,
 }: {
+  userId: string;
   displayName: string;
   avatarUrl: string | null;
   ring: "in" | "maybe" | "out";
+  arriving: boolean;
 }) {
-  const ringClass = cn(
-    "ring-2 ring-paper-card",
+  // Status-tone outline on top of the paper-card ring so the vote status
+  // reads at a glance on overlapping stacks.
+  const outlineClass = cn(
     ring === "in" && "outline outline-2 outline-in/30",
     ring === "maybe" && "outline outline-2 outline-maybe/40",
     ring === "out" && "outline outline-2 outline-out/30",
   );
-  if (avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarUrl}
-        alt=""
-        className={cn("size-7 rounded-full object-cover", ringClass)}
-      />
-    );
-  }
   return (
-    <span
+    <GradientAvatar
+      seed={userId}
+      name={displayName}
+      src={avatarUrl}
+      size="md"
       className={cn(
-        "flex size-7 items-center justify-center rounded-full bg-muted text-[10px] font-medium uppercase",
-        ringClass,
+        "ring-2 ring-paper-card",
+        outlineClass,
+        arriving && "animate-voter-arrive",
       )}
-    >
-      {displayName.slice(0, 1)}
-    </span>
+    />
   );
 }

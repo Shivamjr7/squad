@@ -274,6 +274,11 @@ export const plans = pgTable(
     // votes have converged on a single time + venue. Stored per-plan so
     // settings can later expose a circle-level default.
     lockThreshold: integer("lock_threshold").notNull().default(5),
+    // UI Phase 7 — optional one-word "vibe" the creator can attach to a
+    // plan (Chill / Hype / Quick / Cosy / Late, plus free text). Capped
+    // at 12 chars at the form layer; column is plain text so the cap can
+    // evolve without a migration.
+    vibe: text("vibe"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

@@ -19,7 +19,7 @@ const AVATAR_PALETTE = [
   "bg-coral/20 text-coral",
   "bg-in/15 text-in",
   "bg-maybe/25 text-maybe",
-  "bg-blue-500/15 text-blue-300",
+  "bg-voting/15 text-voting-strong",
   "bg-purple-500/15 text-purple-300",
 ];
 

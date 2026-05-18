@@ -1,9 +1,13 @@
+import { eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { votes } from "@/db/schema";
 import { getCircleMemberActivity } from "@/lib/circles";
 import {
   SquadPulse,
   SquadPulseInline,
   type PulseMember,
 } from "@/components/circle/squad-pulse";
+import type { VoteStatus } from "@/lib/validation/vote";
 
 type SidebarMember = {
   userId: string;
@@ -21,13 +25,25 @@ export async function SquadPulseAsync({
   members,
   nowMs,
   variant,
+  // Optional — when the home page has a "featured" plan to surface, we
+  // also surface each pulse member's current vote on it as a tiny corner
+  // dot on the avatar. Snapshot-at-render (the pulse is already a
+  // snapshot of "last activity"); doesn't update on realtime vote
+  // changes, but the page revalidates often enough to stay fresh.
+  featuredPlanId,
 }: {
   circleId: string;
   members: SidebarMember[];
   nowMs: number;
   variant: "desktop" | "mobile";
+  featuredPlanId?: string | null;
 }) {
-  const lastActiveByUser = await getCircleMemberActivity(circleId);
+  const [lastActiveByUser, voteByUser] = await Promise.all([
+    getCircleMemberActivity(circleId),
+    featuredPlanId
+      ? getVotesForPlan(featuredPlanId)
+      : Promise.resolve<Record<string, VoteStatus>>({}),
+  ]);
   const now = new Date(nowMs);
   const pulseMembers: PulseMember[] = members.map((m) => ({
     userId: m.userId,
@@ -39,9 +55,33 @@ export async function SquadPulseAsync({
   }));
 
   if (variant === "desktop") {
-    return <SquadPulse members={pulseMembers} now={now} />;
+    return (
+      <SquadPulse
+        members={pulseMembers}
+        now={now}
+        voteByUser={voteByUser}
+      />
+    );
   }
-  return <SquadPulseInline members={pulseMembers} now={now} />;
+  return (
+    <SquadPulseInline
+      members={pulseMembers}
+      now={now}
+      voteByUser={voteByUser}
+    />
+  );
+}
+
+async function getVotesForPlan(
+  planId: string,
+): Promise<Record<string, VoteStatus>> {
+  const rows = await db
+    .select({ userId: votes.userId, status: votes.status })
+    .from(votes)
+    .where(eq(votes.planId, planId));
+  const out: Record<string, VoteStatus> = {};
+  for (const r of rows) out[r.userId] = r.status;
+  return out;
 }
 
 // Tiny skeleton shown while SquadPulseAsync is in flight. Sized to match
