@@ -77,7 +77,7 @@ export function NewPlanTrigger({
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogContent
               showCloseButton={false}
-              className="h-[min(720px,90vh)] max-w-lg gap-0 overflow-hidden p-0"
+              className="h-[min(720px,90vh)] max-w-lg grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-0"
             >
               <DialogTitle className="sr-only">New plan</DialogTitle>
               <NewPlanForm

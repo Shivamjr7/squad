@@ -115,7 +115,7 @@ export function CalendarCreateLauncher({
             "gap-0 overflow-hidden p-0",
             chosenCircle === null
               ? "max-w-sm"
-              : "h-[min(720px,90vh)] max-w-lg",
+              : "h-[min(720px,90vh)] max-w-lg grid-rows-[minmax(0,1fr)]",
           )}
         >
           <DialogTitle className="sr-only">
