@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, type UseFormReturn } from "react-hook-form";
 import { AlertTriangle, CalendarClock, ChevronDown, Plus, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -40,7 +40,14 @@ type FormValues = {
   // "Locks when" chips below decide-by. Encoded as a literal count even
   // for "Everyone" — that chip just writes the current member count.
   lockThreshold: number;
+  // UI Phase 7 — optional one-word vibe (Chill / Hype / Quick / Cosy /
+  // Late, plus custom). Empty string = no vibe; coerced to null at the
+  // schema layer before persistence.
+  vibe: string;
 };
+
+const VIBE_PRESETS = ["Chill", "Hype", "Quick", "Cosy", "Late"] as const;
+const VIBE_MAX = 12;
 
 export type FormMember = {
   userId: string;
@@ -225,6 +232,7 @@ export function NewPlanForm({
       location: initialLocation ?? "",
       extraLocations: [],
       lockThreshold: Math.min(5, Math.max(2, members.length)),
+      vibe: "",
     },
     mode: "onChange",
   });
@@ -360,6 +368,7 @@ export function NewPlanForm({
       recipientUserIds,
       suggestions: allSuggestions,
       lockThreshold: values.lockThreshold,
+      vibe: values.vibe.trim() || null,
     };
 
     const parsed = createPlanSchema.safeParse(input);
@@ -732,6 +741,9 @@ export function NewPlanForm({
               )}
             />
 
+            <VibePicker form={form} />
+
+
             {/* Recipients */}
             <div className="flex flex-col gap-2">
               <CapsLabel>Who</CapsLabel>
@@ -963,3 +975,71 @@ function RecipientAvatar({ member }: { member: FormMember }) {
   );
 }
 
+// Optional one-word vibe picker. Five presets + a free-text input
+// hidden behind a "Custom" toggle. The active preset writes its label
+// verbatim; tapping the active preset again clears it (toggle semantics).
+function VibePicker({ form }: { form: UseFormReturn<FormValues> }) {
+  const value = form.watch("vibe");
+  const trimmed = value.trim();
+  const isPreset = VIBE_PRESETS.some((p) => p === trimmed);
+  const isCustom = trimmed.length > 0 && !isPreset;
+
+  function setVibe(next: string) {
+    form.setValue("vibe", next, { shouldDirty: true });
+  }
+  function togglePreset(label: string) {
+    setVibe(trimmed === label ? "" : label);
+  }
+
+  return (
+    <div className="flex flex-col gap-2 pt-1">
+      <CapsLabel>Vibe</CapsLabel>
+      <div className="flex flex-wrap gap-1.5">
+        {VIBE_PRESETS.map((label) => {
+          const active = trimmed === label;
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => togglePreset(label)}
+              aria-pressed={active}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                active
+                  ? "border-coral bg-coral-soft text-coral-strong"
+                  : "border-ink/15 bg-paper-card/40 text-ink hover:bg-paper-card",
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+        {isCustom ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-coral bg-coral-soft px-3 py-1.5 text-xs font-medium text-coral-strong">
+            {trimmed}
+            <button
+              type="button"
+              onClick={() => setVibe("")}
+              aria-label="Clear vibe"
+              className="ml-0.5 text-coral-strong/70 hover:text-coral-strong"
+            >
+              ×
+            </button>
+          </span>
+        ) : null}
+      </div>
+      {!isPreset ? (
+        <input
+          type="text"
+          value={isCustom ? trimmed : ""}
+          onChange={(e) =>
+            setVibe(e.target.value.slice(0, VIBE_MAX))
+          }
+          maxLength={VIBE_MAX}
+          placeholder="Custom (optional)"
+          className="rounded-md border border-ink/15 bg-paper-card/40 px-3 py-1.5 text-sm text-ink placeholder:text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+        />
+      ) : null}
+    </div>
+  );
+}

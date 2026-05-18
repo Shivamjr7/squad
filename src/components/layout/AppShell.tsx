@@ -8,6 +8,7 @@ import {
 import { SquadLogo } from "@/components/brand/squad-logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { NotificationsBellLink } from "@/components/notifications/notifications-bell-link";
+import { CommandPalette } from "@/components/search/command-palette";
 
 export function AppShell({
   currentSlug,
@@ -67,6 +68,9 @@ export function AppShell({
         </div>
         {children}
       </div>
+      {/* Globally-mounted Cmd-K palette. Owns its own keydown listener;
+          the visible component only paints when open. */}
+      <CommandPalette />
     </div>
   );
 }

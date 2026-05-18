@@ -1,5 +1,6 @@
-import { VoteSpectrumBar } from "@/components/votes/vote-spectrum-bar";
+import { DecisionCountCard } from "./decision-count-card";
 import { PlanDeepLinks } from "./plan-deeplinks";
+import { WalkingTimeHint } from "./walking-time-hint";
 
 function formatShortTime(date: Date, timeZone?: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -55,6 +56,9 @@ type Props = {
   isApproximate: boolean;
   location: string | null;
   showVenueVote: boolean; // when multi-venue voting is open, defer to that
+  lockThreshold: number;
+  recipientCount: number;
+  decideBy: Date | null;
   // M25 — deep links computed server-side (UA-aware maps URL); null when
   // the plan has no location yet (still wires calendar links).
   mapsUrl: string | null;
@@ -65,10 +69,11 @@ type Props = {
   now: Date;
 };
 
-// M24 — Variant A wrapper for the Current Plan card. Same content as the
-// pre-M24 inline render; extracted so the page can pick a variant per
-// PlanVariant. Adds the slim spectrum bar above the title row to mirror the
-// reference mock's color hint at the top of the card.
+// M31 — variant A of the plan-detail surface. Three vertically-stacked
+// cards: the live count + lock copy (DecisionCountCard), then a 2-col
+// WHEN | WHERE row of mini-cards. The deep-links cluster sits below the
+// WHERE card so Maps + calendar tap-outs stay accessible without
+// crowding the venue copy.
 export function DecisionCard({
   planId,
   startsAt,
@@ -76,6 +81,9 @@ export function DecisionCard({
   isApproximate,
   location,
   showVenueVote,
+  lockThreshold,
+  recipientCount,
+  decideBy,
   mapsUrl,
   icsUrl,
   gcalUrl,
@@ -101,25 +109,55 @@ export function DecisionCard({
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl bg-paper-card p-5 shadow-card">
-      <span className="eyebrow text-ink-muted">
-        Current plan
-      </span>
-      <div className="flex items-baseline gap-2">
-        <span className="font-serif text-5xl font-semibold leading-none text-ink">
-          {bigTime}
-        </span>
-        {smallTime ? (
-          <span className="text-sm text-ink-muted">{smallTime}</span>
-        ) : null}
+    <div className="flex flex-col gap-3">
+      <DecisionCountCard
+        planId={planId}
+        lockThreshold={lockThreshold}
+        recipientCount={recipientCount}
+        decideBy={decideBy?.toISOString() ?? null}
+        timeZone={timeZone}
+      />
+
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-2">
+        <section className="flex flex-col gap-1 rounded-2xl bg-paper-card p-4 shadow-card">
+          <span className="eyebrow text-ink-muted">When</span>
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-serif text-3xl font-semibold leading-none text-ink">
+              {bigTime}
+            </span>
+            {smallTime ? (
+              <span className="text-[11px] uppercase tracking-wide text-ink-muted">
+                {smallTime.split(" ")[0]}
+              </span>
+            ) : null}
+          </div>
+          {smallTime ? (
+            <span className="text-xs text-ink-muted">
+              {smallTime.split(" ").slice(1).join(" ")}
+            </span>
+          ) : null}
+        </section>
+
+        <section className="flex flex-col gap-1 rounded-2xl bg-paper-card p-4 shadow-card">
+          <span className="eyebrow text-ink-muted">Where</span>
+          {showVenueVote ? (
+            <span className="text-sm text-ink-muted">Voting on venue ↓</span>
+          ) : location ? (
+            <>
+              <span className="truncate text-base font-medium text-ink">
+                {location}
+              </span>
+              <WalkingTimeHint
+                location={location}
+                className="text-xs text-ink-muted"
+              />
+            </>
+          ) : (
+            <span className="text-sm text-ink-muted">Location TBD</span>
+          )}
+        </section>
       </div>
-      {showVenueVote ? (
-        <p className="text-base text-ink-muted">Voting on venue ↓</p>
-      ) : location ? (
-        <p className="text-base text-ink">{location}</p>
-      ) : (
-        <p className="text-base text-ink-muted">Location TBD</p>
-      )}
+
       {!showVenueVote ? (
         <PlanDeepLinks
           mapsUrl={mapsUrl}
@@ -129,7 +167,6 @@ export function DecisionCard({
           tone="light"
         />
       ) : null}
-      <VoteSpectrumBar planId={planId} tone="light" />
-    </section>
+    </div>
   );
 }

@@ -6,6 +6,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { circles, invites, memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
+import { GradientAvatar } from "@/components/ui/gradient-avatar";
 import { RenameCircleForm } from "@/components/settings/rename-circle-form";
 import { GenerateInviteForm } from "@/components/settings/generate-invite-form";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
@@ -45,7 +46,7 @@ export default async function SettingsPage({
       orderBy: desc(invites.createdAt),
     }),
     db.query.memberships.findMany({
-      columns: { id: true, role: true, joinedAt: true },
+      columns: { id: true, role: true, joinedAt: true, userId: true },
       where: eq(memberships.circleId, circle.id),
       orderBy: desc(memberships.joinedAt),
       with: {
@@ -125,18 +126,12 @@ export default async function SettingsPage({
               key={m.id}
               className="flex items-center gap-3 rounded-md border px-3 py-2"
             >
-              {m.user.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={m.user.avatarUrl}
-                  alt=""
-                  className="size-8 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-medium uppercase">
-                  {m.user.displayName.slice(0, 1)}
-                </div>
-              )}
+              <GradientAvatar
+                seed={m.userId}
+                name={m.user.displayName}
+                src={m.user.avatarUrl}
+                size="lg"
+              />
               <span className="flex-1 truncate text-sm">{m.user.displayName}</span>
               <span className="shrink-0 text-xs text-muted-foreground capitalize">
                 {m.role}

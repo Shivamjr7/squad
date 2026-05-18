@@ -51,8 +51,19 @@ export async function castVote(
   if (!plan) {
     throw new ActionError("NOT_FOUND", "Plan not found.");
   }
-  if (plan.status !== "active") {
-    throw new ActionError("INVALID", "This plan is no longer accepting votes.");
+  // Vote-changes are accepted while the plan is active (the normal path)
+  // AND after it locks ("confirmed"). The original design always intended
+  // post-lock drop-outs — Receipt header note: "Even after lock, voters
+  // can drop". done/cancelled remain frozen: their state is terminal and
+  // letting votes mutate would desync notifications, conflict ledgers,
+  // and the receipt audit trail.
+  if (plan.status !== "active" && plan.status !== "confirmed") {
+    throw new ActionError(
+      "INVALID",
+      plan.status === "cancelled"
+        ? "This plan was cancelled."
+        : "This plan is done.",
+    );
   }
 
   const { userId } = await requireMembership(plan.circleId);

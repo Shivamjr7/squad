@@ -8,11 +8,14 @@ import {
 } from "./calendar-date";
 import type { AnnotatedCommitment } from "./calendar-conflicts";
 
-// Standard 6×7 grid. Each cell shows up to three colored dots (one per
-// plan); conflicts wrap the dot in a coral ring. Tapping a cell opens that
-// day in Day view via a `?view=day&date=…` Link.
+// Standard 6×7 grid. Mobile (≤md) cells are too narrow for plan titles so
+// they render the historical colored-dot row. Desktop (≥md) renders up
+// to CHIP_LIMIT one-line title chips per cell (with the circle color as
+// a leading dot), falling back to "+N" overflow text. Tapping a cell
+// opens that day in Day view via `?view=day&date=…`.
 
 const DOT_LIMIT = 3;
+const CHIP_LIMIT = 3;
 const WEEKDAY_FMT = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 
 export function MonthView({
@@ -53,20 +56,26 @@ export function MonthView({
               key={key}
               href={`/calendar?view=day&date=${key}`}
               className={cn(
-                "flex aspect-square min-h-[52px] flex-col items-center justify-start gap-1 border-b border-r border-ink/15 px-1 py-1 text-xs transition-colors hover:bg-paper-card",
+                "group flex aspect-square min-h-[52px] flex-col items-center justify-start gap-1 border-b border-r border-ink-hairline px-1 py-1 text-xs transition-colors md:aspect-auto md:min-h-[110px] md:items-stretch md:px-1.5 md:py-1.5",
+                "hover:bg-paper-card",
                 !inMonth && "text-ink-muted/60",
-                isToday && "bg-paper-card",
+                // Today wash — soft coral fill so the focal cell pulls
+                // the eye without competing with plan chips for color.
+                isToday && "bg-coral-soft/60",
               )}
             >
               <span
                 className={cn(
-                  "font-serif text-sm leading-none",
-                  isToday && "text-coral",
+                  "font-serif text-sm leading-none md:self-start md:px-0.5",
+                  isToday && "font-semibold text-coral-strong",
                 )}
               >
                 {cell.getDate()}
               </span>
-              <div className="flex flex-wrap items-center justify-center gap-0.5">
+
+              {/* Mobile: colored-dot row. Cells are ~50px wide, too narrow
+                  for legible titles. */}
+              <div className="flex flex-wrap items-center justify-center gap-0.5 md:hidden">
                 {dayItems.slice(0, DOT_LIMIT).map((item) => (
                   <span
                     key={item.planId}
@@ -82,6 +91,36 @@ export function MonthView({
                 {dayItems.length > DOT_LIMIT ? (
                   <span className="text-[9px] leading-none text-ink-muted">
                     +{dayItems.length - DOT_LIMIT}
+                  </span>
+                ) : null}
+              </div>
+
+              {/* Desktop: one-line plan-title chips. Per UI/UX plan §4.5 —
+                  cells at ≥md are tall and wide enough to carry text. */}
+              <div className="mt-1 hidden min-w-0 flex-col gap-0.5 md:flex">
+                {dayItems.slice(0, CHIP_LIMIT).map((item) => (
+                  <span
+                    key={item.planId}
+                    className={cn(
+                      "flex min-w-0 items-center gap-1 truncate rounded-md bg-paper/60 px-1.5 py-0.5 text-[11px] leading-tight text-ink/90",
+                      // Hard conflict — coral outline so the user sees
+                      // "two events here" at a glance.
+                      item.conflict === "hard" && "ring-1 ring-coral/60",
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "size-1.5 shrink-0 rounded-full",
+                        item.circleColor,
+                      )}
+                    />
+                    <span className="truncate">{item.planTitle}</span>
+                  </span>
+                ))}
+                {dayItems.length > CHIP_LIMIT ? (
+                  <span className="px-1.5 text-[10px] text-ink-muted">
+                    +{dayItems.length - CHIP_LIMIT} more
                   </span>
                 ) : null}
               </div>

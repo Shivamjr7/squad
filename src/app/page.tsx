@@ -337,6 +337,7 @@ async function PlansTab({
       status: plans.status,
       decideBy: plans.decideBy,
       timeMode: plans.timeMode,
+      vibe: plans.vibe,
       circleId: circles.id,
       circleSlug: circles.slug,
       circleName: circles.name,
@@ -488,7 +489,17 @@ async function PlansTab({
       memberCountByCircle.get(r.circleId) ??
       0,
     myVote: myVoteByPlan.get(r.id) ?? null,
+    vibe: r.vibe,
   }));
+
+  // Compute the "needs my vote" count BEFORE we narrow by the user's active
+  // filters — the chip counter should always reflect total unvoted plans
+  // across the user's accessible feed, not the (possibly filtered) view.
+  const needsVoteCount = decorated.filter(
+    (p) =>
+      p.myVote === null &&
+      (p.effectiveStatus === "deciding" || p.effectiveStatus === "voting"),
+  ).length;
 
   // Apply filters (circle → time → needsVote → locked).
   if (circleFilter) {
@@ -530,7 +541,7 @@ async function PlansTab({
 
   return (
     <div className="flex flex-col gap-4">
-      <PlansFilters circles={filtersList} />
+      <PlansFilters circles={filtersList} needsVoteCount={needsVoteCount} />
 
       {!hasUpcoming && !hasPast ? (
         <PlansEmpty />
@@ -584,11 +595,19 @@ function BucketSection({
   label: string;
   children: React.ReactNode;
 }) {
+  // Sticky day eyebrow under the (already-sticky) filter strip. top-[3.25rem]
+  // ≈ the filter-strip height; backdrop-blur + bg-paper/70 keeps the cards
+  // legibly readable as they scroll under the label.
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
+      <div
+        className={cn(
+          "sticky top-[3.25rem] z-10 -mx-4 flex items-center gap-2 bg-paper/70 px-4 py-1.5 backdrop-blur",
+          "supports-[backdrop-filter]:bg-paper/60 sm:-mx-6 sm:top-[3.5rem] sm:px-6",
+        )}
+      >
         <span className="eyebrow text-ink-muted">{label}</span>
-        <span className="h-px flex-1 bg-ink-subtle" aria-hidden />
+        <span className="h-px flex-1 bg-ink-hairline" aria-hidden />
       </div>
       {children}
     </section>

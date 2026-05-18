@@ -10,6 +10,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { GradientAvatar } from "@/components/ui/gradient-avatar";
 import { cn } from "@/lib/utils";
 import { addPlanRecipients } from "@/lib/actions/plan-recipients";
 
@@ -207,24 +208,13 @@ function Avatar({
   member: RecipientCircleMember;
   size?: "sm" | "lg";
 }) {
-  const dim = size === "lg" ? "size-9" : "size-5";
-  const text = size === "lg" ? "text-sm" : "text-[9px]";
-  if (member.avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={member.avatarUrl}
-        alt=""
-        className={`${dim} shrink-0 rounded-full object-cover`}
-      />
-    );
-  }
   return (
-    <span
-      className={`${dim} shrink-0 flex items-center justify-center rounded-full bg-ink/10 ${text} font-semibold uppercase text-ink`}
-    >
-      {member.displayName.slice(0, 1)}
-    </span>
+    <GradientAvatar
+      seed={member.userId}
+      name={member.displayName}
+      src={member.avatarUrl}
+      size={size === "lg" ? "lg" : "xs"}
+    />
   );
 }
 

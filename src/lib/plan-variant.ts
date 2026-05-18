@@ -2,16 +2,14 @@
 // page passes a freshly-snapped `now` so the variant is deterministic per
 // request (and shifts on the next refresh once thresholds cross).
 //
-// M31.8 — confirmed plans render the new "It's happening" surface
-// (`its-happening`). The receipt skin stays for `done` plans, which are
-// the read-only post-mortem of a locked-then-finished plan and still want
-// the activity log + RVD count.
+// M31 — three skins, matching the reference mock A/B/C exactly:
+//   - decision   → active plan, decideBy not in countdown range
+//   - live-ticker → active plan with decideBy inside the 30-min window
+//   - receipt    → any settled state (confirmed / done / cancelled)
+// The pre-M31 `its-happening` route is retired — confirmed plans now
+// land on the cream paper Receipt skin per the mock.
 
-export type PlanVariant =
-  | "decision"
-  | "live-ticker"
-  | "its-happening"
-  | "receipt";
+export type PlanVariant = "decision" | "live-ticker" | "receipt";
 
 // 30 minutes — when the deadline is closer than this AND the plan is still
 // unlocked, switch to the dark live-ticker skin. Tuned per the M24 spec.
@@ -24,8 +22,13 @@ export function getPlanVariant(
   },
   now: Date,
 ): PlanVariant {
-  if (plan.status === "confirmed") return "its-happening";
-  if (plan.status === "done") return "receipt";
+  if (
+    plan.status === "confirmed" ||
+    plan.status === "done" ||
+    plan.status === "cancelled"
+  ) {
+    return "receipt";
+  }
   if (plan.status === "active" && plan.decideBy) {
     const remaining = plan.decideBy.getTime() - now.getTime();
     if (remaining > 0 && remaining < TICKER_THRESHOLD_MS) {

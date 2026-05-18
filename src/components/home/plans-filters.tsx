@@ -23,7 +23,15 @@ const TIME_LABELS: Record<TimeFilter, string> = {
 // Plans-tab filter strip. URL-driven (no local state) so the active
 // filter survives back/forward navigation and shareable links work. All
 // filters are additive — Clear filters strips them all at once.
-export function PlansFilters({ circles }: { circles: FilterCircle[] }) {
+export function PlansFilters({
+  circles,
+  needsVoteCount = 0,
+}: {
+  circles: FilterCircle[];
+  // Total unvoted plans across the feed (before any filter narrows it).
+  // Renders as a counter chip on the "Needs my vote" toggle when > 0.
+  needsVoteCount?: number;
+}) {
   const router = useRouter();
   const pathname = usePathname() ?? "/";
   const searchParams = useSearchParams();
@@ -96,15 +104,21 @@ export function PlansFilters({ circles }: { circles: FilterCircle[] }) {
           absolutely-positioned dropdown panels below the row. Wrapping
           keeps every pill reachable and dropdowns visible at any width. */}
       <div className="flex flex-wrap items-center gap-2">
+        {/* "Needs my vote" leads — it's the most-actioned filter, and the
+            counter pulls the eye to it before any other choice. */}
+        <Toggle
+          active={needsVote}
+          onClick={toggleNeeds}
+          count={needsVoteCount}
+        >
+          Needs my vote
+        </Toggle>
         <CircleDropdown
           circles={circles}
           activeCircle={activeCircle ?? null}
           onChange={setCircle}
         />
         <TimeDropdown active={time} onChange={setTime} />
-        <Toggle active={needsVote} onClick={toggleNeeds}>
-          Needs my vote
-        </Toggle>
         <Toggle active={locked} onClick={toggleLocked}>
           Locked
         </Toggle>
@@ -127,11 +141,15 @@ function Toggle({
   active,
   onClick,
   children,
+  count,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  /** Optional counter chip rendered after the label (only when > 0). */
+  count?: number;
 }) {
+  const showCount = typeof count === "number" && count > 0;
   return (
     <button
       type="button"
@@ -146,6 +164,19 @@ function Toggle({
     >
       {active ? <Check className="size-3" aria-hidden /> : null}
       {children}
+      {showCount ? (
+        <span
+          aria-label={`${count} need vote`}
+          className={cn(
+            "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums leading-none",
+            active
+              ? "bg-coral text-white"
+              : "bg-coral text-white",
+          )}
+        >
+          {count! > 9 ? "9+" : count}
+        </span>
+      ) : null}
     </button>
   );
 }

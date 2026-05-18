@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Edit, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { formatDecideBy } from "@/lib/format-decide-by";
 import { isPastPlan } from "@/lib/effective-status";
+import { circleDotClass } from "@/lib/circle-color";
 import { FeaturedPlanVoters } from "./featured-plan-voters";
-import { PlanVotes } from "@/components/votes/plan-votes";
+import { Pill, type PillTone } from "@/components/ui/pill";
 
 export type FeaturedPlanData = {
   id: string;
@@ -32,20 +32,27 @@ export type FeaturedPlanData = {
   lastEditAt?: Date | null;
   // True if the viewer is allowed to edit the plan (creator or circle admin).
   canEdit?: boolean;
+  // UI Phase 7 — optional one-word vibe; rendered as a chip next to the
+  // status pill when present.
+  vibe?: string | null;
 };
 
 export function FeaturedPlanCard({
   plan,
   slug,
   now,
-  // M25 — UA-aware Maps URL computed by the server. Null when there's no
-  // canonical location to point at (yet).
-  mapsUrl,
+  circleId,
 }: {
   plan: FeaturedPlanData;
   slug: string;
   now: Date;
-  mapsUrl: string | null;
+  // Drives the left-edge circle-identity ribbon. Optional for back-compat
+  // with any caller not yet passing it (renders without the ribbon then).
+  circleId?: string;
+  // Accepted for back-compat with existing callers; the M31 redesign
+  // moved the "Open in Maps" affordance off the home card and onto the
+  // plan-detail surface, so the prop is intentionally ignored here.
+  mapsUrl?: string | null;
 }) {
   const isConfirmed = plan.status === "confirmed";
   // Past plans never show vote UI / calendar / change-vote — see Fix 3 /
@@ -63,15 +70,15 @@ export function FeaturedPlanCard({
       ? formatDecideBy(plan.decideBy, now)
       : null;
 
-  const pillBase =
-    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]";
   // -strong text variants pass AA at 11px on the soft fills; the plain
-  // tokens dip below 3:1 with the louder v2 palette.
-  const pillStyle = isConfirmed
-    ? "bg-in-soft text-in-strong"
+  // tokens dip below 3:1 with the louder v2 palette. Voting (multi-venue)
+  // gets its own cool-violet tone so it visually distinguishes from coral
+  // "deciding when".
+  const pillTone: PillTone = isConfirmed
+    ? "in"
     : isVoting
-      ? "bg-coral-soft text-coral-strong"
-      : "bg-coral-soft text-coral-strong";
+      ? "voting"
+      : "coral";
   const pillLabel = isConfirmed ? "Locked" : isVoting ? "Voting" : "Deciding";
 
   const whenLabel = formatPlanTime(
@@ -96,34 +103,48 @@ export function FeaturedPlanCard({
   const whereValue = venueChip?.label ?? plan.location ?? "TBD";
   const whereMuted = venueChip ? venueChip.muted : !plan.location;
 
-  // M25 — show Open in Maps when the plan has a real (non-voting) location
-  // pinned. While venue voting is open we don't surface it because the
-  // canonical address isn't decided yet. Past plans never show maps /
-  // edit (no actionable destination).
-  const showMaps = !past && mapsUrl && !venueChip;
-  const showEdit = !past && (plan.canEdit ?? false);
-  const showActionRow = showMaps || showEdit;
-
-  const lastEditLabel = plan.lastEditAt
-    ? formatLastEdit(plan.lastEditAt, now)
-    : null;
-
   return (
-    <div className="group relative flex flex-col gap-5 rounded-2xl border border-ink/5 bg-paper-card p-5 shadow-card-raised transition-shadow duration-150 focus-within:ring-2 focus-within:ring-coral">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={cn(pillBase, pillStyle)}>
-          {isConfirmed ? (
-            <span aria-hidden>✓</span>
-          ) : (
-            // The pulsing dot signals "live decision in progress" — quiet
-            // animation, GPU-cheap, only when the plan isn't locked yet.
-            <span
-              aria-hidden
-              className="size-1.5 rounded-full bg-coral animate-pulse-soft"
-            />
+    <Link
+      href={`/c/${slug}/p/${plan.id}`}
+      prefetch
+      className="group relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-ink/5 bg-paper-card p-5 pl-6 shadow-card-raised transition-shadow duration-150 hover:shadow-card-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+    >
+      {circleId ? (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute top-0 bottom-0 left-0 w-1",
+            past ? "bg-ink-subtle" : circleDotClass(circleId),
           )}
+        />
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Pill
+          tone={pillTone}
+          size="md"
+          leading={
+            isConfirmed ? (
+              <span aria-hidden>✓</span>
+            ) : (
+              // The pulsing dot signals "live decision in progress" — quiet
+              // animation, GPU-cheap, only when the plan isn't locked yet.
+              <span
+                aria-hidden
+                className={cn(
+                  "size-1.5 rounded-full animate-pulse-soft",
+                  isVoting ? "bg-voting" : "bg-coral",
+                )}
+              />
+            )
+          }
+        >
           {pillLabel}
-        </span>
+        </Pill>
+        {plan.vibe ? (
+          <Pill tone="ink" size="md" variant="outline">
+            {plan.vibe}
+          </Pill>
+        ) : null}
         {countdown ? (
           <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-coral-strong">
             · {countdown}
@@ -131,104 +152,23 @@ export function FeaturedPlanCard({
         ) : null}
       </div>
 
-      {/* Whole-title link instead of a stretched overlay so the inline
-          vote buttons + action row stay easily clickable. The viewTransitionName
-          morphs the title into the plan-detail h1 on tap (browser View
-          Transitions API, enabled at the root layout). */}
-      <Link
-        href={`/c/${slug}/p/${plan.id}`}
-        prefetch
-        className="rounded-xl transition-transform duration-100 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+      <h2
+        className="font-serif text-2xl font-semibold leading-tight text-ink sm:text-3xl"
+        style={{ viewTransitionName: `plan-title-${plan.id}` }}
       >
-        <h2
-          className="font-serif text-2xl font-semibold leading-tight text-ink sm:text-3xl"
-          style={{ viewTransitionName: `plan-title-${plan.id}` }}
-        >
-          {plan.title}
-        </h2>
-      </Link>
-
-      {(plan.creator || lastEditLabel) ? (
-        <div className="-mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
-          {plan.creator ? (
-            <span className="inline-flex items-center gap-1.5">
-              {plan.creator.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={plan.creator.avatarUrl}
-                  alt=""
-                  className="size-4 rounded-full object-cover"
-                />
-              ) : null}
-              <span>Started by {plan.creator.displayName}</span>
-            </span>
-          ) : null}
-          {lastEditLabel ? (
-            <span>· last edit {lastEditLabel}</span>
-          ) : null}
-        </div>
-      ) : null}
+        {plan.title}
+      </h2>
 
       <div className="grid grid-cols-2 gap-2">
         <Chip label="When" value={whenLabel} />
         <Chip label="Where" value={whereValue} muted={whereMuted} />
       </div>
 
-      <div>
-        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-          Who&apos;s in
-        </span>
-        <div className="mt-2">
-          <FeaturedPlanVoters planId={plan.id} />
-        </div>
-      </div>
-
-      {/* Past plans never show vote UI — effectiveStatus check */}
       {!past ? (
-        <div>
-          <PlanVotes planId={plan.id} buttonSize="lg" showTally={false} />
-        </div>
+        <FeaturedPlanVoters planId={plan.id} />
       ) : null}
-
-      {showActionRow ? (
-        <div className="flex flex-wrap gap-2">
-          {showMaps ? (
-            <a
-              href={mapsUrl!}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-ink/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-            >
-              <MapPin className="size-3.5" aria-hidden />
-              Open in Maps
-            </a>
-          ) : null}
-          {showEdit ? (
-            <Link
-              href={`/c/${slug}/p/${plan.id}`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-ink/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-            >
-              <Edit className="size-3.5" aria-hidden />
-              Edit plan
-            </Link>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    </Link>
   );
-}
-
-function formatLastEdit(d: Date, now: Date): string {
-  const diffMs = now.getTime() - d.getTime();
-  if (diffMs < 0) return "just now";
-  const min = Math.floor(diffMs / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const days = Math.floor(diffMs / 86_400_000);
-  if (days === 1) return "yesterday";
-  return `${days}d ago`;
 }
 
 function Chip({

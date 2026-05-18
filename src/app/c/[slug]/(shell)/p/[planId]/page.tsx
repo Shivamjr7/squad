@@ -24,21 +24,16 @@ import {
 } from "@/components/comments/plan-comments-section";
 import { PlanOverflowMenu } from "@/components/plan/plan-overflow-menu";
 import { DecisionCard } from "@/components/plan/decision-card";
+import { PlanCreatorActionBar } from "@/components/plan/plan-creator-action-bar";
+import { StatusCountdownPill } from "@/components/plan/status-countdown-pill";
 import {
   LiveTicker,
   type LiveTickerAddition,
 } from "@/components/plan/live-ticker";
 import { Receipt, type ReceiptEvent } from "@/components/plan/receipt";
-import {
-  ItsHappening,
-  type ItsHappeningAddition,
-} from "@/components/plan/its-happening";
 import { SuggestAddition } from "@/components/plan/suggest-addition";
 import { ConflictCompareLauncher } from "@/components/plan/conflict-compare-launcher";
-import {
-  getCompareSheetData,
-  getConflictForVote,
-} from "@/lib/actions/conflicts";
+import { getCompareSheetData } from "@/lib/actions/conflicts";
 import { getPlanVariant } from "@/lib/plan-variant";
 import {
   TimeHeatmap,
@@ -93,13 +88,6 @@ function shortTime(date: Date, timeZone?: string): string {
   }).format(date);
 }
 
-function shortDay(date: Date, timeZone?: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    timeZone,
-  }).format(date);
-}
-
 function isSameLocalDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -124,35 +112,6 @@ function relativeCreatedAt(createdAt: Date, now: Date, timeZone?: string): strin
     day: "numeric",
     timeZone,
   }).format(createdAt);
-}
-
-function statusLine(
-  status: "active" | "confirmed" | "done" | "cancelled",
-  startsAt: Date,
-  decideBy: Date | null,
-  now: Date,
-  timeZone?: string,
-): { label: string; tone: "deciding" | "confirmed" | "muted" } {
-  if (status === "cancelled") {
-    return { label: "Cancelled", tone: "muted" };
-  }
-  if (status === "done") {
-    return { label: "Done", tone: "muted" };
-  }
-  if (status === "confirmed") {
-    return {
-      label: `Confirmed · ${shortDay(startsAt, timeZone).toUpperCase()} ${shortTime(startsAt, timeZone)}`,
-      tone: "confirmed",
-    };
-  }
-  // active
-  if (decideBy && decideBy.getTime() > now.getTime()) {
-    return {
-      label: `Deciding now · Ends ${shortTime(decideBy, timeZone)}`,
-      tone: "deciding",
-    };
-  }
-  return { label: "Deciding now", tone: "deciding" };
 }
 
 export default async function PlanDetailPage({
@@ -299,7 +258,7 @@ export default async function PlanDetailPage({
   // they add themselves to the recipient set.
   if (!isRecipient && !isAdmin) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 pt-3 pb-32 sm:px-6">
+      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 pt-3 pb-32 sm:px-6 md:max-w-3xl">
         <header className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">
             <Button
@@ -465,13 +424,6 @@ export default async function PlanDetailPage({
     !isPastPlan && plan.status === "active" && plan.timeMode === "exact";
 
   const showVotes = !isPastPlan && (plan.status === "active" || plan.status === "confirmed");
-  const status = statusLine(
-    plan.status,
-    plan.startsAt,
-    plan.decideBy,
-    now,
-    plan.timeZone,
-  );
   const memberCount = memberRows.length;
   // Clamp the M22 threshold down to the eligible voter pool so a plan in
   // a 4-person squad doesn't display the unreachable default of 5+ ins.
@@ -499,34 +451,6 @@ export default async function PlanDetailPage({
     payload: (e.payload as Record<string, unknown> | null) ?? null,
     createdAt: e.createdAt.toISOString(),
   }));
-
-  // M31.8 — the "It's happening" surface pulls the lock timestamp + trigger
-  // straight from the latest `locked` event so the green pill and the
-  // subline copy ("auto-locked when consensus hit" vs. deadline vs. all-
-  // voted) match the actual lock reason. Most plans have exactly one
-  // locked event, but if a plan was unlocked and relocked we take the most
-  // recent — `events` is already asc-sorted so it's the tail.
-  const lockedEventRow =
-    variant === "its-happening"
-      ? [...plan.events].reverse().find((e) => e.kind === "locked")
-      : null;
-  const lockedAtIso = lockedEventRow?.createdAt.toISOString() ?? null;
-  const lockedPayload =
-    (lockedEventRow?.payload as Record<string, unknown> | null) ?? null;
-  const lockTrigger = (() => {
-    const raw = lockedPayload?.trigger;
-    if (raw === "threshold" || raw === "forced" || raw === "all_voted") {
-      return raw;
-    }
-    return null;
-  })();
-  const itsHappeningAdditions: ItsHappeningAddition[] = additionRows.map(
-    (r) => ({
-      id: r.id,
-      label: r.label,
-      startsAt: r.startsAt.toISOString(),
-    }),
-  );
 
   // M23 — recipient list (display-name + avatar) for the Squad section.
   // Sorted in circle-membership order (matches the home/squad strips).
@@ -571,20 +495,6 @@ export default async function PlanDetailPage({
       ? await getCompareSheetData(plan.id, conflictWith)
       : null;
 
-  // M32.8 §4.4 — lock-time conflict strip on the "It's happening" surface.
-  // Only renders when the viewer is themselves committed to this confirmed
-  // plan (IN vote or creator auto-in); otherwise "you're also in for X" is
-  // a lie. We reuse `getConflictForVote`, which scans the user's other
-  // hard commitments overlapping this plan's window.
-  const myVoteOnPlan =
-    voteRows.find((v) => v.userId === userId)?.status ?? null;
-  const userIsCommittedHere =
-    myVoteOnPlan === "in" || plan.createdBy === userId;
-  const lockTimeConflict =
-    variant === "its-happening" && userIsCommittedHere
-      ? await getConflictForVote(plan.id)
-      : null;
-
   return (
     <CircleVotesProvider
       initialVoters={initialVoters}
@@ -598,7 +508,14 @@ export default async function PlanDetailPage({
           initialData={compareData}
         />
       ) : null}
-      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 pt-3 pb-32 sm:px-6">
+      <main
+        className={
+          // Desktop bump: ≥md the column grows from max-w-2xl (672) → 3xl
+          // (768) so the receipt and live ticker breathe on wide screens.
+          "mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 pt-3 sm:px-6 md:max-w-3xl " +
+          (canMutateStatus && plan.status === "active" ? "pb-48" : "pb-32")
+        }
+      >
         <header className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">
             <Button
@@ -630,29 +547,12 @@ export default async function PlanDetailPage({
         </header>
 
         <section className="flex flex-col gap-3">
-          <span
-            className={
-              "inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 eyebrow tracking-[0.12em] " +
-              (status.tone === "confirmed"
-                ? "bg-in-soft text-in-strong"
-                : status.tone === "deciding"
-                  ? "bg-coral-soft text-coral-strong"
-                  : "bg-paper text-ink-muted ring-1 ring-ink-subtle")
-            }
-          >
-            {status.tone === "deciding" ? (
-              // Same pulsing live-dot as the featured card so the visual
-              // language for "decision in progress" is consistent across
-              // surfaces. Plain check for confirmed; nothing for done/cancelled.
-              <span
-                aria-hidden
-                className="size-1.5 rounded-full bg-coral animate-pulse-soft"
-              />
-            ) : status.tone === "confirmed" ? (
-              <span aria-hidden>✓</span>
-            ) : null}
-            {status.label}
-          </span>
+          <StatusCountdownPill
+            status={plan.status}
+            startsAt={plan.startsAt.toISOString()}
+            decideBy={plan.decideBy?.toISOString() ?? null}
+            timeZone={plan.timeZone}
+          />
           <h1
             className={
               "font-serif text-3xl font-semibold leading-tight text-ink sm:text-4xl " +
@@ -721,8 +621,7 @@ export default async function PlanDetailPage({
             additions={additionsForTicker}
             shiftedFromTime={null}
             now={now}
-            canManage={canMutateStatus}
-            circleSlug={slug}
+            creatorName={plan.creator?.displayName ?? null}
             suggestAddOnSlot={
               canParticipate ? (
                 <SuggestAddition
@@ -733,22 +632,6 @@ export default async function PlanDetailPage({
               ) : null
             }
           />
-        ) : variant === "its-happening" ? (
-          <ItsHappening
-            planId={plan.id}
-            startsAt={plan.startsAt}
-            timeZone={plan.timeZone}
-            location={plan.location}
-            recipientCount={recipientIds.length}
-            inCount={currentInCount}
-            lockedAtIso={lockedAtIso}
-            lockTrigger={lockTrigger}
-            additions={itsHappeningAdditions}
-            mapsUrl={mapsUrl}
-            icsUrl={icsUrl}
-            commentsHref={`/c/${circle.slug}/p/${plan.id}#comments`}
-            conflict={lockTimeConflict}
-          />
         ) : variant === "receipt" ? (
           <Receipt
             planId={plan.id}
@@ -756,6 +639,7 @@ export default async function PlanDetailPage({
             startsAt={plan.startsAt}
             timeZone={plan.timeZone}
             location={plan.location}
+            circleSlug={circle.slug}
             recipientCount={recipientIds.length}
             inCount={currentInCount}
             status={
@@ -796,6 +680,9 @@ export default async function PlanDetailPage({
               isApproximate={isApprox}
               location={plan.location}
               showVenueVote={showVenueVote}
+              lockThreshold={lockThreshold}
+              recipientCount={recipientIds.length || memberCount}
+              decideBy={plan.decideBy}
               mapsUrl={mapsUrl}
               icsUrl={icsUrl}
               gcalUrl={gcalUrl}
@@ -854,14 +741,6 @@ export default async function PlanDetailPage({
                   planId={plan.id}
                   creatorId={plan.creator?.id ?? null}
                 />
-                <LockFooter
-                  status={plan.status}
-                  decideBy={plan.decideBy}
-                  lockThreshold={lockThreshold}
-                  currentInCount={currentInCount}
-                  now={now}
-                  timeZone={plan.timeZone}
-                />
               </section>
             ) : (
               <section className="flex flex-col gap-4">
@@ -900,6 +779,15 @@ export default async function PlanDetailPage({
           </Suspense>
         </section>
       </main>
+      {canMutateStatus && plan.status === "active" ? (
+        <PlanCreatorActionBar
+          planId={plan.id}
+          status={plan.status}
+          circleSlug={circle.slug}
+          planTitle={plan.title}
+          planTimeLabel={formatPlanTime(plan.startsAt, isApprox, now, plan.timeZone)}
+        />
+      ) : null}
     </CircleVotesProvider>
   );
 }

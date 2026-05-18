@@ -151,6 +151,7 @@ export async function createPlan(
         createdBy: userId,
         status: "active",
         lockThreshold,
+        vibe: data.vibe,
       })
       .returning({ id: plans.id });
 

@@ -105,6 +105,16 @@ export const createPlanSchema = z.object({
     .min(1, "Lock threshold must be at least 1")
     .max(200, "Lock threshold too large")
     .optional(),
+  // UI Phase 7 — optional one-word "vibe" the creator can attach. Presets
+  // surfaced in the form (Chill / Hype / Quick / Cosy / Late) but the
+  // schema accepts any short string. Empty / whitespace coerced to null.
+  vibe: z
+    .string()
+    .trim()
+    .max(12, "Keep it short — 12 characters or fewer.")
+    .nullable()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : null)),
 });
 
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;

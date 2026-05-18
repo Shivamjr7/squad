@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MoreVertical, UserMinus } from "lucide-react";
+import { Lock, MoreVertical, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -19,6 +19,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { GradientAvatar } from "@/components/ui/gradient-avatar";
+import { Pill } from "@/components/ui/pill";
 import { removeMember } from "@/lib/actions/circles";
 
 export type ListMember = {
@@ -42,9 +44,19 @@ const JOINED_FMT = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 });
 
+// Relative join times for the first month, absolute date thereafter — the
+// "joined 3 days ago" framing reads warmer for fresh members, while older
+// dates carry better meaning as a fixed timestamp.
 function formatJoined(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
+  const diffMs = Date.now() - d.getTime();
+  const DAY = 86_400_000;
+  if (diffMs < 0) return JOINED_FMT.format(d);
+  if (diffMs < DAY) return "today";
+  if (diffMs < 2 * DAY) return "yesterday";
+  const days = Math.floor(diffMs / DAY);
+  if (days < 30) return `${days} days ago`;
   return JOINED_FMT.format(d);
 }
 
@@ -76,14 +88,17 @@ export function MembersList({
 
   return (
     <>
-      <ul className="flex flex-col">
+      {/* Two-column grid on ≥md, single column on mobile. The card surface
+          gives each member a stronger sense of presence on desktop where
+          a flat list would be a lot of vertical scrolling. */}
+      <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {members.map((m) => {
           const isMe = m.userId === currentUserId;
           const canRemove = isAdmin && !isMe;
           return (
             <li
               key={m.userId}
-              className="flex items-center gap-3 rounded-md px-2 py-3"
+              className="flex items-center gap-3 rounded-xl border border-ink/10 bg-paper-card/40 px-3 py-3 transition-colors hover:bg-paper-card"
             >
               <Avatar member={m} />
               <div className="flex min-w-0 flex-1 flex-col">
@@ -95,9 +110,13 @@ export function MembersList({
                     ) : null}
                   </span>
                   {m.role === "admin" ? (
-                    <span className="shrink-0 rounded-full bg-paper-card px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                    <Pill
+                      tone="coral"
+                      size="sm"
+                      leading={<Lock className="size-2.5" aria-hidden />}
+                    >
                       Admin
-                    </span>
+                    </Pill>
                   ) : null}
                 </div>
                 <span className="text-xs text-ink-muted">
@@ -170,19 +189,12 @@ export function MembersList({
 }
 
 function Avatar({ member }: { member: ListMember }) {
-  if (member.avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={member.avatarUrl}
-        alt=""
-        className="size-10 shrink-0 rounded-full object-cover"
-      />
-    );
-  }
   return (
-    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ink/10 text-sm font-medium uppercase text-ink">
-      {member.displayName.slice(0, 1)}
-    </span>
+    <GradientAvatar
+      seed={member.userId}
+      name={member.displayName}
+      src={member.avatarUrl}
+      size="lg"
+    />
   );
 }
