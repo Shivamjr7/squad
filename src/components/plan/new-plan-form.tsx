@@ -35,6 +35,11 @@ type FormValues = {
   decidePreset: DecideByPreset;
   location: string;
   extraLocations: string[];
+  // Number of `in` votes that auto-locks the plan (M22). Default sits at
+  // min(5, members) per the createPlan clamp; user can shift it via the
+  // "Locks when" chips below decide-by. Encoded as a literal count even
+  // for "Everyone" — that chip just writes the current member count.
+  lockThreshold: number;
 };
 
 export type FormMember = {
@@ -70,18 +75,31 @@ function defaultStartsAt(now: Date): Date {
   return d;
 }
 
-// Day-of-week token in the hero. Sat/Sun → "this weekend"; today + evening
-// → "tonight"; today daytime → "today"; future weekday → that weekday name.
+// Day-of-week token in the hero. Same-day picks evening → "tonight" /
+// daytime → "today"; tomorrow → "tomorrow"; a Sat/Sun further out →
+// "this weekend"; any other future weekday → that weekday name. The
+// previous fallback returned "today" for every future weekday, which
+// read wrong when the user picked e.g. Thursday three days out.
 function heroToken(startsAt: Date | null, now: Date): string {
   if (!startsAt) return "tonight";
-  const isWeekend = startsAt.getDay() === 0 || startsAt.getDay() === 6;
   const sameDay =
     startsAt.getFullYear() === now.getFullYear() &&
     startsAt.getMonth() === now.getMonth() &&
     startsAt.getDate() === now.getDate();
-  if (isWeekend) return "this weekend";
   if (sameDay) return startsAt.getHours() >= 17 ? "tonight" : "today";
-  return "today";
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow =
+    startsAt.getFullYear() === tomorrow.getFullYear() &&
+    startsAt.getMonth() === tomorrow.getMonth() &&
+    startsAt.getDate() === tomorrow.getDate();
+  if (isTomorrow) return "tomorrow";
+
+  const isWeekend = startsAt.getDay() === 0 || startsAt.getDay() === 6;
+  if (isWeekend) return "this weekend";
+
+  return startsAt.toLocaleDateString("en-US", { weekday: "long" });
 }
 
 function decideBySubhead(
@@ -206,6 +224,7 @@ export function NewPlanForm({
       decidePreset: "2h",
       location: initialLocation ?? "",
       extraLocations: [],
+      lockThreshold: Math.min(5, Math.max(2, members.length)),
     },
     mode: "onChange",
   });
@@ -215,6 +234,7 @@ export function NewPlanForm({
   const timeMode = form.watch("timeMode");
   const decidePreset = form.watch("decidePreset");
   const extraLocations = form.watch("extraLocations");
+  const lockThreshold = form.watch("lockThreshold");
 
   const startsAt = fromDateTimeLocal(startsAtLocal);
   const decideBy = computeDecideBy(decidePreset, startsAt, now);
@@ -339,6 +359,7 @@ export function NewPlanForm({
       maxPeople: null,
       recipientUserIds,
       suggestions: allSuggestions,
+      lockThreshold: values.lockThreshold,
     };
 
     const parsed = createPlanSchema.safeParse(input);
@@ -647,6 +668,65 @@ export function NewPlanForm({
                       </button>
                     </div>
                   </div>
+
+                  {/* Lock-threshold chips. Picks how many `in` votes
+                      auto-confirm the plan. "Everyone" writes the
+                      current eligible-voter count; server re-clamps so
+                      this stays valid if recipients change later. Hide
+                      the whole section for 1-person circles — there's
+                      nothing meaningful to pick. */}
+                  {selectedCount >= 2 ? (
+                    <div className="flex flex-col gap-2 pt-1">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+                        Locks when
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[2, 3, 4, 5]
+                          .filter((n) => n < selectedCount)
+                          .map((n) => {
+                            const isActive = lockThreshold === n;
+                            return (
+                              <button
+                                key={n}
+                                type="button"
+                                onClick={() =>
+                                  form.setValue("lockThreshold", n, {
+                                    shouldDirty: true,
+                                  })
+                                }
+                                className={cn(
+                                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                                  isActive
+                                    ? "border-ink bg-ink text-paper-card"
+                                    : "border-ink/15 bg-paper-card/40 text-ink hover:bg-paper-card",
+                                )}
+                                aria-pressed={isActive}
+                              >
+                                {n}+ in
+                              </button>
+                            );
+                          })}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            form.setValue("lockThreshold", selectedCount, {
+                              shouldDirty: true,
+                            })
+                          }
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                            lockThreshold >= selectedCount
+                              ? "border-ink bg-ink text-paper-card"
+                              : "border-ink/15 bg-paper-card/40 text-ink hover:bg-paper-card",
+                          )}
+                          aria-pressed={lockThreshold >= selectedCount}
+                        >
+                          Everyone ({selectedCount})
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <FormMessage />
                 </FormItem>
               )}

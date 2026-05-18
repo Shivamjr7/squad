@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/db/client";
 import { CIRCLE_TAGS } from "@/lib/circles";
@@ -113,6 +113,27 @@ export async function createPlan(
     recipientIds = requestedArr;
   }
 
+  // Eligible voter count = explicit recipients if set, else full circle.
+  // The creator may pass an explicit lockThreshold via the "Locks when"
+  // chips in NewPlanForm; we always re-clamp on the server so a stale
+  // form value or a tampered request can't request an unreachable
+  // threshold like 7-of-4. When omitted, default to min(5, eligibleVoters).
+  let eligibleVoters: number;
+  if (recipientIds.length > 0) {
+    eligibleVoters = recipientIds.length;
+  } else {
+    const [row] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(memberships)
+      .where(eq(memberships.circleId, data.circleId));
+    eligibleVoters = row?.n ?? 1;
+  }
+  const requestedThreshold = data.lockThreshold ?? Math.min(5, eligibleVoters);
+  const lockThreshold = Math.max(
+    1,
+    Math.min(requestedThreshold, eligibleVoters),
+  );
+
   const planId = await db.transaction(async (tx) => {
     const [plan] = await tx
       .insert(plans)
@@ -129,6 +150,7 @@ export async function createPlan(
         decideBy,
         createdBy: userId,
         status: "active",
+        lockThreshold,
       })
       .returning({ id: plans.id });
 

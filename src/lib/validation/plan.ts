@@ -96,6 +96,15 @@ export const createPlanSchema = z.object({
     .max(8, "Up to 8 suggestion venues")
     .optional()
     .default([]),
+  // Creator's chosen auto-lock threshold (PLAN.md §6 amendment, M22 column).
+  // Optional — the server clamps to min(value, eligibleVoters) and defaults
+  // to min(5, eligibleVoters) when omitted. 200 ceiling matches recipients.
+  lockThreshold: z
+    .number()
+    .int()
+    .min(1, "Lock threshold must be at least 1")
+    .max(200, "Lock threshold too large")
+    .optional(),
 });
 
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;

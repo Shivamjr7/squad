@@ -1,11 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Lock, X } from "lucide-react";
 import { toast } from "sonner";
+import { cancelPlan, confirmPlan } from "@/lib/actions/plans";
 import { castVote, removeVote } from "@/lib/actions/votes";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
 import type { VoteStatus } from "@/lib/validation/vote";
 import { VoteSpectrumBar } from "@/components/votes/vote-spectrum-bar";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const COMMIT_DEBOUNCE_MS = 200;
@@ -46,6 +58,12 @@ type Props = {
   // the dark CSS-vars context applies. May be null when the user can't
   // suggest (locked plan, non-recipient).
   suggestAddOnSlot?: React.ReactNode;
+  // M22 — creators + admins can surface Cancel / Mark-as-set as inline
+  // buttons at the bottom of the ticker so they're reachable without
+  // diving into the `···` overflow. Same server actions; just a quicker
+  // affordance during the live decision window.
+  canManage?: boolean;
+  circleSlug?: string;
 };
 
 export function LiveTicker({
@@ -61,7 +79,12 @@ export function LiveTicker({
   shiftedFromTime,
   now: serverNow,
   suggestAddOnSlot,
+  canManage = false,
+  circleSlug,
 }: Props) {
+  const router = useRouter();
+  const [openConfirm, setOpenConfirm] = useState<"cancel" | "set" | null>(null);
+  const [, startActionTransition] = useTransition();
   const { voters, currentUser } = useCircleVotes();
   const planVoters = useMemo(
     () => voters[planId] ?? [],
@@ -306,6 +329,91 @@ export function LiveTicker({
       <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-white/40">
         {lockFooter}
       </p>
+
+      {canManage ? (
+        <div className="-mx-2 flex items-center gap-3 border-t border-white/10 pt-4">
+          <button
+            type="button"
+            onClick={() => setOpenConfirm("cancel")}
+            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-full border border-out/40 px-4 text-sm font-semibold text-out transition-colors hover:bg-out/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-out/60"
+          >
+            <X className="size-4" aria-hidden />
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpenConfirm("set")}
+            className="flex h-12 flex-[1.4] items-center justify-center gap-2 rounded-full bg-in px-4 text-sm font-semibold text-[#0e0e0e] transition-colors hover:bg-in/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-in"
+          >
+            <Lock className="size-4" aria-hidden />
+            Mark as set
+          </button>
+        </div>
+      ) : null}
+
+      <Dialog
+        open={openConfirm !== null}
+        onOpenChange={(o) => !o && setOpenConfirm(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {openConfirm === "cancel"
+                ? "Cancel this plan?"
+                : "Lock the plan now?"}
+            </DialogTitle>
+            <DialogDescription>
+              {openConfirm === "cancel"
+                ? "Everyone in the squad will be notified. The plan card stays visible for a day, struck through, before it disappears."
+                : `Locks the plan at ${formatShortTime(startsAt, timeZone)}${
+                    location ? ` · ${location}` : ""
+                  }. The squad gets an "It's happening" notification.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="h-10 rounded-full border border-ink/15 px-4 text-sm font-medium text-ink hover:bg-paper-card"
+              >
+                Not yet
+              </button>
+            </DialogClose>
+            <button
+              type="button"
+              onClick={() => {
+                const kind = openConfirm;
+                if (!kind) return;
+                setOpenConfirm(null);
+                if (kind === "cancel" && circleSlug) {
+                  router.push(`/c/${circleSlug}`);
+                }
+                startActionTransition(async () => {
+                  try {
+                    if (kind === "cancel") await cancelPlan({ planId });
+                    else await confirmPlan({ planId });
+                    router.refresh();
+                  } catch (err) {
+                    toast.error(
+                      err instanceof Error
+                        ? err.message
+                        : "Couldn't update plan.",
+                    );
+                  }
+                });
+              }}
+              className={cn(
+                "h-10 rounded-full px-4 text-sm font-semibold text-white",
+                openConfirm === "cancel"
+                  ? "bg-out hover:bg-out/90"
+                  : "bg-in hover:bg-in/90",
+              )}
+            >
+              {openConfirm === "cancel" ? "Cancel plan" : "Lock it"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
