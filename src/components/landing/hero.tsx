@@ -18,7 +18,7 @@ export function LandingHero() {
             </span>
           </h1>
           <p className="max-w-md text-base leading-relaxed text-ink-muted sm:text-lg">
-            A small group converges on a yes/no/maybe in a short window. WhatsApp loses decisions in scrollback — Squad keeps the current state of a plan as the source of truth.
+            A small group converges on a yes/no/maybe in a short window. Group chats lose decisions in scrollback — Squad keeps the current state of a plan as the source of truth.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <SignUpButton>
@@ -43,7 +43,7 @@ export function LandingHero() {
 function HeroVisual() {
   return (
     <div className="relative grid grid-cols-2 gap-3 md:gap-4">
-      {/* WhatsApp-style scrollback */}
+      {/* Group-chat scrollback */}
       <div className="rotate-[-2deg] rounded-2xl bg-paper-card p-3 shadow-[0_1px_2px_rgba(20,15,10,0.04),0_24px_48px_-24px_rgba(20,15,10,0.18)] sm:p-4">
         <div className="mb-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
           <span>The Squad <span aria-hidden>🎉</span></span>

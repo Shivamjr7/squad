@@ -9,7 +9,21 @@ import {
 } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Check, HelpCircle, RotateCcw, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Coffee,
+  Gamepad2,
+  HelpCircle,
+  Home,
+  MapPin,
+  RotateCcw,
+  Sparkles,
+  UtensilsCrossed,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import type { PlanType } from "@/lib/validation/plan";
 import type { VoteStatus } from "@/lib/validation/vote";
 import { castVote, removeVote } from "@/lib/actions/votes";
@@ -18,6 +32,7 @@ import type { PlanCardData } from "./plan-card";
 import { formatPlanTime } from "@/lib/format-plan-time";
 import { HeroQuestion } from "@/components/ui/hero-question";
 import { GradientAvatar } from "@/components/ui/gradient-avatar";
+import { cn } from "@/lib/utils";
 
 type DeckPlan = Omit<PlanCardData, "startsAt"> & { startsAt: Date };
 
@@ -329,28 +344,32 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
         </div>
       </div>
 
-      {/* Triplet — ✕ ? ✓ — explicit equivalents to the drag gestures. */}
-      <div className="flex items-center justify-center gap-6 pt-1">
+      {/* Triplet — ✕ ? ✓ — explicit equivalents to the drag gestures.
+          Out/Maybe sit at secondary size, In is the primary affordance
+          (larger, stronger fill). Each has a visible label so the
+          control reads as a vote action, not an abstract icon. */}
+      <div className="flex items-end justify-center gap-6 pt-2">
         <CircleButton
           label="Out"
           onClick={() => commitVote(top.id, "out", "left")}
           tone="out"
         >
-          <X className="size-6" aria-hidden />
+          <X className="size-5" aria-hidden strokeWidth={2.5} />
         </CircleButton>
         <CircleButton
           label="Maybe"
           onClick={() => commitVote(top.id, "maybe", "up")}
           tone="maybe"
         >
-          <HelpCircle className="size-6" aria-hidden />
+          <HelpCircle className="size-5" aria-hidden strokeWidth={2.25} />
         </CircleButton>
         <CircleButton
           label="In"
           onClick={() => commitVote(top.id, "in", "right")}
           tone="in"
+          variant="primary"
         >
-          <Check className="size-6" aria-hidden />
+          <Check className="size-7" aria-hidden strokeWidth={2.5} />
         </CircleButton>
       </div>
 
@@ -390,61 +409,65 @@ function DeckCardSurface({
   const typeLabel = TYPE_LABEL[plan.type] ?? plan.type.toUpperCase();
   const tally = inVoters.length;
 
+  const TypeIcon = TYPE_ICON[plan.type] ?? Sparkles;
+
   return (
-    <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink/5 bg-paper-card shadow-card-raised">
-      {/* Type stripe / hero band — pulls a soft diagonal pattern that
-          plays the role the venue photo plays in the M21 venue-vote mock.
-          Mock #1 uses a beige diagonal pattern; we mirror that with a
-          gradient so we don't ship an extra image. */}
-      <div
-        className="relative flex h-44 shrink-0 items-start justify-between gap-3 p-4"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(135deg, var(--paper) 0 12px, var(--paper-card) 12px 24px)",
-        }}
-      >
-        <span className="rounded-full bg-paper-card/90 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink">
+    <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink/10 bg-paper-card shadow-card-raised">
+      {/* Chip row */}
+      <div className="flex items-center justify-between gap-3 px-6 pt-6">
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          <TypeIcon className="size-3.5" aria-hidden strokeWidth={2} />
           {typeLabel}
         </span>
-        <span className="rounded-full bg-paper-card/90 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
           {whenLabel}
         </span>
       </div>
 
-      <div className="flex flex-1 flex-col gap-3 p-5">
-        <h3 className="font-serif text-2xl font-semibold leading-tight text-ink">
+      {/* Title + location — the headline. Generous top space lets the
+          serif breathe; nothing competes with it visually. */}
+      <div className="flex flex-1 flex-col gap-2.5 px-6 pt-10">
+        <h3 className="font-serif text-[34px] font-semibold leading-[1.04] tracking-[-0.02em] text-ink">
           {plan.title}
         </h3>
-        <p className="line-clamp-1 text-sm text-ink-muted">
-          {plan.location ?? "no spot yet"}
-        </p>
+        <div className="flex items-center gap-1.5 text-sm text-ink-muted">
+          <MapPin className="size-3.5 shrink-0" aria-hidden strokeWidth={2} />
+          <span className="line-clamp-1">
+            {plan.location ?? "no spot yet"}
+          </span>
+        </div>
 
-        <div className="mt-auto grid grid-cols-2 gap-4 pt-3">
-          <div className="flex flex-col gap-1">
+        <div className="mt-auto flex items-end justify-between gap-4 pt-6 pb-6">
+          <div className="flex min-w-0 flex-col gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+              Who&rsquo;s in
+            </span>
+            <AvatarStack voters={inVoters} />
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1">
             <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
               Votes
             </span>
-            <span className="font-serif text-lg text-in-strong">
+            <span className="font-serif text-3xl leading-none text-ink tabular-nums">
               {tally}
-              <span className="ml-1 text-sm text-ink-muted">in</span>
+              <span className="ml-1 align-baseline text-xs font-sans text-ink-muted">
+                in
+              </span>
             </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-              Said yes
-            </span>
-            <AvatarStack voters={inVoters} />
           </div>
         </div>
       </div>
 
-      {/* PASS / IN split footer */}
-      <div className="grid grid-cols-2 border-t border-ink/10">
-        <span className="py-3 text-center text-sm font-semibold tracking-wide text-out">
-          ← Pass
+      {/* Pass / In footer hint — quiet, just a reminder of what each
+          swipe direction commits to. */}
+      <div className="grid grid-cols-2 border-t border-ink/8">
+        <span className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          <ArrowLeft className="size-3" aria-hidden strokeWidth={2} />
+          Pass
         </span>
-        <span className="py-3 text-center text-sm font-semibold tracking-wide text-in-strong border-l border-ink/10">
-          In →
+        <span className="flex items-center justify-center gap-1.5 border-l border-ink/8 py-3.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          In
+          <ArrowRight className="size-3" aria-hidden strokeWidth={2} />
         </span>
       </div>
 
@@ -504,28 +527,53 @@ function CircleButton({
   label,
   onClick,
   tone,
+  variant = "secondary",
   children,
 }: {
   label: string;
   onClick: () => void;
   tone: "in" | "out" | "maybe";
+  variant?: "primary" | "secondary";
   children: React.ReactNode;
 }) {
-  const toneClass =
+  // Secondary = soft tint, primary = saturated fill. The In button is
+  // the only primary in the triplet so the "yes" affordance reads first.
+  const primaryToneClass =
     tone === "in"
-      ? "bg-in-soft text-in-strong"
+      ? "bg-in text-paper ring-in/25 shadow-[0_8px_24px_-8px_oklch(0.60_0.20_148/0.55)] hover:bg-in/95"
       : tone === "out"
-        ? "bg-out-soft text-out"
-        : "bg-maybe-soft text-maybe-strong";
+        ? "bg-out text-paper ring-out/25 shadow-[0_8px_24px_-8px_oklch(0.58_0.23_28/0.55)] hover:bg-out/95"
+        : "bg-maybe text-ink ring-maybe/25 shadow-[0_8px_24px_-8px_oklch(0.80_0.18_78/0.55)] hover:bg-maybe/95";
+  const secondaryToneClass =
+    tone === "in"
+      ? "bg-in-soft text-in-strong ring-in/15 hover:bg-in-soft/80"
+      : tone === "out"
+        ? "bg-out-soft text-out ring-out/15 hover:bg-out-soft/80"
+        : "bg-maybe-soft text-maybe-strong ring-maybe/15 hover:bg-maybe-soft/80";
+  const sizeClass = variant === "primary" ? "size-16" : "size-12";
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      className={`flex size-14 items-center justify-center rounded-full transition-transform duration-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral ${toneClass}`}
-    >
-      {children}
-    </button>
+    <div className="flex flex-col items-center gap-1.5">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className={cn(
+          "flex items-center justify-center rounded-full ring-1 ring-inset transition-all duration-150 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral",
+          sizeClass,
+          variant === "primary" ? primaryToneClass : secondaryToneClass,
+        )}
+      >
+        {children}
+      </button>
+      <span
+        className={cn(
+          "text-[10px] font-semibold uppercase tracking-[0.16em]",
+          variant === "primary" ? "text-ink" : "text-ink-muted",
+        )}
+      >
+        {label}
+      </span>
+    </div>
   );
 }
 
@@ -569,3 +617,12 @@ const TYPE_LABEL: Record<PlanType, string> = {
   "stay-in": "Stay in",
   other: "Other",
 };
+
+const TYPE_ICON: Record<PlanType, LucideIcon> = {
+  eat: UtensilsCrossed,
+  play: Gamepad2,
+  chai: Coffee,
+  "stay-in": Home,
+  other: Sparkles,
+};
+
