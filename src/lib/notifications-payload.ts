@@ -200,16 +200,21 @@ export type ComposedPushPayload = {
   // Android-only action buttons. iOS ignores. Keys map to
   // public/sw.js's notificationclick action router.
   actions?: PushAction[];
+  // Same body shape as `body` but with PUSH_TIME_PLACEHOLDER in place of the
+  // wall-clock fragment. v5+ SWs prefer this and substitute the placeholder
+  // with a device-formatted time; v4 SWs ignore it and render `body` as-is.
+  // Omitted for kinds with no time-bearing fragment (plan_created,
+  // plan_cancelled, plan_leave_soon — minutes are relative).
+  bodyTemplate?: string;
   // Click payload — the service worker uses this to route deep-links.
   data: {
     url: string;
     type: ComposeInput["type"];
     planId: string | null;
     directionsUrl?: string | null;
-    // Set when `body` contains PUSH_TIME_PLACEHOLDER. The SW formats this
-    // ISO using the browser's runtime zone (falling back to the plan's
-    // IANA zone if it's a real value, else the device's local zone) and
-    // substitutes the placeholder before calling showNotification.
+    // Set alongside bodyTemplate. The SW formats this ISO using the plan's
+    // IANA zone when it's a real value, else the device's local zone, and
+    // substitutes PUSH_TIME_PLACEHOLDER before calling showNotification.
     startsAtIso?: string | null;
     timeZone?: string | null;
   };
@@ -237,6 +242,32 @@ export const DEFAULT_BADGE = publicAssetPath("icon-badge.png");
 // Acceptable transition cost — SWs update on the next navigation, and the
 // alternative ("8:30 PM" rendered in UTC) is silently wrong forever.
 export const PUSH_TIME_PLACEHOLDER = "{TIME}";
+
+// Fallback wall-clock formatter for the `body` field — runs in the composer's
+// runtime (Deno on Supabase Edge → UTC). Only old (v4) SWs that don't know
+// about PUSH_TIME_PLACEHOLDER actually read this; v5+ SWs use bodyTemplate
+// and re-format on the device. We still render a best-effort string so old
+// SWs show *something* readable instead of a placeholder.
+function formatBodyTime(
+  iso: string | null | undefined,
+  timeZone: string | null | undefined,
+): string {
+  if (!iso) return "soon";
+  const zone =
+    typeof timeZone === "string" && timeZone.length > 0 && timeZone !== "UTC"
+      ? timeZone
+      : undefined;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: zone,
+    }).format(new Date(iso));
+  } catch {
+    return "soon";
+  }
+}
 
 // Universal maps deep-link builder. Apple Maps's universal `maps.apple.com`
 // URL opens in Maps.app on iOS but renders a Google Maps redirect on other
@@ -286,26 +317,39 @@ export function composePushPayload(
   switch (input.type) {
     case "vote_in": {
       // "Karan: in for 8:30" — quote-voice copy per NOTIFICATIONS_PLAN §3.
-      // Time is deferred to the SW (see PUSH_TIME_PLACEHOLDER) so it renders
-      // in the recipient's zone, not the edge runtime's UTC.
+      // body is the v4-SW fallback (server-formatted in UTC if zone missing);
+      // bodyTemplate is what v5+ SWs substitute on-device.
       const hasTime = input.payload.startsAtIso !== null;
+      if (!hasTime) {
+        return {
+          title: input.payload.circleName,
+          body: `${input.payload.voterName}: in for ${input.payload.planTitle}`,
+          url,
+          tag: `plan:${planId}:votes`,
+          renotify: false,
+          icon: DEFAULT_ICON,
+          badge: DEFAULT_BADGE,
+          data: baseData,
+        };
+      }
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       return {
         title: input.payload.circleName,
-        body: hasTime
-          ? `${input.payload.voterName}: in for ${PUSH_TIME_PLACEHOLDER}`
-          : `${input.payload.voterName}: in for ${input.payload.planTitle}`,
+        body: `${input.payload.voterName}: in for ${when}`,
+        bodyTemplate: `${input.payload.voterName}: in for ${PUSH_TIME_PLACEHOLDER}`,
         url,
         tag: `plan:${planId}:votes`,
         renotify: false,
         icon: DEFAULT_ICON,
         badge: DEFAULT_BADGE,
-        data: hasTime
-          ? {
-              ...baseData,
-              startsAtIso: input.payload.startsAtIso,
-              timeZone: input.payload.timeZone,
-            }
-          : baseData,
+        data: {
+          ...baseData,
+          startsAtIso: input.payload.startsAtIso,
+          timeZone: input.payload.timeZone,
+        },
       };
     }
 
@@ -325,14 +369,19 @@ export function composePushPayload(
 
     case "plan_locked": {
       // "It's happening — 8:30 at Roxie · 5 of 6 said yes"
-      // Time deferred to the SW (see PUSH_TIME_PLACEHOLDER).
+      // body = v4-SW fallback (server-formatted); bodyTemplate = v5+ template.
       const where = input.payload.location?.trim() || input.payload.planTitle;
       const tally = `${input.payload.inCount} of ${input.payload.totalRecipients} said yes`;
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       const directions =
         input.payload.directionsUrl ?? defaultDirectionsUrl(input.payload.location);
       return {
         title: "It's happening",
-        body: `${PUSH_TIME_PLACEHOLDER} at ${where} · ${tally}`,
+        body: `${when} at ${where} · ${tally}`,
+        bodyTemplate: `${PUSH_TIME_PLACEHOLDER} at ${where} · ${tally}`,
         url,
         tag: `plan:${planId}:state`,
         renotify: true,
@@ -395,12 +444,16 @@ export function composePushPayload(
 
     case "plan_reminder": {
       // Legacy. Kept so plan_reminder rows already in the DB still render
-      // a sensible push body if the edge function ever replays them. Time
-      // deferred to the SW (see PUSH_TIME_PLACEHOLDER); legacy rows may
-      // lack timeZone, in which case the SW falls back to the device zone.
+      // a sensible push body if the edge function ever replays them. Legacy
+      // rows may lack timeZone — SW falls back to the device zone.
+      const when = formatBodyTime(
+        input.payload.startsAtIso,
+        input.payload.timeZone,
+      );
       return {
         title: input.payload.planTitle,
-        body: `Starts at ${PUSH_TIME_PLACEHOLDER}.`,
+        body: `Starts at ${when}.`,
+        bodyTemplate: `Starts at ${PUSH_TIME_PLACEHOLDER}.`,
         url,
         tag: `plan:${planId}:reminder`,
         renotify: true,
@@ -463,6 +516,7 @@ export function stripPushPayloadToMinimum(
   return {
     title: composed.title,
     body: composed.body,
+    bodyTemplate: composed.bodyTemplate,
     url: composed.url,
     tag: composed.tag,
     renotify: composed.renotify,
@@ -472,9 +526,8 @@ export function stripPushPayloadToMinimum(
       url: composed.data.url,
       type: composed.data.type,
       planId: composed.data.planId,
-      // Preserve so the SW can still substitute PUSH_TIME_PLACEHOLDER on
-      // the stripped path — without these fields the body would render
-      // the literal "{TIME}".
+      // Preserve so v5+ SWs can still substitute PUSH_TIME_PLACEHOLDER on
+      // the stripped path.
       startsAtIso: composed.data.startsAtIso,
       timeZone: composed.data.timeZone,
     },

@@ -137,25 +137,41 @@ self.addEventListener("push", (event) => {
   }
 
   const title = typeof data.title === "string" ? data.title : "Squad";
-  let body = typeof data.body === "string" ? data.body : "";
   const url = typeof data.url === "string" ? data.url : "/";
-  // Substitute the composer's {TIME} placeholder with a device-formatted
-  // wall-clock. The composer ships startsAtIso/timeZone at the top level
-  // (older payloads) and inside data (post-fix); read both for back-compat.
-  if (body.includes(PUSH_TIME_PLACEHOLDER)) {
-    const startsAtIso =
-      (data.data && typeof data.data.startsAtIso === "string"
-        ? data.data.startsAtIso
-        : null) ??
-      (typeof data.startsAtIso === "string" ? data.startsAtIso : null);
-    const timeZone =
-      (data.data && typeof data.data.timeZone === "string"
-        ? data.data.timeZone
-        : null) ??
-      (typeof data.timeZone === "string" ? data.timeZone : null);
-    body = body.split(PUSH_TIME_PLACEHOLDER).join(
-      formatPushTime(startsAtIso, timeZone),
-    );
+  // Time substitution. Prefer bodyTemplate (contains {TIME}) so we can
+  // re-format using the device's zone; fall back to the server-rendered
+  // body (may be in UTC if the plan's timeZone was missing/UTC) when the
+  // template isn't shipped. Read startsAtIso/timeZone from data (current
+  // shape) or top-level (any future shape) for forward-compat.
+  let body = "";
+  const startsAtIso =
+    (data.data && typeof data.data.startsAtIso === "string"
+      ? data.data.startsAtIso
+      : null) ??
+    (typeof data.startsAtIso === "string" ? data.startsAtIso : null);
+  const timeZone =
+    (data.data && typeof data.data.timeZone === "string"
+      ? data.data.timeZone
+      : null) ??
+    (typeof data.timeZone === "string" ? data.timeZone : null);
+  if (
+    typeof data.bodyTemplate === "string" &&
+    data.bodyTemplate.includes(PUSH_TIME_PLACEHOLDER) &&
+    startsAtIso
+  ) {
+    body = data.bodyTemplate
+      .split(PUSH_TIME_PLACEHOLDER)
+      .join(formatPushTime(startsAtIso, timeZone));
+  } else if (typeof data.body === "string") {
+    body = data.body;
+    // Defensive: if a stray {TIME} leaked into body (e.g. mid-rollout
+    // payload from the old composer), substitute it instead of showing
+    // the literal placeholder.
+    if (body.includes(PUSH_TIME_PLACEHOLDER)) {
+      body = body
+        .split(PUSH_TIME_PLACEHOLDER)
+        .join(formatPushTime(startsAtIso, timeZone));
+    }
   }
   const tag = typeof data.tag === "string" ? data.tag : undefined;
   const image = typeof data.image === "string" ? data.image : undefined;
