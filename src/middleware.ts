@@ -14,6 +14,7 @@ const isPublicRoute = createRouteMatcher([
   "/privacy",
   "/terms",
   "/delete-account",
+  "/child-safety",
   // Digital Asset Links — Android fetches this unauthenticated to verify the
   // TWA owns this domain. Without it the TWA shows a URL bar.
   "/.well-known/(.*)",
