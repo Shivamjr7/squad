@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "app.squad.twa",
       "sha256_cert_fingerprints": [
-        "6A:2E:4E:45:9A:F7:FC:45:E0:77:91:91:7D:9D:5B:FB:8B:D2:1E:2B:DB:12:FA:6E:BE:B8:B0:74:C6:49:37:E3"
+        "6A:2E:4E:45:9A:F7:FC:45:E0:77:91:91:7D:9D:5B:FB:8B:D2:1E:2B:DB:12:FA:6E:BE:B8:B0:74:C6:49:37:E3",
+        "6C:71:7C:54:01:9E:FB:B5:49:55:07:50:4F:C9:7B:2B:8E:1B:97:00:98:93:3C:35:D6:E0:04:2B:EA:DE:D7:A0"
       ]
     }
   }
