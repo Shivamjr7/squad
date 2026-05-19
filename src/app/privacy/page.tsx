@@ -27,6 +27,13 @@ export default function PrivacyPage() {
         </Link>
         . Deletion is a hard delete — your votes, comments, and memberships go with the account. Plans you created are kept (the rest of the squad still needs them) with your name removed.
       </p>
+      <p className="text-sm text-ink-muted">
+        See our{" "}
+        <Link href="/child-safety" className="text-coral-strong underline-offset-2 hover:underline">
+          child safety standards
+        </Link>{" "}
+        for our zero-tolerance policy on CSAE and reporting channels.
+      </p>
     </main>
   );
 }
