@@ -20,7 +20,7 @@ export default function TermsPage() {
         We don’t make any uptime promises in v1 — this is run by one person on a free hosting tier. Use it because it’s useful, not because it’s critical.
       </p>
       <p className="text-sm text-ink-muted">
-        Questions: <a href="mailto:shivam@squad.app" className="text-coral-strong underline-offset-2 hover:underline">shivam@squad.app</a>.
+        Questions: <a href="mailto:shivamjr7@gmail.com" className="text-coral-strong underline-offset-2 hover:underline">shivamjr7@gmail.com</a>.
       </p>
     </main>
   );
