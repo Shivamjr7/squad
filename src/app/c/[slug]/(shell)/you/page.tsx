@@ -9,6 +9,7 @@ import { memberships, pushSubscriptions, users } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { EditDisplayName } from "@/components/circle/edit-display-name";
+import { DeleteAccountButton } from "@/components/circle/delete-account-button";
 import { LeaveCircleButton } from "@/components/circle/leave-circle-button";
 import { YouSignOutButton } from "@/components/circle/sign-out-button";
 import {
@@ -173,6 +174,7 @@ export default async function YouPage({
                   circleName={circle.name}
                   isLastAdmin={isLastAdmin}
                 />
+                <DeleteAccountButton />
               </div>
             </section>
           </div>

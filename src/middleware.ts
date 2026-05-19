@@ -8,6 +8,12 @@ const isPublicRoute = createRouteMatcher([
   "/invite/(.*)",
   "/api/webhooks/(.*)",
   "/offline",
+  // Legal + account-deletion pages must be reachable without auth — Google
+  // Play reviewers fetch the privacy policy and account-deletion URLs from
+  // the store listing while signed out.
+  "/privacy",
+  "/terms",
+  "/delete-account",
   // Digital Asset Links — Android fetches this unauthenticated to verify the
   // TWA owns this domain. Without it the TWA shows a URL bar.
   "/.well-known/(.*)",
