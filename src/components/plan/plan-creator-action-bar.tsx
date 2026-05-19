@@ -81,25 +81,27 @@ export function PlanCreatorActionBar({
           bottom: "calc(env(safe-area-inset-bottom, 0px) + 52px)",
         }}
       >
-        <div className="mx-auto flex w-full max-w-2xl items-center gap-3">
+        <div className="mx-auto grid w-full max-w-2xl grid-cols-2 items-stretch gap-3">
           <Button
             type="button"
             variant="outline"
             size="lg"
-            className="flex-1 rounded-2xl border-ink/15 bg-paper text-coral-strong hover:bg-coral-soft"
+            className="h-11 w-full rounded-2xl border border-coral/30 bg-paper px-4 text-sm font-semibold text-coral-strong shadow-none hover:bg-coral-soft"
             disabled={pending}
             onClick={() => setOpenDialog("cancel")}
           >
-            <X aria-hidden /> Cancel
+            <X aria-hidden className="size-4" />
+            <span className="leading-none">Cancel</span>
           </Button>
           <Button
             type="button"
             size="lg"
-            className="flex-1 rounded-2xl bg-in text-paper hover:bg-in/90"
+            className="h-11 w-full rounded-2xl border border-transparent bg-in px-4 text-sm font-semibold text-paper shadow-none hover:bg-in/90"
             disabled={pending}
             onClick={() => setOpenDialog("set")}
           >
-            <Lock aria-hidden /> Mark as set
+            <Lock aria-hidden className="size-4" />
+            <span className="leading-none">Mark as set</span>
           </Button>
         </div>
       </div>

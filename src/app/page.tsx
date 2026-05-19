@@ -38,12 +38,10 @@ import {
 import { ShowPastClient } from "@/components/home/show-past-client";
 import { LandingNav } from "@/components/landing/nav";
 import { LandingHero } from "@/components/landing/hero";
-import { LandingSocialProof } from "@/components/landing/social-proof";
 import { LandingProblem } from "@/components/landing/problem";
 import { LandingHowItWorks } from "@/components/landing/how-it-works";
 import { LandingPlanCardExplainer } from "@/components/landing/plan-card-explainer";
 import { LandingFeatureGrid } from "@/components/landing/feature-grid";
-import { LandingStatsTestimonial } from "@/components/landing/stats-testimonial";
 import { LandingFinalCta } from "@/components/landing/final-cta";
 import { LandingFooter } from "@/components/landing/footer";
 import { PrefetchCircle } from "@/components/home/prefetch-circle";
@@ -75,12 +73,10 @@ export default async function Home({
         <LandingNav />
         <main className="flex flex-col">
           <LandingHero />
-          <LandingSocialProof />
           <LandingProblem />
           <LandingHowItWorks />
           <LandingPlanCardExplainer />
           <LandingFeatureGrid />
-          <LandingStatsTestimonial />
           <LandingFinalCta />
         </main>
         <LandingFooter />
