@@ -3,13 +3,11 @@ import { auth } from "@clerk/nextjs/server";
 import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { comments, plans, votes } from "@/db/schema";
-import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { CircleViewToggle } from "@/components/circle/circle-view-toggle";
 import { MyPlansPage, type MyPlansPagePlan } from "@/components/plan/my-plans-page";
 import {
   getCircleBySlug,
   getCircleMembers,
-  getUserCircles,
   type CircleMemberRow,
 } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
@@ -32,12 +30,10 @@ export default async function MyPlansRoute({
   const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
-  // userCircles + memberRows cache-hit from shell layout. `membership` is
-  // resolved from memberRows below instead of a separate query.
-  const [userCircles, memberRows] = await Promise.all([
-    getUserCircles(userId),
-    getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
-  ]);
+  // memberRows cache-hit from shell layout. `membership` is resolved
+  // from memberRows below instead of a separate query. userCircles is
+  // not needed here — the AppShell top bar owns the circle switcher.
+  const memberRows = (await getCircleMembers(circle.id)) as CircleMemberRow[];
   const membership = memberRows.find((m) => m.userId === userId)
     ? { role: memberRows.find((m) => m.userId === userId)!.role }
     : undefined;
@@ -141,18 +137,15 @@ export default async function MyPlansRoute({
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
-      <header className="flex items-center justify-between gap-2 px-4 pt-3 sm:px-6">
-        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
-        <span className="shrink-0 text-sm font-medium text-ink-muted">
-          My plans
-        </span>
-      </header>
-
-      <div className="px-4 pt-3 sm:px-6">
+      {/* Route header was previously a duplicate of the AppShell mobile top
+          bar's circle switcher + a "My plans" text label that competed with
+          the CircleViewToggle below it. Dropped in favor of letting the
+          toggle be the page's identity. */}
+      <div className="px-4 pt-4 sm:px-6">
         <CircleViewToggle slug={circle.slug} active="mine" />
       </div>
 
-      <div className="px-4 pt-6 sm:px-6">
+      <div className="px-4 pt-5 sm:px-6">
         <CircleVotesProvider
           initialVoters={initialVoters}
           members={members}

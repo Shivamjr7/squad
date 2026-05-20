@@ -26,8 +26,10 @@ export function MyPlansPage({
 }) {
   const [filter, setFilter] = useState<Filter>("current");
   // Hydration-safe: SSR + first client render share the default, then we
-  // upgrade to whatever localStorage remembered.
-  const [view, setView] = useState<ViewMode>("list");
+  // upgrade to whatever localStorage remembered. Swipe is the default —
+  // My Plans is the "decide" surface, so we lead with the deck and let
+  // power users flip to List if they prefer the scannable layout.
+  const [view, setView] = useState<ViewMode>("swipe");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -110,22 +112,26 @@ export function MyPlansPage({
   ]);
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 px-4 py-6 pb-32 sm:px-6">
-      {/* Editorial header — matches M16 home/plan-detail rhythm: eyebrow,
-          serif title with italic accent, muted stat subline. */}
-      <header className="flex flex-col gap-3">
-        <span className="eyebrow text-ink-muted">My plans</span>
+    <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-5 pb-32">
+      {/* Editorial header — the CircleViewToggle above already says
+          "MY PLANS", so we skip the eyebrow here and lead straight with
+          the headline. The stats subline is filter-aware so it never
+          shows "X past" while the user is looking at the Current tab. */}
+      <header className="flex flex-col gap-2">
         <HeroQuestion
           prefix={<>What&rsquo;s on,</>}
           accent={headerAccent(filter)}
           size="md"
         />
-        <p className="text-sm text-ink-muted">{statsLine(stats)}</p>
+        <p className="text-sm text-ink-muted">{statsLine(stats, filter)}</p>
       </header>
 
-      {/* Filter + view toggle row. Segmented control left, ghost view-mode
-          chip right. On mobile they wrap; on desktop they sit side-by-side. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Filter + view-toggle row. Current/Past is the primary control on
+          this surface; the list/swipe view-mode rides as a quieter
+          icon-pair on the right, and disappears on Past where it has no
+          meaning. Wraps tightly on small screens so the row stays one
+          line on a 380px viewport. */}
+      <div className="flex items-center justify-between gap-3">
         <Segmented
           value={filter}
           onChange={(v) => setFilter(v as Filter)}
@@ -275,35 +281,45 @@ function ViewButton({
 }
 
 function EmptyState({ filter }: { filter: Filter }) {
+  // Solid surface, no dashed border — the prior treatment read as an
+  // empty form field rather than a friendly "you're caught up." Mirrors
+  // the Spotlight-hero card warmth (paper-card + faint coral glow) so it
+  // feels like the same surface family as the rest of the app.
   return (
-    <section className="mt-2 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-6 py-14 text-center">
-      <span className="eyebrow text-ink-muted">
-        {filter === "current" ? "All quiet" : "Nothing past"}
-      </span>
-      <h3 className="font-serif text-2xl font-semibold text-ink">
-        {filter === "current" ? (
-          <>
-            No plans on the{" "}
-            <em className="font-serif italic font-normal text-coral">
-              calendar
-            </em>{" "}
-            yet.
-          </>
-        ) : (
-          <>
-            No{" "}
-            <em className="font-serif italic font-normal text-coral">
-              past
-            </em>{" "}
-            plans yet.
-          </>
-        )}
-      </h3>
-      <p className="max-w-xs text-sm text-ink-muted">
-        {filter === "current"
-          ? "Create one from the circle home — your friends will see it the second you do."
-          : "Plans land here after they finish or get cancelled."}
-      </p>
+    <section className="relative mt-1 overflow-hidden rounded-3xl border border-ink/8 bg-paper-card px-6 py-12 text-center shadow-card sm:py-14">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-20 -top-24 size-60 rounded-full bg-coral/12 blur-[60px] dark:bg-coral/20"
+      />
+      <div className="relative flex flex-col items-center gap-3">
+        <span className="eyebrow text-ink-muted">
+          {filter === "current" ? "All quiet" : "Nothing past"}
+        </span>
+        <h3 className="font-serif text-2xl font-semibold text-ink">
+          {filter === "current" ? (
+            <>
+              No plans on the{" "}
+              <em className="font-serif italic font-normal text-coral">
+                calendar
+              </em>{" "}
+              yet.
+            </>
+          ) : (
+            <>
+              No{" "}
+              <em className="font-serif italic font-normal text-coral">
+                past
+              </em>{" "}
+              plans yet.
+            </>
+          )}
+        </h3>
+        <p className="max-w-xs text-sm text-ink-muted">
+          {filter === "current"
+            ? "Start one from the circle home — your friends will see it the second you do."
+            : "Plans land here after they finish or get cancelled."}
+        </p>
+      </div>
     </section>
   );
 }
@@ -323,19 +339,25 @@ function headerAccent(filter: Filter): string {
   return "tonight.";
 }
 
-function statsLine({
-  deciding,
-  locked,
-  past,
-}: {
-  deciding: number;
-  locked: number;
-  past: number;
-}): string {
+function statsLine(
+  {
+    deciding,
+    locked,
+    past,
+  }: { deciding: number; locked: number; past: number },
+  filter: Filter,
+): string {
+  // Past tab gets its own one-fact subline; Current tab summarizes what's
+  // actually in front of the user. Mixing the two (the prior behavior)
+  // produced misleading lines like "7 past" while the Current tab was
+  // displaying an empty "All caught up" state.
+  if (filter === "past") {
+    if (past === 0) return "Nothing past yet.";
+    return `${past} ${past === 1 ? "plan" : "plans"} done.`;
+  }
   const parts: string[] = [];
   if (deciding) parts.push(`${deciding} deciding`);
   if (locked) parts.push(`${locked} locked`);
-  if (past) parts.push(`${past} past`);
   if (parts.length === 0) return "Nothing on the docket.";
   return parts.join(" · ");
 }

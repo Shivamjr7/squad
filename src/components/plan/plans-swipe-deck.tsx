@@ -160,21 +160,64 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
   // Pointer-event handlers. We use Pointer Events (not Touch + Mouse) so
   // the same code path handles desktop drag, mobile touch, and stylus
   // without three branches.
-  const startRef = useRef<{ x: number; y: number } | null>(null);
+  //
+  // Intent-gating: don't claim the pointer on touch until we know the
+  // user actually meant to swipe. With touch-action: pan-y the browser
+  // owns vertical scroll, so a finger-drag-to-scroll lands here as a
+  // pointercancel — which we treat as "no vote." Mouse/pen interactions
+  // capture immediately since there's no scroll competing with them.
+  const INTENT_THRESHOLD = 8;
+  const startRef = useRef<{
+    x: number;
+    y: number;
+    pointerType: string;
+    captured: boolean;
+  } | null>(null);
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!top || exit !== null) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    startRef.current = { x: e.clientX, y: e.clientY };
-    setDrag({ x: 0, y: 0, active: true });
+    const isTouch = e.pointerType === "touch";
+    startRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      pointerType: e.pointerType,
+      captured: !isTouch,
+    };
+    if (!isTouch) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setDrag({ x: 0, y: 0, active: true });
+    }
   };
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!startRef.current || !drag.active) return;
+    if (!startRef.current) return;
     const dx = e.clientX - startRef.current.x;
     const dy = e.clientY - startRef.current.y;
+    if (!startRef.current.captured) {
+      // Touch path — wait until the user crosses a small threshold, then
+      // decide whether this is a horizontal swipe (ours) or a vertical
+      // scroll (browser's, via touch-action: pan-y → pointercancel).
+      if (Math.abs(dx) < INTENT_THRESHOLD && Math.abs(dy) < INTENT_THRESHOLD) {
+        return;
+      }
+      if (Math.abs(dx) <= Math.abs(dy)) {
+        // Vertical-dominant — let the browser scroll. Give up the gesture
+        // so the rest of the move/up events don't accumulate drag.
+        startRef.current = null;
+        return;
+      }
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Capture can race with pointercancel; safe to ignore.
+      }
+      startRef.current.captured = true;
+      setDrag({ x: dx, y: dy, active: true });
+      return;
+    }
     setDrag({ x: dx, y: dy, active: true });
   };
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!top || !startRef.current) return;
+    const captured = startRef.current.captured;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -182,6 +225,12 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
     }
     const { x, y } = drag;
     startRef.current = null;
+
+    if (!captured) {
+      // Never crossed the intent threshold — treat as a tap, not a vote.
+      setDrag({ x: 0, y: 0, active: false });
+      return;
+    }
 
     if (x > SWIPE_X_THRESHOLD) {
       commitVote(top.id, "in", "right");
@@ -193,6 +242,21 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
       // Below threshold — spring back to center.
       setDrag({ x: 0, y: 0, active: false });
     }
+  };
+  // Pointercancel fires when the browser takes the gesture (e.g. starts
+  // scrolling under touch-action: pan-y). Reset state without committing
+  // — the prior behavior would commit if drag.x happened to be past the
+  // threshold at the moment scroll began.
+  const onPointerCancel = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (startRef.current) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    startRef.current = null;
+    setDrag({ x: 0, y: 0, active: false });
   };
 
   // Keyboard equivalents for the deck — accessibility + power-user.
@@ -327,7 +391,7 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
         ) : null}
         <div
           ref={cardRef}
-          className="absolute inset-0 touch-none"
+          className="absolute inset-0 touch-pan-y"
           style={{
             transform: topTransform,
             transition:
@@ -338,7 +402,7 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerCancel={onPointerCancel}
         >
           <DeckCardSurface plan={top} now={now} overlay={overlay} />
         </div>
@@ -584,23 +648,33 @@ function AllCaughtUp({
   slug: string;
   message?: string;
 }) {
+  // Warm card (solid surface + coral glow) instead of the prior dashed-
+  // border treatment, which read as an empty form. Matches the My Plans
+  // EmptyState so a user toggling List ↔ Swipe sees one consistent
+  // "caught up" surface family.
   return (
-    <section className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-6 py-12 text-center">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-        Decide
-      </span>
-      <h3 className="font-serif text-2xl font-semibold text-ink">
-        All caught up.
-      </h3>
-      <p className="max-w-xs text-sm text-ink-muted">
-        {message ?? "Nothing waiting on your vote right now."}
-      </p>
-      <Link
-        href={`/c/${slug}`}
-        className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-4 py-2 text-sm font-semibold text-ink hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-      >
-        Back to circle
-      </Link>
+    <section className="relative mx-auto mt-1 max-w-md overflow-hidden rounded-3xl border border-ink/8 bg-paper-card px-6 py-12 text-center shadow-card">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-20 -top-24 size-60 rounded-full bg-coral/12 blur-[60px] dark:bg-coral/20"
+      />
+      <div className="relative flex flex-col items-center gap-3">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          Decide
+        </span>
+        <h3 className="font-serif text-2xl font-semibold text-ink">
+          All caught up.
+        </h3>
+        <p className="max-w-xs text-sm text-ink-muted">
+          {message ?? "Nothing waiting on your vote right now."}
+        </p>
+        <Link
+          href={`/c/${slug}`}
+          className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-4 py-2 text-sm font-semibold text-ink hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+        >
+          Back to circle
+        </Link>
+      </div>
     </section>
   );
 }

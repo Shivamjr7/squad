@@ -107,7 +107,7 @@ export function FeaturedPlanCard({
     <Link
       href={`/c/${slug}/p/${plan.id}`}
       prefetch
-      className="group relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-ink/5 bg-paper-card p-5 pl-6 shadow-card-raised transition-shadow duration-150 hover:shadow-card-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+      className="group relative flex flex-col gap-3.5 overflow-hidden rounded-[18px] border border-ink/10 bg-paper-card p-4 pl-5 shadow-card transition-shadow duration-150 hover:shadow-card-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
     >
       {circleId ? (
         <span
@@ -153,7 +153,7 @@ export function FeaturedPlanCard({
       </div>
 
       <h2
-        className="font-serif text-2xl font-semibold leading-tight text-ink sm:text-3xl"
+        className="font-serif text-xl font-semibold leading-tight text-ink sm:text-2xl"
         style={{ viewTransitionName: `plan-title-${plan.id}` }}
       >
         {plan.title}
@@ -180,8 +180,12 @@ function Chip({
   value: string;
   muted?: boolean;
 }) {
+  // Chip surface is a low-alpha ink tint so it sits *on* the white card
+  // without picking up the body gradient (bg-paper would read pink-ish
+  // here because the body radial bleeds through the card's transparency
+  // edges). Hairline border replaces fill for definition.
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 rounded-xl bg-paper px-3 py-2">
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-ink/8 bg-ink/[0.025] px-2.5 py-1.5">
       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
         {label}
       </span>

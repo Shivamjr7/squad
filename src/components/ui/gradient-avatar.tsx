@@ -2,19 +2,15 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { normalizeAvatarUrl } from "@/lib/avatar";
 
-// Seeded 2-stop conic gradient avatar. Modern apps (Linear, Vercel, etc.)
-// generate per-user gradients so unphotographed members still feel
-// individual — flat muted circles were what we had before and they all
-// looked the same.
-//
-// The gradient is deterministic: same userId always produces the same
-// hue pair, in both themes. We pick from a curated palette of OKLCH
-// pairs that look good on cream + on midnight, so we never have to
-// theme-branch at render time.
+// Seeded flat-fill avatar. Each user is mapped to one muted earth-tone
+// from a curated palette — deterministic per seed, harmonized across
+// the squad so a row of avatars reads as one family (editorial calm)
+// rather than a confetti of bright gradients. White initials with a
+// soft inner scrim for legibility at any fill.
 //
 // When `src` resolves to a non-default avatar URL (Clerk default URLs
-// are filtered by `normalizeAvatarUrl`), we render the photo instead and
-// keep the gradient as a single-frame fallback during load.
+// are filtered by `normalizeAvatarUrl`), we render the photo instead
+// and keep the flat color as a load-state fallback.
 
 type Size = "xs" | "sm" | "md" | "lg" | "xl";
 
@@ -47,18 +43,20 @@ const SIZE_CLASS: Record<Size, string> = {
   xl: "size-14 text-lg",
 };
 
-// Curated OKLCH gradient pairs. Each entry = [from, to]. Picked for
-// chromatic variety + dual-theme legibility. Initials are rendered in
-// paper-cream with a soft black scrim for contrast at any pair.
-const GRADIENT_PAIRS: ReadonlyArray<readonly [string, string]> = [
-  ["oklch(0.72 0.20 28)", "oklch(0.58 0.20 358)"], // coral → magenta
-  ["oklch(0.70 0.18 145)", "oklch(0.60 0.18 200)"], // green → teal
-  ["oklch(0.74 0.18 60)", "oklch(0.64 0.22 28)"], // mustard → coral
-  ["oklch(0.66 0.20 268)", "oklch(0.58 0.20 320)"], // violet → pink
-  ["oklch(0.74 0.16 200)", "oklch(0.62 0.20 248)"], // teal → blue
-  ["oklch(0.74 0.16 90)", "oklch(0.62 0.20 145)"], // citrus → green
-  ["oklch(0.66 0.20 320)", "oklch(0.56 0.20 268)"], // pink → violet
-  ["oklch(0.68 0.20 25)", "oklch(0.60 0.20 60)"], // red → orange
+// Curated OKLCH flat fills — Editorial Calm family. All sit in the same
+// mid-tone lightness band (0.42–0.56) and the same low-chroma band
+// (0.08–0.14) so a stack of avatars reads as one harmonious set.
+// Eight hues across warm earth tones + cool deep tones for variety
+// without noise.
+const AVATAR_FILLS: ReadonlyArray<string> = [
+  "oklch(0.52 0.12 22)", // terra-cotta
+  "oklch(0.46 0.10 40)", // tobacco brown
+  "oklch(0.50 0.10 105)", // mossy olive
+  "oklch(0.46 0.10 220)", // deep teal
+  "oklch(0.42 0.08 270)", // slate navy
+  "oklch(0.44 0.10 330)", // muted plum
+  "oklch(0.52 0.12 55)", // warm clay
+  "oklch(0.50 0.10 5)", // dusty rose
 ] as const;
 
 function hashSeed(seed: string): number {
@@ -89,10 +87,7 @@ export function GradientAvatar({
   const resolvedSrc = normalizeAvatarUrl(src ?? null);
   const initials = initialsFromName(name);
   const hash = hashSeed(seed || initials);
-  const [from, to] = GRADIENT_PAIRS[hash % GRADIENT_PAIRS.length]!;
-  // Angle also seeded so even users that collide on the pair will rotate
-  // differently — small touch, doubles the apparent variety.
-  const angle = (hash >> 3) % 360;
+  const fill = AVATAR_FILLS[hash % AVATAR_FILLS.length]!;
 
   const ringClass = ring ? "ring-2 ring-paper" : "";
 
@@ -105,9 +100,7 @@ export function GradientAvatar({
           ringClass,
           className,
         )}
-        style={{
-          backgroundImage: `linear-gradient(${angle}deg, ${from}, ${to})`,
-        }}
+        style={{ backgroundColor: fill }}
       >
         <Image
           src={resolvedSrc}
@@ -126,18 +119,14 @@ export function GradientAvatar({
       role="img"
       aria-label={name ?? "avatar"}
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center rounded-full font-semibold uppercase text-paper",
+        "relative inline-flex shrink-0 items-center justify-center rounded-full font-semibold uppercase tracking-tight text-white",
         SIZE_CLASS[size],
         ringClass,
         className,
       )}
-      style={{
-        backgroundImage: `linear-gradient(${angle}deg, ${from}, ${to})`,
-      }}
+      style={{ backgroundColor: fill }}
     >
-      {/* Soft scrim so initials stay legible on any gradient pair. */}
-      <span aria-hidden className="absolute inset-0 rounded-full bg-ink/15" />
-      <span className="relative tracking-tight">{initials}</span>
+      {initials}
     </span>
   );
 }

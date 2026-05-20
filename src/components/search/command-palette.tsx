@@ -92,8 +92,18 @@ export function CommandPalette() {
       e.preventDefault();
       setOpen((v) => !v);
     }
+    // External-open hook — any component (e.g. the mobile search button)
+    // can `window.dispatchEvent(new Event("squad:open-command-palette"))`
+    // to surface the palette without needing a ref into this component.
+    function onOpenEvent() {
+      setOpen(true);
+    }
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    window.addEventListener("squad:open-command-palette", onOpenEvent);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("squad:open-command-palette", onOpenEvent);
+    };
   }, []);
 
   // Run the search. Trims + skips empty; debounced informally by the

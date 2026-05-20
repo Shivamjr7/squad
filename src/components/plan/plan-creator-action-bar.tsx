@@ -73,12 +73,12 @@ export function PlanCreatorActionBar({
   return (
     <>
       <div
-        // Bottom offset matches the mobile tab bar height (py-3 + ~24px
-        // icon ≈ 52px) plus the iOS home-indicator safe area. On md+ no
-        // tab bar exists, so the bar sits flush.
+        // Bottom offset clears the floating mobile tab pill (~62px tall +
+        // 8px outer margin) plus the iOS home-indicator safe area. On md+
+        // no tab bar exists, so the bar sits flush.
         className="fixed inset-x-0 z-30 border-t border-ink/10 bg-paper px-4 py-3 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.12)] md:px-6"
         style={{
-          bottom: "calc(env(safe-area-inset-bottom, 0px) + 52px)",
+          bottom: "calc(env(safe-area-inset-bottom, 0px) + 76px)",
         }}
       >
         <div className="mx-auto grid w-full max-w-2xl grid-cols-2 items-stretch gap-3">

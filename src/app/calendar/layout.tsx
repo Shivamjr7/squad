@@ -24,13 +24,11 @@ export default async function CalendarLayout({
   if (!userId) redirect("/sign-in");
 
   const userCircles = await getUserCircles(userId);
-  // Per CONVERGENCE_PLAN.md §3: the calendar tab is hidden when the user is
-  // in only one circle. We don't 404 — they may have followed a stale link —
-  // but we send them back to that one circle's home.
+  // Calendar is available to anyone with at least one circle — the prior
+  // `< 2` gate (per CONVERGENCE_PLAN.md §3) was reverted because single-
+  // circle users still benefit from the unified calendar view + the
+  // bottom-nav Calendar tab now lands somewhere instead of bouncing.
   if (userCircles.length === 0) redirect("/onboarding");
-  if (userCircles.length < 2) {
-    redirect(`/c/${userCircles[0]!.slug}`);
-  }
 
   const currentSlug = userCircles[0]!.slug;
 
