@@ -1,19 +1,19 @@
-// M24 — pick which plan-detail skin to render. Pure function; no DB. The
-// page passes a freshly-snapped `now` so the variant is deterministic per
+// Pick which plan-detail skin to render. Pure function; no DB. The page
+// passes a freshly-snapped `now` so the variant is deterministic per
 // request (and shifts on the next refresh once thresholds cross).
 //
-// M31 — three skins, matching the reference mock A/B/C exactly:
-//   - decision   → active plan, decideBy not in countdown range
-//   - live-ticker → active plan with decideBy inside the 30-min window
+// Three skins:
+//   - decision   → active plan with no decide-by deadline yet
+//   - live-ticker → active plan with a decide-by deadline (any remaining)
+//                   — renders the Live Dashboard cockpit (Plan Detail C):
+//                   ring + countdown + squad grid + sticky RSVP
 //   - receipt    → any settled state (confirmed / done / cancelled)
-// The pre-M31 `its-happening` route is retired — confirmed plans now
-// land on the cream paper Receipt skin per the mock.
+//
+// Earlier rev gated `live-ticker` to the final 30 min of the deadline.
+// The cockpit is the right surface whenever a deadline exists, not only
+// in the last half-hour — the countdown is the cockpit's headline.
 
 export type PlanVariant = "decision" | "live-ticker" | "receipt";
-
-// 30 minutes — when the deadline is closer than this AND the plan is still
-// unlocked, switch to the dark live-ticker skin. Tuned per the M24 spec.
-const TICKER_THRESHOLD_MS = 30 * 60 * 1000;
 
 export function getPlanVariant(
   plan: {
@@ -29,11 +29,12 @@ export function getPlanVariant(
   ) {
     return "receipt";
   }
-  if (plan.status === "active" && plan.decideBy) {
-    const remaining = plan.decideBy.getTime() - now.getTime();
-    if (remaining > 0 && remaining < TICKER_THRESHOLD_MS) {
-      return "live-ticker";
-    }
+  if (
+    plan.status === "active" &&
+    plan.decideBy &&
+    plan.decideBy.getTime() > now.getTime()
+  ) {
+    return "live-ticker";
   }
   return "decision";
 }

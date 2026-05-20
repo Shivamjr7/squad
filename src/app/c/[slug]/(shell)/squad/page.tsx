@@ -7,14 +7,12 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { invites } from "@/db/schema";
 import { Button } from "@/components/ui/button";
-import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { InviteButton } from "@/components/circle/invite-button";
 import { MembersList, type ListMember } from "@/components/circle/members-list";
 import {
   getCircleBySlug,
   getCircleMembers,
   getKnownSquadUsers,
-  getUserCircles,
   type CircleMemberRow,
 } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
@@ -32,15 +30,16 @@ export default async function SquadPage({
   const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
-  // memberRows + userCircles cache-hit from shell layout; only `invites` runs.
-  const [memberRows, activeInvites, userCircles] = await Promise.all([
+  // memberRows cache-hit from shell layout; only `invites` runs. userCircles
+  // is no longer needed here — the duplicate page-header CircleSwitcher was
+  // removed in favor of the AppShell mobile top bar (and desktop sidebar).
+  const [memberRows, activeInvites] = await Promise.all([
     getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
     db.query.invites.findMany({
       columns: { code: true },
       where: eq(invites.circleId, circle.id),
       orderBy: desc(invites.createdAt),
     }),
-    getUserCircles(userId),
   ]);
 
   const me = memberRows.find((m) => m.userId === userId);
@@ -67,23 +66,19 @@ export default async function SquadPage({
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
-      <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <CircleSwitcher
-          currentSlug={circle.slug}
-          circles={userCircles}
-          size="sm"
-        />
-        <div className="flex items-center gap-1">
-          {isAdmin ? (
-            <Button asChild variant="ghost" size="icon" aria-label="Settings">
-              <Link href={`/c/${circle.slug}/settings`}>
-                <Settings />
-              </Link>
-            </Button>
-          ) : null}
-          <UserButton />
-        </div>
-      </header>
+      {/* Desktop-only top row — mirrors the home page pattern. Mobile uses
+          the AppShell top bar (SquadLogo + CircleSwitcher + search/bell/
+          theme) so the per-page header would just duplicate the switcher. */}
+      <div className="hidden items-center justify-end gap-1 px-6 pt-3 md:flex">
+        {isAdmin ? (
+          <Button asChild variant="ghost" size="icon" aria-label="Settings">
+            <Link href={`/c/${circle.slug}/settings`}>
+              <Settings />
+            </Link>
+          </Button>
+        ) : null}
+        <UserButton />
+      </div>
 
       <div className="px-4 pt-6 sm:px-6">
         <div className="space-y-6">

@@ -1,30 +1,25 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { headers } from "next/headers";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { planEvents, plans } from "@/db/schema";
+import { plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
-import { HeroQuestion } from "@/components/ui/hero-question";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
 import { CircleCollisionBanner } from "@/components/plan/circle-collision-banner";
-import { FeaturedPlanCard } from "@/components/plan/featured-plan-card";
+import { SpotlightHero } from "@/components/plan/spotlight-hero";
 import {
-  UpcomingStrip,
-  type UpcomingStripPlan,
-} from "@/components/plan/upcoming-strip";
+  ThisWeekList,
+  type ThisWeekListPlan,
+} from "@/components/plan/this-week-list";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
-import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { CircleViewToggle } from "@/components/circle/circle-view-toggle";
+import { GetStartedChecklist } from "@/components/onboarding/get-started-checklist";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
-import { InstallBanner } from "@/components/pwa/install-banner";
-import { WeatherChip } from "@/components/circle/weather-chip";
-import { HomeSubline } from "@/components/circle/home-subline";
-import { SuggestPanel } from "@/components/circle/suggest-panel";
+import { GradientAvatar } from "@/components/ui/gradient-avatar";
 import {
   SquadPulseAsync,
   SquadPulseSkeleton,
@@ -33,16 +28,14 @@ import {
   LockingSoonPanel,
   LockingSoonSkeleton,
 } from "@/components/circle/locking-soon-panel";
+import { SuggestPanel } from "@/components/circle/suggest-panel";
 import type { FormMember } from "@/components/plan/new-plan-form";
 import {
   getCircleBySlug,
   getCircleMembers,
-  getUserCircles,
   type CircleMemberRow,
-  type UserCircle,
 } from "@/lib/circles";
 import { requireDisplayNameSet } from "@/lib/auth";
-import { buildMapsUrl } from "@/lib/maps";
 import {
   CircleVotesProvider,
   type Member,
@@ -56,7 +49,7 @@ const DATE_ROW_FMT = new Intl.DateTimeFormat("en-US", {
 });
 
 function formatDateHeader(now: Date): string {
-  // "SAT · APR 27" — short weekday + month/day, dot-separated, uppercased.
+  // "SUN · MAY 10" — short weekday + month/day, dot-separated, uppercased.
   const parts = DATE_ROW_FMT.formatToParts(now);
   const wd = parts.find((p) => p.type === "weekday")?.value ?? "";
   const month = parts.find((p) => p.type === "month")?.value ?? "";
@@ -64,31 +57,19 @@ function formatDateHeader(now: Date): string {
   return `${wd.toUpperCase()} · ${month.toUpperCase()} ${day}`;
 }
 
-function isSameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+function firstName(displayName: string): string {
+  const trimmed = displayName.trim();
+  if (!trimmed) return "there";
+  return trimmed.split(/\s+/)[0]!;
 }
 
-function isWeekend(d: Date): boolean {
-  const dow = d.getDay();
-  return dow === 0 || dow === 6;
-}
-
-function pickHeroPrefix(
-  nextPlan: { startsAt: Date } | undefined,
-  now: Date,
-): string {
-  if (!nextPlan) return "What's the plan,";
-  if (isSameLocalDay(nextPlan.startsAt, now)) return "Tonight,";
-  const dayMs = 86_400_000;
-  const diffMs = nextPlan.startsAt.getTime() - now.getTime();
-  if (diffMs >= 0 && diffMs < 7 * dayMs && isWeekend(nextPlan.startsAt)) {
-    return "This weekend,";
-  }
-  return "What's the plan,";
+function greeting(now: Date): string {
+  const hour = now.getHours();
+  if (hour < 5) return "Up late";
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  if (hour < 22) return "Good evening";
+  return "Good night";
 }
 
 export default async function CircleHomePage({
@@ -104,11 +85,27 @@ export default async function CircleHomePage({
   const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
-  // memberRows + userCircles are already cached at the layout level (same
-  // request), so these calls hit the cache.
-  const [memberRows, userCircles] = await Promise.all([
+  // Gates the GetStartedChecklist. The checklist is for genuinely new
+  // users — anyone who's already created a plan or voted on one has
+  // seen the flow, so the prompt shouldn't re-appear every time a
+  // circle goes quiet between plans. Two indexed LIMIT-1 lookups
+  // (plans.created_by, votes.user_id are both indexed); folded into
+  // the existing Promise.all to share the round-trip.
+  const [memberRows, hasUserActivity] = await Promise.all([
     getCircleMembers(circle.id) as Promise<CircleMemberRow[]>,
-    getUserCircles(userId) as Promise<UserCircle[]>,
+    (async () => {
+      const [createdAny, votedAny] = await Promise.all([
+        db.query.plans.findFirst({
+          columns: { id: true },
+          where: eq(plans.createdBy, userId),
+        }),
+        db.query.votes.findFirst({
+          columns: { planId: true },
+          where: eq(votes.userId, userId),
+        }),
+      ]);
+      return Boolean(createdAny) || Boolean(votedAny);
+    })(),
   ]);
 
   const me = memberRows.find((m) => m.userId === userId);
@@ -146,9 +143,6 @@ export default async function CircleHomePage({
         sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
       );
 
-  // One nested relational query: plans + creator + every vote + voter user
-  // + every venue + every venue-vote. Drizzle issues this as a single SQL
-  // statement (one round-trip) instead of the four it used to take.
   const upcoming = await db.query.plans.findMany({
     where: and(
       eq(plans.circleId, circle.id),
@@ -180,9 +174,6 @@ export default async function CircleHomePage({
 
   const planIds = upcoming.map((p) => p.id);
   const initialVoters: VotersByPlan = {};
-  // Map<planId, { label, votes, total }> — surfaces the leading venue on the
-  // home featured card + upcoming row when an active plan has multi-venue
-  // voting in progress. Null leader (tie / no votes) shows "N options".
   const venueSummaries = new Map<
     string,
     { label: string | null; total: number; optionCount: number }
@@ -201,7 +192,6 @@ export default async function CircleHomePage({
       initialVoters[p.id] = list;
     }
     if (p.venues.length < 2) continue;
-    // Pick the unique vote leader per plan (ties → null label).
     let leaderLabel: string | null = null;
     let leaderVotes = 0;
     let tied = false;
@@ -232,36 +222,12 @@ export default async function CircleHomePage({
 
   const featured = upcoming[0];
   const restUpcoming = upcoming.slice(1);
-  const heroPrefix = pickHeroPrefix(featured, now);
   const dateLabel = formatDateHeader(now);
   const isEmpty = upcoming.length === 0;
-
-  // M25 — UA-aware Maps URL for the featured card. Skipped while venue
-  // voting is in progress (no canonical address to point at yet).
-  const ua = (await headers()).get("user-agent");
-  const featuredMapsUrl =
-    featured && featured.location && !venueSummaries.get(featured.id)
-      ? buildMapsUrl(featured.location, ua)
-      : null;
-
-  // Featured-plan "last edit Nm ago" — most recent activity-log row (M24).
-  // `findFirst(orderBy: desc, limit 1)` rides the (plan_id, created_at)
-  // index. Single round-trip; falls back to plan.createdAt when empty.
-  let featuredLastEditAt: Date | null = null;
-  if (featured) {
-    const ev = await db.query.planEvents.findFirst({
-      where: eq(planEvents.planId, featured.id),
-      orderBy: [desc(planEvents.createdAt)],
-      columns: { createdAt: true },
-    });
-    featuredLastEditAt = ev?.createdAt ?? null;
-  }
 
   // M32.8 §4.6 — first pair of the viewer's hard commitments in this
   // circle whose windows overlap. Only one banner shows per page even if
   // three plans collide pairwise; the user resolves them one at a time.
-  // Commitment = IN vote or creator auto-in, on a non-approximate exact-
-  // time active/confirmed plan (matches §2 "hard" eligibility).
   const collision = (() => {
     const committed = upcoming.filter((p) => {
       if (p.isApproximate) return false;
@@ -289,9 +255,6 @@ export default async function CircleHomePage({
     return null;
   })();
 
-  // SquadPulse activity is streamed below via <SquadPulseAsync> in a
-  // <Suspense> boundary so the two MAX() aggregations don't block first
-  // paint. Members for the pulse come from `sidebarMembers` below.
   const sidebarMembers = memberRows
     .map((m) =>
       m.user
@@ -302,32 +265,31 @@ export default async function CircleHomePage({
           }
         : null,
     )
-    .filter((m): m is { userId: string; displayName: string; avatarUrl: string | null } => m !== null);
-
-  // Subline computations.
-  const decidingCount = upcoming.filter((p) => p.status === "active").length;
-  const featuredVoters = featured
-    ? new Set((initialVoters[featured.id] ?? []).map((v) => v.userId))
-    : new Set<string>();
-  const totalMembers = memberRows.length;
+    .filter(
+      (m): m is { userId: string; displayName: string; avatarUrl: string | null } =>
+        m !== null,
+    );
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
-      <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <CircleSwitcher currentSlug={circle.slug} circles={userCircles} size="sm" />
-        <div className="flex items-center gap-1">
-          {isAdmin ? (
-            <Button asChild variant="ghost" size="icon" aria-label="Settings">
-              <Link href={`/c/${circle.slug}/settings`}>
-                <Settings />
-              </Link>
-            </Button>
-          ) : null}
+      {/* Desktop-only top row — kept for back-compat with the M31 sidebar
+          chrome. Mobile uses the AppShell header. */}
+      {isAdmin ? (
+        <div className="hidden items-center justify-end gap-1 px-6 pt-3 md:flex">
+          <Button asChild variant="ghost" size="icon" aria-label="Settings">
+            <Link href={`/c/${circle.slug}/settings`}>
+              <Settings />
+            </Link>
+          </Button>
           <UserButton />
         </div>
-      </header>
+      ) : (
+        <div className="hidden items-center justify-end gap-1 px-6 pt-3 md:flex">
+          <UserButton />
+        </div>
+      )}
 
-      <div className="px-4 pt-3 sm:px-6">
+      <div className="px-4 pt-4 sm:px-6">
         <CircleViewToggle slug={circle.slug} active="all" />
       </div>
 
@@ -337,74 +299,44 @@ export default async function CircleHomePage({
         knownPlanIds={planIds}
         currentUser={currentUser}
       >
-        <div className="flex flex-col gap-4 px-4 pt-4 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-8">
-          <div className="flex flex-col gap-6 lg:order-1">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <span className="eyebrow text-ink-muted">
-                  {dateLabel}
-                </span>
-                <WeatherChip />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="hidden sm:block">
-                  <NewPlanTrigger
-                    circleId={circle.id}
-                    slug={circle.slug}
-                    members={formMembers}
-                    currentUserId={userId}
-                    mode="header"
-                  />
+        <div className="flex flex-col gap-4 px-4 pt-5 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-8">
+          <div className="flex flex-col gap-5 lg:order-1">
+            {/* Greeting row — replaces the old eyebrow + HeroQuestion +
+                HomeSubline + WeatherChip stack. Mirrors the Spotlight
+                design's intimate "Good evening, Sara · SUN MAY 10" hook
+                while keeping the per-circle name in the eyebrow line for
+                orientation. */}
+            <header className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <GradientAvatar
+                  seed={currentUser.id}
+                  name={currentUser.displayName}
+                  src={currentUser.avatarUrl}
+                  size="md"
+                />
+                <div className="min-w-0">
+                  <div className="truncate text-[14px] font-semibold leading-tight text-ink">
+                    {greeting(now)}, {firstName(currentUser.displayName)}
+                  </div>
+                  <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+                    {dateLabel} · {circle.name}
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <HeroQuestion
-                prefix={heroPrefix}
-                accent={circle.name}
-                suffix="?"
-                size="lg"
-              />
-              <HomeSubline
-                decidingCount={decidingCount}
-                decideBy={featured?.decideBy ?? null}
-                weighedIn={featuredVoters.size}
-                totalMembers={totalMembers}
-                now={now}
-              />
-            </div>
-
-            {/* Mobile-only inline pulse chips. Desktop has the full sidebar.
-                Streamed via Suspense — the activity aggregate runs after
-                first paint so the hero doesn't wait on it. */}
-            <div className="lg:hidden">
-              <Suspense fallback={<SquadPulseSkeleton variant="mobile" />}>
-                <SquadPulseAsync
+              <div className="hidden sm:block">
+                <NewPlanTrigger
                   circleId={circle.id}
-                  members={sidebarMembers}
-                  nowMs={now.getTime()}
-                  variant="mobile"
-                  featuredPlanId={featured?.id ?? null}
+                  slug={circle.slug}
+                  members={formMembers}
+                  currentUserId={userId}
+                  mode="header"
                 />
-              </Suspense>
-            </div>
+              </div>
+            </header>
 
-            {/* Mobile-only "locking soon" — surfaces cross-circle plans
-                with decideBy <2h before the featured card so the user
-                catches an imminent lock without leaving home. Returns
-                null on quiet days (no card noise). Desktop has the
-                same panel in the right aside; lg:hidden prevents
-                duplication. */}
-            <div className="lg:hidden">
-              <Suspense fallback={<LockingSoonSkeleton />}>
-                <LockingSoonPanel userId={userId} />
-              </Suspense>
-            </div>
-
-            <div className="flex flex-col gap-8">
+            <div className="flex flex-col gap-6">
               {featured ? (
-                <FeaturedPlanCard
+                <SpotlightHero
                   plan={{
                     id: featured.id,
                     title: featured.title,
@@ -415,54 +347,49 @@ export default async function CircleHomePage({
                     status: featured.status,
                     decideBy: featured.decideBy,
                     venueSummary: venueSummaries.get(featured.id) ?? null,
-                    creator: featured.creator
-                      ? {
-                          displayName: featured.creator.displayName,
-                          avatarUrl: featured.creator.avatarUrl,
-                        }
-                      : null,
-                    lastEditAt: featuredLastEditAt,
-                    canEdit: isAdmin || featured.createdBy === userId,
-                    vibe: featured.vibe,
                   }}
+                  circleName={circle.name}
                   slug={circle.slug}
-                  circleId={circle.id}
                   now={now}
-                  mapsUrl={featuredMapsUrl}
                 />
               ) : isEmpty ? (
-                <OrbitalEmptyState>
-                  <div className="hidden sm:inline-flex">
-                    <NewPlanTrigger
-                      circleId={circle.id}
-                      slug={circle.slug}
-                      members={formMembers}
-                      currentUserId={userId}
-                      mode="cta"
-                    />
-                  </div>
-                </OrbitalEmptyState>
+                // First-time users (no plan / vote anywhere) see the
+                // teaching checklist. Anyone who's already engaged
+                // with a plan — even just by voting — gets the calmer
+                // orbital empty state instead. Keeps the onboarding
+                // surface from re-appearing every time a circle goes
+                // quiet between plans.
+                hasUserActivity ? (
+                  <OrbitalEmptyState>
+                    <div className="hidden sm:inline-flex">
+                      <NewPlanTrigger
+                        circleId={circle.id}
+                        slug={circle.slug}
+                        members={formMembers}
+                        currentUserId={userId}
+                        mode="cta"
+                      />
+                    </div>
+                  </OrbitalEmptyState>
+                ) : (
+                  <GetStartedChecklist
+                    firstName={firstName(currentUser.displayName)}
+                    memberCount={memberRows.length}
+                    slug={circle.slug}
+                    planSlot={
+                      <NewPlanTrigger
+                        circleId={circle.id}
+                        slug={circle.slug}
+                        members={formMembers}
+                        currentUserId={userId}
+                        mode="cta"
+                      />
+                    }
+                  />
+                )
               ) : (
                 <NoUpcomingState />
               )}
-
-              {/* Install nudge lives below the act-now content — useful as
-                  a one-time prompt but never pushes the featured card below
-                  the fold on a 380px viewport. The install gesture is also
-                  where we ask for notification permission (M31.7), so the
-                  separate push-opt-in banner is gone. */}
-              <InstallBanner />
-
-              {/* Mobile-only Suggest panel — desktop sees it in the right rail.
-                  Replaces the M28 QuickNudge with the S6 suggest drawer entry. */}
-              <div className="lg:hidden">
-                <SuggestPanel
-                  circleId={circle.id}
-                  slug={circle.slug}
-                  members={formMembers}
-                  currentUserId={userId}
-                />
-              </div>
 
               {collision ? (
                 <CircleCollisionBanner
@@ -473,12 +400,17 @@ export default async function CircleHomePage({
 
               {restUpcoming.length > 0 ? (
                 <section className="flex flex-col gap-3">
-                  <SectionHeader
-                    label="Upcoming this week"
-                    hint={`${upcoming.length} plan${upcoming.length === 1 ? "" : "s"}`}
-                  />
-                  <UpcomingStrip
-                    plans={restUpcoming.map<UpcomingStripPlan>((p) => ({
+                  <div className="flex items-baseline justify-between gap-2 px-1">
+                    <h3 className="text-[20px] font-bold leading-tight tracking-tight text-ink">
+                      This week
+                    </h3>
+                    <span className="text-[12px] font-medium text-ink-muted">
+                      {restUpcoming.length}{" "}
+                      {restUpcoming.length === 1 ? "plan" : "plans"}
+                    </span>
+                  </div>
+                  <ThisWeekList
+                    plans={restUpcoming.map<ThisWeekListPlan>((p) => ({
                       id: p.id,
                       title: p.title,
                       type: p.type,
@@ -494,40 +426,11 @@ export default async function CircleHomePage({
                 </section>
               ) : null}
 
-              {/* Mobile-only Favourites strip — desktop has them in the
-                  sidebar Favourites section. Horizontal scroll keeps the
-                  vertical footprint small. */}
-              {userCircles.length > 0 ? (
-                <section className="lg:hidden flex flex-col gap-3">
-                  <SectionHeader label="Favourites" />
-                  <ul className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
-                    {userCircles.map((c) => (
-                      <li key={c.id} className="shrink-0">
-                        <Link
-                          href={`/c/${c.slug}`}
-                          prefetch={false}
-                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors ${
-                            c.slug === circle.slug
-                              ? "border-coral/40 bg-coral-soft/40 text-ink"
-                              : "border-ink/10 bg-paper-card text-ink-muted hover:text-ink"
-                          }`}
-                        >
-                          <span
-                            aria-hidden
-                            className="size-2 shrink-0 rounded-full bg-ink/30"
-                          />
-                          <span className="font-medium text-ink">{c.name}</span>
-                          <span className="text-[11px] text-ink-muted">
-                            {c.role === "admin"
-                              ? "admin"
-                              : `${c.memberCount}`}
-                          </span>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
+              {/* "Your circles" chip strip removed — it duplicated the
+                  CircleSwitcher in the AppShell mobile top bar. Desktop
+                  users get the same affordance from the FavouritesSection
+                  in the sidebar, so the inline strip earned its keep on
+                  neither viewport. */}
             </div>
           </div>
 
@@ -568,19 +471,6 @@ export default async function CircleHomePage({
   );
 }
 
-function SectionHeader({ label, hint }: { label: string; hint?: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-2 px-1">
-      <span className="eyebrow text-ink-muted">
-        {label}
-      </span>
-      {hint ? (
-        <span className="text-xs text-ink-muted">{hint}</span>
-      ) : null}
-    </div>
-  );
-}
-
 function NoUpcomingState() {
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-ink/15 bg-paper-card/40 px-6 py-10 text-center">
@@ -593,4 +483,3 @@ function NoUpcomingState() {
     </div>
   );
 }
-

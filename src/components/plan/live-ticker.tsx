@@ -174,14 +174,15 @@ export function LiveTicker({
     <div
       // Self-contained dark theme: inverts paper/ink CSS vars within this
       // node only. The rest of the page (header, comments, Squad section)
-      // continues to use the page-level light palette.
-      className="relative flex flex-col gap-6 rounded-2xl bg-[#0e0e0e] px-6 py-7 text-white shadow-[0_24px_48px_-24px_rgba(0,0,0,0.5)]"
+      // continues to use the page-level light palette. Hues match the
+      // Editorial Calm dark base (warm near-black, not cool slate).
+      className="relative flex flex-col gap-6 rounded-[20px] bg-[oklch(0.13_0.004_30)] px-6 py-7 text-white shadow-card-hero"
       style={
         {
-          ["--paper" as string]: "#0e0e0e",
-          ["--paper-card" as string]: "#1a1a1a",
-          ["--ink" as string]: "#fafafa",
-          ["--ink-muted" as string]: "#a3a3a3",
+          ["--paper" as string]: "oklch(0.13 0.004 30)",
+          ["--paper-card" as string]: "oklch(0.185 0.006 30)",
+          ["--ink" as string]: "oklch(0.96 0.004 60)",
+          ["--ink-muted" as string]: "oklch(0.68 0.008 60)",
         } as React.CSSProperties
       }
     >

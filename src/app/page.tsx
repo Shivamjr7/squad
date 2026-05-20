@@ -16,12 +16,19 @@ import {
 } from "@/db/schema";
 import { getMostRecentCircleSlug, requireDisplayNameSet } from "@/lib/auth";
 import { getUnreadCount } from "@/lib/actions/notifications";
-import { getUserCircles, type UserCircle } from "@/lib/circles";
+import {
+  getUserCircles,
+  getUserCirclesActivity,
+  type CircleActivity,
+  type UserCircle,
+} from "@/lib/circles";
+import { users } from "@/db/schema";
 import { circleDotClass } from "@/lib/circle-color";
 import { cn } from "@/lib/utils";
 import type { VoteStatus } from "@/lib/validation/vote";
 import { SquadLogo } from "@/components/brand/squad-logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { GradientAvatar } from "@/components/ui/gradient-avatar";
 import {
   FeedPlanCard,
   type EffectiveStatus,
@@ -109,14 +116,38 @@ async function SignedInHome({
   tab: HomeTab;
   rawSearch: RawSearch;
 }) {
-  const [userCircles, unread] = await Promise.all([
+  const [userCircles, unread, userRow] = await Promise.all([
     getUserCircles(userId),
     getUnreadCount().catch(() => 0),
+    db.query.users.findFirst({
+      columns: { displayName: true, avatarUrl: true },
+      where: eq(users.id, userId),
+    }),
   ]);
 
+  // Per-circle activity in one grouped query, kicked off once we know
+  // the user's circles + which they admin. Map<circleId, counts>.
+  const adminCircleIds = userCircles
+    .filter((c) => c.role === "admin")
+    .map((c) => c.id);
+  const activity = await getUserCirclesActivity(
+    userId,
+    userCircles.map((c) => c.id),
+    adminCircleIds,
+  );
+
+  const displayName = userRow?.displayName ?? "you";
+  const avatarUrl = userRow?.avatarUrl ?? null;
+  const now = new Date();
+  const showTabs = userCircles.length > 1;
+
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-4 px-4 pt-3 pb-32 sm:px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-5 px-4 pt-3 pb-32 sm:px-6">
       <PrefetchCircle slug={fallbackSlug} />
+
+      {/* Top bar — brandmark + chrome actions. The "New circle" chip
+          sits here (not in the list) so it's reachable from any tab and
+          doesn't compete with real circles for vertical space. */}
       <header className="flex items-center justify-between gap-3">
         <Link
           href="/"
@@ -126,27 +157,46 @@ async function SignedInHome({
           <SquadLogo className="size-[18px] text-ink" />
           SQUAD
         </Link>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          <NewCircleChip />
           <ThemeToggle />
           <NotificationsBellLink slug={fallbackSlug} count={unread} />
           <UserButton />
         </div>
       </header>
 
-      <div className="flex flex-col gap-3">
-        <span className="eyebrow text-ink-muted">
-          {tab === "circles" ? "Your circles" : "Across all your circles"}
-        </span>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="font-serif text-[28px] leading-[1.1] font-semibold text-ink sm:text-[34px]">
-            {tab === "circles" ? "Pick a circle." : "What's the move?"}
-          </h1>
+      {/* Greeting row — mirrors the per-circle home pattern so the two
+          surfaces feel consistent. Drops the prior "YOUR CIRCLES" /
+          serif "Pick a circle." stack that ate ~120px for orientation
+          the user already has. */}
+      <header className="flex items-center gap-3">
+        <GradientAvatar
+          seed={userId}
+          name={displayName}
+          src={avatarUrl}
+          size="md"
+        />
+        <div className="min-w-0">
+          <div className="truncate text-[14px] font-semibold leading-tight text-ink">
+            {greeting(now)}, {firstNameOf(displayName)}
+          </div>
+          <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+            {dateLabel(now)}
+          </div>
+        </div>
+      </header>
+
+      {/* Tab switcher — full-width pill row. Hidden entirely when the
+          user has a single circle, since the Plans tab is redundant
+          with the per-circle home in that case. */}
+      {showTabs ? (
+        <div className="flex">
           <HomeTabSwitcher active={tab} />
         </div>
-      </div>
+      ) : null}
 
       {tab === "circles" ? (
-        <CirclesTab circles={userCircles} />
+        <CirclesTab circles={userCircles} activity={activity} />
       ) : (
         <PlansTab
           userId={userId}
@@ -158,9 +208,55 @@ async function SignedInHome({
   );
 }
 
+function NewCircleChip() {
+  return (
+    <Link
+      href="/onboarding?mode=create"
+      className="inline-flex h-9 items-center gap-1 rounded-full bg-ink/[0.06] px-3 text-[12.5px] font-semibold text-ink transition-colors hover:bg-ink/[0.10] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+    >
+      <Plus className="size-3.5" strokeWidth={2.4} aria-hidden />
+      New
+    </Link>
+  );
+}
+
+function greeting(now: Date): string {
+  const hour = now.getHours();
+  if (hour < 5) return "Up late";
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  if (hour < 22) return "Good evening";
+  return "Good night";
+}
+
+function firstNameOf(displayName: string): string {
+  const trimmed = displayName.trim();
+  if (!trimmed) return "there";
+  return trimmed.split(/\s+/)[0]!;
+}
+
+const DATE_ROW_FMT = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});
+function dateLabel(now: Date): string {
+  const parts = DATE_ROW_FMT.formatToParts(now);
+  const wd = parts.find((p) => p.type === "weekday")?.value ?? "";
+  const month = parts.find((p) => p.type === "month")?.value ?? "";
+  const day = parts.find((p) => p.type === "day")?.value ?? "";
+  return `${wd.toUpperCase()} · ${month.toUpperCase()} ${day}`;
+}
+
 // ─── Circles tab ────────────────────────────────────────────────────────
 
-function CirclesTab({ circles: list }: { circles: UserCircle[] }) {
+function CirclesTab({
+  circles: list,
+  activity,
+}: {
+  circles: UserCircle[];
+  activity: Map<string, CircleActivity>;
+}) {
   if (list.length === 0) {
     // SignedInHome already redirects to /onboarding when there are no
     // memberships, so this state is unreachable in practice — keep the
@@ -180,66 +276,96 @@ function CirclesTab({ circles: list }: { circles: UserCircle[] }) {
     );
   }
   return (
-    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {/* "+" tile lives at the top so it's reachable without scrolling
-          past existing circles. Dashed border + ghost fill keeps it
-          visually subordinate to actual circles. Routes to /onboarding
-          with mode=create so the chooser step is skipped — see
-          app/onboarding/page.tsx. */}
-      <li>
-        <Link
-          href="/onboarding?mode=create"
-          className="group flex h-full items-center gap-3 rounded-2xl border border-dashed border-ink-subtle bg-paper-card/40 p-4 transition-colors hover:border-coral/40 hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
-        >
-          <span
-            aria-hidden
-            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-dashed border-ink-subtle text-ink-muted transition-colors group-hover:border-coral group-hover:text-coral"
-          >
-            <Plus className="size-5" />
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate font-medium text-ink">Create a circle</span>
-            <span className="text-xs text-ink-muted">
-              Spin up a new squad
-            </span>
-          </div>
-          <ChevronRight
-            className="size-4 shrink-0 text-ink-muted transition-transform group-hover:translate-x-0.5"
-            aria-hidden
-          />
-        </Link>
-      </li>
-      {list.map((c) => (
-        <li key={c.id}>
-          <Link
-            href={`/c/${c.slug}`}
-            className="group flex items-center gap-3 rounded-2xl border border-ink-subtle bg-paper-card p-4 transition-shadow duration-200 hover:shadow-card-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
-          >
-            <span
-              aria-hidden
+    <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+      {list.map((c) => {
+        const a = activity.get(c.id) ?? { deciding: 0, locked: 0, needsVote: 0 };
+        const meta = formatActivity(a);
+        const hot = a.needsVote > 0;
+        return (
+          <li key={c.id}>
+            <Link
+              href={`/c/${c.slug}`}
               className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold uppercase text-white",
-                circleDotClass(c.id),
+                "group relative flex items-center gap-3 rounded-2xl border bg-paper-card p-4 transition-shadow duration-200",
+                "hover:shadow-card-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
+                hot ? "border-coral/30" : "border-ink-subtle",
               )}
             >
-              {c.name.trim()[0]?.toUpperCase() ?? "?"}
-            </span>
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate font-medium text-ink">{c.name}</span>
-              <span className="text-xs text-ink-muted">
-                {c.memberCount} {c.memberCount === 1 ? "person" : "people"}
-                {c.role === "admin" ? " · admin" : ""}
+              <span
+                aria-hidden
+                className={cn(
+                  "relative flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold uppercase text-white",
+                  circleDotClass(c.id),
+                )}
+              >
+                {c.name.trim()[0]?.toUpperCase() ?? "?"}
+                {hot ? (
+                  <span
+                    aria-label="needs your vote"
+                    className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-coral ring-2 ring-paper-card"
+                  />
+                ) : null}
               </span>
-            </div>
-            <ChevronRight
-              className="size-4 shrink-0 text-ink-muted transition-transform group-hover:translate-x-0.5"
-              aria-hidden
-            />
-          </Link>
-        </li>
-      ))}
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate font-medium text-ink">{c.name}</span>
+                <span className="mt-0.5 flex items-center gap-1.5 text-xs">
+                  <span
+                    className={cn(
+                      "truncate",
+                      meta.tone === "coral"
+                        ? "font-semibold text-coral"
+                        : meta.tone === "ink"
+                          ? "text-ink"
+                          : "text-ink-muted",
+                    )}
+                  >
+                    {meta.label}
+                  </span>
+                  <span className="shrink-0 text-ink-muted">
+                    · {c.memberCount}
+                    {c.role === "admin" ? " · admin" : ""}
+                  </span>
+                </span>
+              </div>
+              <ChevronRight
+                className="size-4 shrink-0 text-ink-muted transition-transform group-hover:translate-x-0.5"
+                aria-hidden
+              />
+            </Link>
+          </li>
+        );
+      })}
     </ul>
   );
+}
+
+// Formats the activity counts into a single readable line + visual
+// tone. Order of precedence: needs-vote > deciding > locked > quiet.
+// Only the top signal shows — stacking all three reads as noise on a
+// list row that has limited width.
+function formatActivity(a: CircleActivity): {
+  label: string;
+  tone: "coral" | "ink" | "muted";
+} {
+  if (a.needsVote > 0) {
+    return {
+      label: `${a.needsVote} need${a.needsVote === 1 ? "s" : ""} your vote`,
+      tone: "coral",
+    };
+  }
+  if (a.deciding > 0 && a.locked > 0) {
+    return {
+      label: `${a.deciding} deciding · ${a.locked} locked`,
+      tone: "ink",
+    };
+  }
+  if (a.deciding > 0) {
+    return { label: `${a.deciding} deciding`, tone: "ink" };
+  }
+  if (a.locked > 0) {
+    return { label: `${a.locked} locked`, tone: "ink" };
+  }
+  return { label: "Quiet right now", tone: "muted" };
 }
 
 // ─── Plans tab ──────────────────────────────────────────────────────────

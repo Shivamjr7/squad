@@ -167,10 +167,12 @@ export function ItsHappening({
         </p>
       </header>
 
-      {/* Dark coral "Tonight" card. Self-contained palette flip so the rest
-          of the page stays paper/ink. */}
+      {/* Warm espresso "Tonight" card. Self-contained palette flip so the
+          rest of the page stays paper/ink. Uses the .card-espresso
+          utility for the gradient + foreground so dark theme retunes
+          without a second className. */}
       <section
-        className="flex flex-col gap-4 rounded-2xl bg-coral px-6 py-6 text-white shadow-[0_20px_40px_-24px_rgba(196,84,67,0.55)]"
+        className="card-espresso flex flex-col gap-4 rounded-[20px] px-6 py-7 shadow-card-hero"
       >
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">

@@ -1,7 +1,17 @@
 import { unstable_cache as cache } from "next/cache";
-import { and, asc, desc, eq, inArray, max, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, max, ne, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { circles, memberships, plans, users, votes } from "@/db/schema";
+
+// Per-circle activity counts surfaced on the cross-circle home cards so
+// each circle row signals what's live, not just who's in it.
+export type CircleActivity = {
+  deciding: number;
+  locked: number;
+  // Active plans where this user hasn't voted yet AND can see the plan
+  // (recipient or admin). Drives the coral status dot on the card.
+  needsVote: number;
+};
 import type { KnownSquadUser, UserCircle } from "@/lib/circle-types";
 
 export type { KnownSquadUser, UserCircle };
@@ -60,6 +70,73 @@ export const getUserCircles = cache(
 
 // Request-scoped circle lookup by slug. Layout + page + plan-detail all need
 // this; `cache()` keeps it to a single DB roundtrip per render.
+// One-shot activity summary for the cross-circle home cards. Aggregates
+// per-circle counts in a single grouped query — three FILTER clauses
+// over the same plan rows, no per-circle round-trip. Honors plan
+// visibility: members only see plans where they're in the recipient
+// set (or no recipients are configured), but adminCircleIds bypass
+// that filter since admins always see every plan in their circle.
+//
+// Not cached: deciding / needsVote shift on every vote, so a 60s cache
+// would read stale on the home page while the per-circle page is up to
+// date. The query is one indexed scan; cheap enough for every render.
+export async function getUserCirclesActivity(
+  userId: string,
+  circleIds: string[],
+  adminCircleIds: string[],
+): Promise<Map<string, CircleActivity>> {
+  if (circleIds.length === 0) return new Map();
+
+  const now = new Date();
+
+  // Admin override: in circles where the user is admin, every plan is
+  // visible regardless of recipient restrictions. Members fall through
+  // to the recipient check.
+  const adminFilter =
+    adminCircleIds.length > 0
+      ? inArray(plans.circleId, adminCircleIds)
+      : sql`FALSE`;
+
+  const visibilityFilter = or(
+    adminFilter,
+    sql`NOT EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id})`,
+    sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
+  );
+
+  const rows = await db
+    .select({
+      circleId: plans.circleId,
+      deciding: sql<number>`COUNT(*) FILTER (WHERE ${plans.status} = 'active')::int`,
+      locked: sql<number>`COUNT(*) FILTER (WHERE ${plans.status} = 'confirmed')::int`,
+      needsVote: sql<number>`COUNT(*) FILTER (
+        WHERE ${plans.status} = 'active'
+        AND NOT EXISTS (
+          SELECT 1 FROM votes v
+          WHERE v.plan_id = ${plans.id} AND v.user_id = ${userId}
+        )
+      )::int`,
+    })
+    .from(plans)
+    .where(
+      and(
+        inArray(plans.circleId, circleIds),
+        gte(plans.startsAt, now),
+        visibilityFilter,
+      ),
+    )
+    .groupBy(plans.circleId);
+
+  const map = new Map<string, CircleActivity>();
+  for (const r of rows) {
+    map.set(r.circleId, {
+      deciding: Number(r.deciding ?? 0),
+      locked: Number(r.locked ?? 0),
+      needsVote: Number(r.needsVote ?? 0),
+    });
+  }
+  return map;
+}
+
 export const getCircleBySlug = cache(
   async function getCircleBySlug(slug: string) {
     return db.query.circles.findFirst({

@@ -47,7 +47,7 @@ export function NewPlanTrigger({
         <Button
           size="lg"
           onClick={() => setOpen(true)}
-          className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full bg-ink px-6 text-paper shadow-float hover:bg-ink/90 sm:hidden"
+          className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full bg-ink px-6 text-paper shadow-float hover:bg-ink/90 sm:hidden"
         >
           <Plus className="size-5" />
           New plan

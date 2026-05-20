@@ -45,14 +45,9 @@ export type SidebarCircle = {
   memberCount: number;
 };
 
-// Four-tab bar. The previous six-item layout shipped Plans + Inbox as their
-// own tabs; those moved out of the bar to surface elsewhere:
-//   - Plans  → segmented "All plans / My plans" toggle on /c/[slug] and
-//              /c/[slug]/plans (the existing routes stay alive as the two
-//              halves of that toggle).
-//   - Inbox  → top-right bell (NotificationsBellLink) in the desktop sidebar
-//              header + the mobile top bar in AppShell.
-// Calendar is now always shown — the previous 2+ circles gate was removed.
+// Four-tab bar: Home · Calendar · Squad · You. Plans lives on /c/[slug]
+// and /c/[slug]/plans behind the segmented "All / Mine" toggle; Inbox is
+// the top-right bell (mobile top bar + desktop sidebar header).
 const NAV: {
   label: string;
   icon: typeof Calendar;
@@ -129,15 +124,23 @@ export function Sidebar({
         </Suspense>
       </aside>
 
-      {/* Mobile bottom tab bar — icon-only, the single source of truth on
-          mobile. Solid bg + safe-area inset so it sits above the iOS home
-          indicator and reads cleanly on every viewport. The notification
-          bell lives in the mobile top bar (see AppShell), not down here. */}
+      {/* Mobile bottom tab bar — floating pill, icon-over-label. Outer
+          wrapper is pointer-events-none so the gutters either side of the
+          pill don't eat taps on content below; the pill itself re-enables
+          pointer events. Safe-area inset is added to the wrapper's bottom
+          padding so the pill clears the iOS home indicator without a
+          double-height look. The notification bell lives in the mobile
+          top bar (see AppShell), not down here. */}
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-ink/10 bg-paper-card pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 md:hidden"
+        style={{
+          paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.5rem)",
+        }}
       >
-        <Nav slug={currentSlug} variant="mobile" />
+        <div className="pointer-events-auto mx-auto flex w-full max-w-md items-stretch justify-around gap-1 rounded-[26px] border border-ink/8 bg-paper-card/95 px-2 py-1.5 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+          <Nav slug={currentSlug} variant="mobile" />
+        </div>
       </nav>
     </>
   );
@@ -200,14 +203,27 @@ function Nav({
             <li key={item.label} className="flex-1">
               <Link
                 href={href}
-                aria-label={item.label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex items-center justify-center py-3 transition-colors",
+                  "relative flex flex-col items-center justify-center gap-0.5 rounded-2xl px-1 py-1.5 transition-colors",
                   active ? "text-ink" : "text-ink-muted",
                 )}
               >
-                <Icon className="size-5" aria-hidden />
+                <Icon
+                  className="size-[22px]"
+                  strokeWidth={active ? 2.4 : 1.9}
+                  aria-hidden
+                />
+                <span
+                  className={cn(
+                    "text-[11px] leading-tight tracking-tight",
+                    active
+                      ? "font-semibold text-ink"
+                      : "font-medium text-ink-muted",
+                  )}
+                >
+                  {item.label}
+                </span>
               </Link>
             </li>
           );

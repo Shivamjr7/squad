@@ -26,10 +26,11 @@ import { PlanOverflowMenu } from "@/components/plan/plan-overflow-menu";
 import { DecisionCard } from "@/components/plan/decision-card";
 import { PlanCreatorActionBar } from "@/components/plan/plan-creator-action-bar";
 import { StatusCountdownPill } from "@/components/plan/status-countdown-pill";
+import { type LiveTickerAddition } from "@/components/plan/live-ticker";
 import {
-  LiveTicker,
-  type LiveTickerAddition,
-} from "@/components/plan/live-ticker";
+  LiveDashboard,
+  type LiveDashboardMember,
+} from "@/components/plan/live-dashboard";
 import { Receipt, type ReceiptEvent } from "@/components/plan/receipt";
 import { SuggestAddition } from "@/components/plan/suggest-addition";
 import { ConflictCompareLauncher } from "@/components/plan/conflict-compare-launcher";
@@ -462,6 +463,12 @@ export default async function PlanDetailPage({
       avatarUrl: m.user!.avatarUrl,
     }));
 
+  // LiveDashboard squad — the recipients only. When isAllRecipients, the
+  // whole circle is eligible; otherwise filter to the recipient set.
+  const dashboardSquad: LiveDashboardMember[] = circleMemberCards.filter(
+    (m) => recipientIdSet.has(m.userId),
+  );
+
   const isApprox = plan.isApproximate;
 
   // M25 — UA-aware Maps + calendar deep-links. Computed once on the server
@@ -609,29 +616,31 @@ export default async function PlanDetailPage({
             />
           </>
         ) : variant === "live-ticker" ? (
-          <LiveTicker
-            planId={plan.id}
-            planTitle={plan.title}
-            startsAt={plan.startsAt}
-            timeZone={plan.timeZone}
-            location={plan.location}
-            decideBy={plan.decideBy}
-            recipientCount={recipientIds.length}
-            lockThreshold={lockThreshold}
-            additions={additionsForTicker}
-            shiftedFromTime={null}
-            now={now}
-            creatorName={plan.creator?.displayName ?? null}
-            suggestAddOnSlot={
-              canParticipate ? (
-                <SuggestAddition
-                  planId={plan.id}
-                  defaultStartsAt={plan.startsAt}
-                  tone="dark"
-                />
-              ) : null
-            }
-          />
+          <>
+            <LiveDashboard
+              planId={plan.id}
+              planTitle={plan.title}
+              startsAt={plan.startsAt}
+              timeZone={plan.timeZone}
+              location={plan.location}
+              decideBy={plan.decideBy}
+              recipientCount={recipientIds.length || memberCount}
+              lockThreshold={lockThreshold}
+              creatorId={plan.creator?.id ?? null}
+              circleSlug={circle.slug}
+              circleName={circle.name}
+              squad={dashboardSquad}
+              shiftedFromTime={null}
+              now={now}
+            />
+            {canParticipate ? (
+              <SuggestAddition
+                planId={plan.id}
+                defaultStartsAt={plan.startsAt}
+                tone="light"
+              />
+            ) : null}
+          </>
         ) : variant === "receipt" ? (
           <Receipt
             planId={plan.id}
