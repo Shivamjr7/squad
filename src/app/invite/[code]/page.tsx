@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidateTag } from "next/cache";
+import { after } from "next/server";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { and, eq, sql } from "drizzle-orm";
@@ -92,10 +93,15 @@ export default async function InvitePage({
   });
 
   // Drop cached member + user-circles + activity entries so the home page
-  // and squad sidebar show the new member immediately.
-  revalidateTag(CIRCLE_TAGS.userCircles);
-  revalidateTag(CIRCLE_TAGS.circleMembers);
-  revalidateTag(CIRCLE_TAGS.circleActivity);
+  // and squad sidebar show the new member immediately. `after()` defers
+  // these to after the response is sent — Next.js 15 forbids calling
+  // `revalidateTag` during render, which is what tripped the invite-join
+  // flow with "revalidateTag user-circles during render is unsupported".
+  after(() => {
+    revalidateTag(CIRCLE_TAGS.userCircles);
+    revalidateTag(CIRCLE_TAGS.circleMembers);
+    revalidateTag(CIRCLE_TAGS.circleActivity);
+  });
 
   redirect(`/c/${invite.circle.slug}?joined=new`);
 }
