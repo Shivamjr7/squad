@@ -87,8 +87,8 @@ export default function RootLayout({
         <body className="min-h-full flex flex-col" suppressHydrationWarning>
           <ThemeProvider
             attribute="data-theme"
-            defaultTheme="system"
-            enableSystem
+            defaultTheme="light"
+            enableSystem={false}
             disableTransitionOnChange
           >
             <ViewTransition>{children}</ViewTransition>

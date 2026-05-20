@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { toast } from "sonner";
-import { Check, MessageCircle, Sparkles } from "lucide-react";
+import { Check, MessageCircle } from "lucide-react";
 import { castVote, removeVote } from "@/lib/actions/votes";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
 import type { VoteStatus } from "@/lib/validation/vote";
@@ -36,7 +35,6 @@ type Props = {
   recipientCount: number;
   lockThreshold: number;
   creatorId: string | null;
-  circleSlug: string;
   circleName: string;
   // Recipient roster — every person eligible to vote. The grid renders
   // one tile per member so the squad section is populated before any
@@ -80,7 +78,6 @@ export function LiveDashboard({
   recipientCount,
   lockThreshold,
   creatorId,
-  circleSlug,
   circleName,
   squad,
   shiftedFromTime,
@@ -195,31 +192,23 @@ export function LiveDashboard({
   const inDash = inFrac * RING_CIRCUMFERENCE;
   const maybeDash = maybeFrac * RING_CIRCUMFERENCE;
 
-  // AI nudge — fires when exactly one more "in" would auto-lock the plan
-  // AND there's an unvoted recipient we can name. Heuristic targets the
-  // first unvoted member (the closest "easy ping"). When everyone's voted
-  // or the gap is larger, the nudge stays silent.
   const remainingForLock = Math.max(0, lockThreshold - counts.in);
-  const unvotedMember = useMemo(() => {
-    if (remainingForLock !== 1) return null;
-    for (const m of squad) {
-      if (m.userId === currentUser.id) continue;
-      if (!statusByUser.has(m.userId)) return m;
-    }
-    // Fall back to a MAYBE — they're the most likely flip.
-    for (const m of squad) {
-      if (m.userId === currentUser.id) continue;
-      if (statusByUser.get(m.userId) === "maybe") return m;
-    }
-    return null;
-  }, [squad, statusByUser, remainingForLock, currentUser.id]);
 
   const time = shortHourMinute(startsAt, timeZone);
   const dateLabel = shortDate(startsAt, timeZone);
   const isCreator = creatorId === currentUser.id;
 
   return (
-    <article className="relative overflow-hidden rounded-[20px] bg-paper-card text-ink shadow-card-hero">
+    <article
+      // Force dark surface regardless of app theme — this cockpit is a
+      // feature card meant to read as a dark hero on every plan-detail
+      // page (mirrors the home spotlight). The semantic tokens defined
+      // under [data-theme="dark"] cascade from here, and `dark:`
+      // utilities inside the subtree activate via the custom Tailwind
+      // variant in globals.css.
+      data-theme="dark"
+      className="relative overflow-hidden rounded-[20px] bg-paper-card text-ink shadow-card-hero"
+    >
       {/* Warm coral glow upper-right — pure decoration. Same intensity in
           both themes; coral itself flips its underlying token. */}
       <span
@@ -437,27 +426,6 @@ export function LiveDashboard({
           </div>
         </section>
 
-        {/* AI nudge — only when one more "in" auto-locks AND we have a
-            concrete target to suggest. */}
-        {unvotedMember ? (
-          <Link
-            href={`/c/${circleSlug}/p/${planId}#comments`}
-            className="flex items-center gap-2.5 rounded-xl border border-coral/30 bg-coral/10 px-3.5 py-2.5 transition-colors hover:bg-coral/15"
-          >
-            <Sparkles className="size-4 shrink-0 text-coral" aria-hidden />
-            <div className="min-w-0 flex-1 text-[12.5px] leading-tight text-ink">
-              <b className="font-bold">One more &ldquo;in&rdquo;</b>{" "}
-              auto-locks this. Ping{" "}
-              <b className="font-bold">
-                {unvotedMember.displayName.split(/\s+/)[0]}
-              </b>
-              ?
-            </div>
-            <span className="inline-flex shrink-0 items-center rounded-lg bg-coral px-3 py-1.5 text-[11.5px] font-bold text-white shadow-[0_6px_14px_-4px_oklch(0.62_0.16_18/0.5)]">
-              Ping
-            </span>
-          </Link>
-        ) : null}
       </div>
 
       {/* Sticky RSVP — non-creators only; creators have the action bar at

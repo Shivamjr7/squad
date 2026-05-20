@@ -72,8 +72,13 @@ export function CommandPalette() {
     circles: [],
     members: [],
   });
+  // The query string the displayed `result` corresponds to. Without this,
+  // a fresh keystroke makes `query !== ""` and `result.items === 0`
+  // simultaneously — which would flash "No matches" until the async search
+  // returns. We only show the empty state when settledQuery matches.
+  const [settledQuery, setSettledQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Each search bumps this id; results from older queries are dropped to
@@ -113,6 +118,7 @@ export function CommandPalette() {
     if (!open) return;
     if (trimmed.length === 0) {
       setResult({ plans: [], circles: [], members: [] });
+      setSettledQuery("");
       setActiveIndex(0);
       return;
     }
@@ -122,6 +128,7 @@ export function CommandPalette() {
         const r = await searchUserScope(trimmed);
         if (id !== queryIdRef.current) return;
         setResult(r);
+        setSettledQuery(trimmed);
         setActiveIndex(0);
       } catch {
         // Silent — palette is best-effort.
@@ -138,6 +145,7 @@ export function CommandPalette() {
     } else {
       setQuery("");
       setResult({ plans: [], circles: [], members: [] });
+      setSettledQuery("");
       setActiveIndex(0);
     }
   }, [open]);
@@ -167,8 +175,16 @@ export function CommandPalette() {
     }
   }
 
-  const empty = items.length === 0;
-  const showHint = query.trim().length === 0;
+  const trimmedQuery = query.trim();
+  const showHint = trimmedQuery.length === 0;
+  // Only declare "no matches" once the displayed result corresponds to the
+  // current query AND nothing is in flight. Otherwise the previous result
+  // (or nothing on the very first keystroke) would flash an empty state
+  // until the async search returns.
+  const resultsSettled = settledQuery === trimmedQuery && !isPending;
+  const empty = items.length === 0 && resultsSettled;
+  const showLoadingPlaceholder =
+    !showHint && items.length === 0 && !resultsSettled;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -199,6 +215,10 @@ export function CommandPalette() {
         <div className="max-h-[60vh] overflow-y-auto">
           {showHint ? (
             <PaletteHint />
+          ) : showLoadingPlaceholder ? (
+            <p className="px-4 py-8 text-center text-sm text-ink-muted">
+              Searching…
+            </p>
           ) : empty ? (
             <p className="px-4 py-8 text-center text-sm text-ink-muted">
               No matches for &ldquo;{query}&rdquo;.

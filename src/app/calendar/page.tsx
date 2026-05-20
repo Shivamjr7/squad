@@ -33,7 +33,7 @@ export default async function CalendarPage({
   if (!userId) notFound();
 
   const sp = await searchParams;
-  const view: CalendarView = isCalendarView(sp.view) ? sp.view : "week";
+  const view: CalendarView = isCalendarView(sp.view) ? sp.view : "month";
   const anchor = parseDateParam(sp.date);
   const todayKey = formatDateParam(startOfDayLocal(new Date()));
 
