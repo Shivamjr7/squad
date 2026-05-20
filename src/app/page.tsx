@@ -53,6 +53,8 @@ import { LandingFinalCta } from "@/components/landing/final-cta";
 import { LandingFooter } from "@/components/landing/footer";
 import { PrefetchCircle } from "@/components/home/prefetch-circle";
 import { NotificationsBellLink } from "@/components/notifications/notifications-bell-link";
+import { LocalGreeting } from "@/components/home/local-greeting";
+import { AddCircleMenu } from "@/components/home/add-circle-menu";
 
 const FEED_LIMIT = 30;
 
@@ -158,7 +160,7 @@ async function SignedInHome({
           SQUAD
         </Link>
         <div className="flex items-center gap-1.5">
-          <NewCircleChip />
+          <AddCircleMenu />
           <ThemeToggle />
           <NotificationsBellLink slug={fallbackSlug} count={unread} />
           <UserButton />
@@ -178,7 +180,8 @@ async function SignedInHome({
         />
         <div className="min-w-0">
           <div className="truncate text-[14px] font-semibold leading-tight text-ink">
-            {greeting(now)}, {firstNameOf(displayName)}
+            <LocalGreeting initialHour={now.getHours()} />,{" "}
+            {firstNameOf(displayName)}
           </div>
           <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
             {dateLabel(now)}
@@ -206,27 +209,6 @@ async function SignedInHome({
       )}
     </main>
   );
-}
-
-function NewCircleChip() {
-  return (
-    <Link
-      href="/onboarding?mode=create"
-      className="inline-flex h-9 items-center gap-1 rounded-full bg-ink/[0.06] px-3 text-[12.5px] font-semibold text-ink transition-colors hover:bg-ink/[0.10] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
-    >
-      <Plus className="size-3.5" strokeWidth={2.4} aria-hidden />
-      New
-    </Link>
-  );
-}
-
-function greeting(now: Date): string {
-  const hour = now.getHours();
-  if (hour < 5) return "Up late";
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  if (hour < 22) return "Good evening";
-  return "Good night";
 }
 
 function firstNameOf(displayName: string): string {

@@ -41,6 +41,7 @@ import {
   type Member,
   type VotersByPlan,
 } from "@/lib/realtime/use-circle-votes";
+import { LocalGreeting } from "@/components/home/local-greeting";
 
 const DATE_ROW_FMT = new Intl.DateTimeFormat("en-US", {
   weekday: "short",
@@ -61,15 +62,6 @@ function firstName(displayName: string): string {
   const trimmed = displayName.trim();
   if (!trimmed) return "there";
   return trimmed.split(/\s+/)[0]!;
-}
-
-function greeting(now: Date): string {
-  const hour = now.getHours();
-  if (hour < 5) return "Up late";
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  if (hour < 22) return "Good evening";
-  return "Good night";
 }
 
 export default async function CircleHomePage({
@@ -316,7 +308,8 @@ export default async function CircleHomePage({
                 />
                 <div className="min-w-0">
                   <div className="truncate text-[14px] font-semibold leading-tight text-ink">
-                    {greeting(now)}, {firstName(currentUser.displayName)}
+                    <LocalGreeting initialHour={now.getHours()} />,{" "}
+                    {firstName(currentUser.displayName)}
                   </div>
                   <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
                     {dateLabel} · {circle.name}
