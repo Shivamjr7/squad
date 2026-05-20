@@ -4,9 +4,10 @@ import { auth } from "@clerk/nextjs/server";
 import { ArrowLeft } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { memberships } from "@/db/schema";
+import { memberships, users } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { CircleChooser } from "@/components/onboarding/circle-chooser";
+import { FirstRunChecklist } from "@/components/onboarding/first-run-checklist";
 import { requireDisplayNameSet } from "@/lib/auth";
 
 export default async function OnboardingPage({
@@ -40,6 +41,24 @@ export default async function OnboardingPage({
   const initialMode =
     sp.mode === "create" || sp.mode === "join" ? sp.mode : "chooser";
 
+  // First-time users land on a 3-step checklist (Create/join → Invite →
+  // First plan) so the whole arc is legible from the first screen. The
+  // older single-purpose chooser is preserved for existing members who
+  // reach this route to add another circle.
+  if (!hasCircles) {
+    const userRow = await db.query.users.findFirst({
+      columns: { displayName: true },
+      where: eq(users.id, userId),
+    });
+    const firstName =
+      userRow?.displayName?.trim().split(/\s+/)[0] ?? "there";
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-6 pt-12">
+        <FirstRunChecklist firstName={firstName} initialMode={initialMode} />
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-8 p-6 pt-12">
       {backSlug ? (
@@ -56,12 +75,10 @@ export default async function OnboardingPage({
       ) : null}
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">
-          {hasCircles ? "Add another circle" : "Welcome to Squad"}
+          Add another circle
         </h1>
         <p className="text-sm text-muted-foreground">
-          {hasCircles
-            ? "Spin one up or join with an invite link."
-            : "Plan a thing. Vote. Show up."}
+          Spin one up or join with an invite link.
         </p>
       </header>
       <CircleChooser initialMode={initialMode} />
