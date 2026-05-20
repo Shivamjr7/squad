@@ -54,13 +54,17 @@ export const getCachedCircleMemberActivity = cache(
 );
 
 export const getCachedUnreadCount = cache(
+  // userId arg is what `unstable_cache` hashes into the cache key so two
+  // signed-in users don't share an entry — the underlying server action
+  // pulls the id from auth() itself, so it isn't referenced in the body.
   async (userId: string) => {
+    void userId;
     const { getUnreadCount } = await import("./actions/notifications");
     return getUnreadCount();
   },
   ["unread-count"],
-  { 
+  {
     revalidate: 30,
-    tags: ["unread-count"] 
-  }
+    tags: ["unread-count"],
+  },
 );
