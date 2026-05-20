@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowRight, Clock, MessageCircle } from "lucide-react";
+import { ArrowRight, Check, Clock, MessageCircle } from "lucide-react";
 import { castVote } from "@/lib/actions/votes";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
 import type { VoteStatus } from "@/lib/validation/vote";
@@ -177,15 +177,24 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
 
   return (
     <article
+      // Force dark surface regardless of app theme — the spotlight is
+      // designed as a feature card that should always read as a dark hero
+      // (mirrors the plan-detail cockpit). The semantic tokens defined
+      // under [data-theme="dark"] cascade from here, and `dark:` utilities
+      // inside the subtree activate via the custom Tailwind variant in
+      // globals.css.
+      data-theme="dark"
       className="relative overflow-hidden rounded-[28px] bg-paper-card text-ink shadow-card-hero"
       data-testid="spotlight-hero"
     >
       {/* Soft warm glow upper-right — coral token flips its own lightness
-          for theme. Slightly stronger in dark mode where the surface is
-          deep and the glow has more room to read. */}
+          for theme. Kept low-opacity in both modes: too much saturation
+          on the dark surface reads as a maroon stain rather than warmth.
+          Wider blur + larger radius spreads the light so no single edge
+          dominates the card. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute -right-20 -top-24 size-72 rounded-full bg-coral/20 blur-[70px] dark:bg-coral/35"
+        className="pointer-events-none absolute -right-32 -top-32 size-[420px] rounded-full bg-coral/12 blur-[110px] dark:bg-coral/14"
       />
 
       <div className="relative flex flex-col gap-4 p-5 sm:p-6 lg:gap-5 lg:p-7">
@@ -337,7 +346,9 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
 
         {/* Dominant CTA. Coral fills are the same hue both themes (the
             token flips lightness slightly). White text on coral reads at
-            AA in both. Disabled-when-IN turns into quiet confirmation. */}
+            AA in both. Disabled-when-IN turns into quiet confirmation —
+            the icon swaps from arrow (suggests action) to check (signals
+            done) so the locked state doesn't read as a swipe target. */}
         <button
           type="button"
           onClick={() => onVote("in")}
@@ -351,8 +362,17 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
             effectiveVote === "in" && "cursor-default opacity-90",
           )}
         >
-          {effectiveVote === "in" ? "You're in" : "I'm in"}
-          <ArrowRight className="size-4" strokeWidth={2.4} aria-hidden />
+          {effectiveVote === "in" ? (
+            <>
+              <Check className="size-4" strokeWidth={2.6} aria-hidden />
+              You&rsquo;re in
+            </>
+          ) : (
+            <>
+              I&rsquo;m in
+              <ArrowRight className="size-4" strokeWidth={2.4} aria-hidden />
+            </>
+          )}
         </button>
 
         {/* Secondary row — Maybe / Can't / Chat. ink/* utilities flip via

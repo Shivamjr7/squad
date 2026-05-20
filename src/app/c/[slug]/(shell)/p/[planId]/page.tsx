@@ -627,7 +627,6 @@ export default async function PlanDetailPage({
               recipientCount={recipientIds.length || memberCount}
               lockThreshold={lockThreshold}
               creatorId={plan.creator?.id ?? null}
-              circleSlug={circle.slug}
               circleName={circle.name}
               squad={dashboardSquad}
               shiftedFromTime={null}

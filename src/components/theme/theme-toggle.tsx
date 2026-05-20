@@ -1,52 +1,45 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 
 type Variant = "icon" | "row" | "segment";
 
-type ThemeKey = "light" | "dark" | "system";
+type ThemeKey = "light" | "dark";
 
-const SEGMENT_ORDER: ThemeKey[] = ["system", "light", "dark"];
+const SEGMENT_ORDER: ThemeKey[] = ["light", "dark"];
 const SEGMENT_LABEL: Record<ThemeKey, string> = {
-  system: "System",
   light: "Light",
   dark: "Dark",
 };
 
-// Segment icons read literally: Sun for Light, Moon for Dark, Monitor
-// for System. The ICONS map below uses cycle-shown semantics (the icon
-// represents what's NEXT in the cycle), which doesn't apply to a
-// segmented control where each pill states its own state.
 const SEGMENT_ICONS: Record<ThemeKey, typeof Sun> = {
-  system: Monitor,
   light: Sun,
   dark: Moon,
 };
 
-// Cycle order: light → dark → system → light. The icon shown represents
-// what the user CURRENTLY has selected (moon for light, sun for dark,
-// monitor for system) — matches the user's spec while remaining
-// unambiguous: each icon is a clear visual cue for its own state.
-const NEXT_THEME: Record<string, "light" | "dark" | "system"> = {
+// Cycle order: light ↔ dark. Icon shown represents the OTHER state so
+// it reads as the action the click will perform.
+const NEXT_THEME: Record<ThemeKey, ThemeKey> = {
   light: "dark",
-  dark: "system",
-  system: "light",
+  dark: "light",
 };
 
-const LABELS: Record<string, string> = {
+const LABELS: Record<ThemeKey, string> = {
   light: "Theme: light. Click to switch to dark.",
-  dark: "Theme: dark. Click to switch to system.",
-  system: "Theme: system. Click to switch to light.",
+  dark: "Theme: dark. Click to switch to light.",
 };
 
-const ICONS = {
+const ICONS: Record<ThemeKey, typeof Sun> = {
   light: Moon,
   dark: Sun,
-  system: Monitor,
-} as const;
+};
+
+function normalize(theme: string | undefined): ThemeKey {
+  return theme === "dark" ? "dark" : "light";
+}
 
 export function ThemeToggle({
   variant = "icon",
@@ -107,10 +100,10 @@ export function ThemeToggle({
     );
   }
 
-  const current = theme ?? "system";
-  const Icon = ICONS[current as keyof typeof ICONS] ?? Monitor;
-  const label = LABELS[current] ?? LABELS.system;
-  const onClick = () => setTheme(NEXT_THEME[current] ?? "system");
+  const current = normalize(theme);
+  const Icon = ICONS[current];
+  const label = LABELS[current];
+  const onClick = () => setTheme(NEXT_THEME[current]);
 
   if (variant === "segment") {
     return (
@@ -149,8 +142,7 @@ export function ThemeToggle({
   }
 
   if (variant === "row") {
-    const stateLabel =
-      current === "system" ? "System" : current === "dark" ? "Dark" : "Light";
+    const stateLabel = SEGMENT_LABEL[current];
     return (
       <button
         type="button"
@@ -163,10 +155,7 @@ export function ThemeToggle({
       >
         <span className="flex flex-col gap-0.5">
           <span className="text-sm text-ink">Theme</span>
-          <span className="text-xs text-ink-muted">
-            {stateLabel}
-            {current === "system" ? " (follows your device)" : ""}
-          </span>
+          <span className="text-xs text-ink-muted">{stateLabel}</span>
         </span>
         <Icon className="size-5 text-ink-muted" aria-hidden />
       </button>
