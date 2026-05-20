@@ -208,7 +208,7 @@ function HeatmapInner({
                     key={`${m.userId}-${s.id}`}
                     type="button"
                     role="gridcell"
-                    aria-pressed={voted}
+                    aria-selected={voted}
                     aria-label={`${m.displayName}, ${hourLabel(s.startsAt)}, ${
                       voted ? "free" : "not free"
                     }`}
