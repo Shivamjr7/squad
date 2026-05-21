@@ -14,7 +14,7 @@ type Props = {
   slug: string;
   members: FormMember[];
   currentUserId: string;
-  mode?: "fab" | "header" | "cta";
+  mode?: "header" | "cta";
 };
 
 export function NewPlanTrigger({
@@ -22,7 +22,7 @@ export function NewPlanTrigger({
   slug,
   members,
   currentUserId,
-  mode = "fab",
+  mode = "header",
 }: Props) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -39,20 +39,7 @@ export function NewPlanTrigger({
 
   return (
     <>
-      {mode === "fab" ? (
-        // Primary CTA on ink — matches the rest of the Sunset-Editorial
-        // primary surface (header buttons, "Mark as set", etc.). Coral
-        // stays reserved for status accents (deciding, urgency) and the
-        // italic-serif hero so the brand stays focused.
-        <Button
-          size="lg"
-          onClick={() => setOpen(true)}
-          className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-6 z-40 h-14 rounded-full bg-ink px-6 text-paper shadow-float hover:bg-ink/90 sm:hidden"
-        >
-          <Plus className="size-5" />
-          New plan
-        </Button>
-      ) : mode === "cta" ? (
+      {mode === "cta" ? (
         <Button
           size="lg"
           onClick={() => setOpen(true)}

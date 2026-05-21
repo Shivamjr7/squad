@@ -11,9 +11,15 @@ import { NotificationsBellLink } from "@/components/notifications/notifications-
 import { CommandPalette } from "@/components/search/command-palette";
 import { SearchButton } from "@/components/search/search-button";
 import { CircleSwitcher } from "@/components/circle/circle-switcher";
+import { InstallBanner } from "@/components/pwa/install-banner";
+import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
+import type { FormMember } from "@/components/plan/new-plan-form";
 
 export function AppShell({
   currentSlug,
+  currentCircleId,
+  currentUserId,
+  formMembers,
   circles,
   members,
   nowMs,
@@ -22,6 +28,12 @@ export function AppShell({
   children,
 }: {
   currentSlug: string;
+  // The "+" plan trigger needs a specific circle to insert into. Cross-
+  // circle surfaces like /calendar don't have one in scope, so these are
+  // optional — when absent we omit the trigger from the chrome.
+  currentCircleId?: string;
+  currentUserId?: string;
+  formMembers?: FormMember[];
   circles: SidebarCircle[];
   members: SidebarMember[];
   nowMs: number;
@@ -29,10 +41,17 @@ export function AppShell({
   activityPromise: Promise<Map<string, Date>>;
   children: ReactNode;
 }) {
+  const hasPlanContext =
+    currentCircleId !== undefined &&
+    currentUserId !== undefined &&
+    formMembers !== undefined;
   return (
     <div className="md:flex md:items-start">
       <Sidebar
         currentSlug={currentSlug}
+        currentCircleId={hasPlanContext ? currentCircleId : null}
+        currentUserId={hasPlanContext ? currentUserId : null}
+        formMembers={hasPlanContext ? formMembers : null}
         circles={circles}
         members={members}
         nowMs={nowMs}
@@ -73,8 +92,25 @@ export function AppShell({
               />
             </Suspense>
             <ThemeToggle />
+            {hasPlanContext ? (
+              <NewPlanTrigger
+                circleId={currentCircleId}
+                slug={currentSlug}
+                members={formMembers}
+                currentUserId={currentUserId}
+                mode="header"
+              />
+            ) : null}
           </div>
         </div>
+        {/* PWA install + chained notification opt-in. Renders nothing until
+            the browser hands us a `beforeinstallprompt` (Android Chrome) or
+            it detects an iOS Safari tab that isn't already standalone. After
+            the user accepts the install dialog, the banner morphs into the
+            "Turn on notifications" step — which is the only spot in the
+            app where we ask. Previously the component existed but was
+            never mounted, so the prompt never appeared on mobile. */}
+        <InstallBanner />
         {children}
       </div>
       {/* Globally-mounted Cmd-K palette. Owns its own keydown listener;

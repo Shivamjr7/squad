@@ -3,11 +3,12 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { Settings } from "lucide-react";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { db } from "@/db/client";
-import { invites } from "@/db/schema";
+import { invites, memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { InviteButton } from "@/components/circle/invite-button";
+import { LeaveCircleButton } from "@/components/circle/leave-circle-button";
 import { MembersList, type ListMember } from "@/components/circle/members-list";
 import {
   getCircleBySlug,
@@ -49,6 +50,22 @@ export default async function SquadPage({
   const knownUsers = isAdmin
     ? await getKnownSquadUsers(userId, circle.id)
     : [];
+
+  // Last-admin check: if I'm an admin and there are no other admins, leaving
+  // would orphan the circle. Block it on the client + server. Lifted from
+  // /you to /squad along with the LeaveCircleButton itself.
+  let isLastAdmin = false;
+  if (isAdmin) {
+    const other = await db.query.memberships.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(memberships.circleId, circle.id),
+        eq(memberships.role, "admin"),
+        ne(memberships.userId, userId),
+      ),
+    });
+    isLastAdmin = !other;
+  }
 
   const members: ListMember[] = memberRows
     .filter((m) => m.user)
@@ -110,6 +127,17 @@ export default async function SquadPage({
               members={members}
               currentUserId={userId}
               isAdmin={isAdmin}
+            />
+          </section>
+
+          {/* Leave-circle moved from /you so the You tab can stay circle-
+              agnostic. Lives at the bottom of the Squad page, next to the
+              member list — the natural place for a per-circle exit. */}
+          <section className="flex flex-col gap-2 border-t border-ink-hairline pt-6 md:max-w-md">
+            <LeaveCircleButton
+              circleId={circle.id}
+              circleName={circle.name}
+              isLastAdmin={isLastAdmin}
             />
           </section>
         </div>

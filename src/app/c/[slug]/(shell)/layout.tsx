@@ -16,6 +16,7 @@ import type {
   SidebarCircle,
   SidebarMember,
 } from "@/components/layout/Sidebar";
+import type { FormMember } from "@/components/plan/new-plan-form";
 import { getUnreadCount } from "@/lib/actions/notifications";
 import { WelcomeRedirector } from "@/components/pwa/welcome-redirector";
 
@@ -69,6 +70,17 @@ export default async function CircleShellLayout({
     memberCount: c.memberCount,
   }));
 
+  // FormMember rows for the AppShell's NewPlanTrigger (the "+" chip in the
+  // mobile top bar / desktop sidebar header). Same shape NewPlanForm reads —
+  // we already loaded memberRows above so this is a free reshape.
+  const formMembers: FormMember[] = memberRows
+    .filter((m) => m.user)
+    .map((m) => ({
+      userId: m.user!.id,
+      displayName: m.user!.displayName,
+      avatarUrl: m.user!.avatarUrl,
+    }));
+
   // Streamed — not awaited here. Sidebar resolves these inside Suspense.
   const unreadInboxPromise = getUnreadCount();
   const activityPromise = getCircleMemberActivity(circle.id).then(
@@ -81,6 +93,9 @@ export default async function CircleShellLayout({
   return (
     <AppShell
       currentSlug={slug}
+      currentCircleId={circle.id}
+      currentUserId={userId}
+      formMembers={formMembers}
       circles={sidebarCircles}
       members={sidebarMembers}
       nowMs={Date.now()}

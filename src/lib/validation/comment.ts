@@ -15,3 +15,8 @@ export const addCommentSchema = z.object({
     ),
 });
 export type AddCommentInput = z.infer<typeof addCommentSchema>;
+
+export const deleteCommentSchema = z.object({
+  commentId: z.string().uuid(),
+});
+export type DeleteCommentInput = z.infer<typeof deleteCommentSchema>;

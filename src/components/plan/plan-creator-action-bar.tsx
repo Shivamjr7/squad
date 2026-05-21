@@ -34,9 +34,12 @@ type Props = {
 // actions for redundancy, including for past plans where the bar
 // disappears.
 //
-// Positioning: fixed-bottom, stacked above the mobile tab bar (z-30 so
-// the tab bar's z-40 still wins for swipe-edge gestures). On desktop
-// (md+) sits flush at the bottom — no tab bar to clear.
+// Positioning: full-width shelf anchored to the bottom (z-30 so the
+// floating mobile tab pill at z-40 still wins for swipe-edge gestures).
+// The shelf extends down to the viewport edge so page content doesn't
+// peek through the gap behind the tab pill. On desktop (md+) the same
+// shelf renders without a tab pill below — extra bottom padding becomes
+// the iOS home-indicator safe-area only.
 export function PlanCreatorActionBar({
   planId,
   status,
@@ -73,13 +76,13 @@ export function PlanCreatorActionBar({
   return (
     <>
       <div
-        // Bottom offset clears the floating mobile tab pill (~62px tall +
-        // 8px outer margin) plus the iOS home-indicator safe area. On md+
-        // no tab bar exists, so the bar sits flush.
-        className="fixed inset-x-0 z-30 border-t border-ink/10 bg-paper px-4 py-3 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.12)] md:px-6"
-        style={{
-          bottom: "calc(env(safe-area-inset-bottom, 0px) + 76px)",
-        }}
+        // Anchored bottom-0; the bottom padding pushes the buttons up to
+        // sit just above the floating mobile tab pill (~62px tall + 8px
+        // outer margin) plus the iOS home-indicator safe area. The shelf
+        // background fills everything below the buttons so nothing
+        // scrolls through the gap behind the tab pill. On md+ the tab
+        // pill is hidden, so the bottom padding shrinks to the safe area.
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-ink/10 bg-paper px-4 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+76px)] shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.12)] md:px-6 md:pb-[max(env(safe-area-inset-bottom,0px),0.75rem)]"
       >
         <div className="mx-auto grid w-full max-w-2xl grid-cols-2 items-stretch gap-3">
           <Button

@@ -6,6 +6,7 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { normalizeAvatarUrl } from "@/lib/avatar";
 import { USER_DISPLAY_NAME_TAG } from "@/lib/auth";
+import { USER_PROFILE_TAG } from "@/lib/server-cache";
 
 // Clerk webhook payload shapes. Only the fields we touch are typed.
 type ClerkEmailAddress = {
@@ -120,12 +121,14 @@ export async function POST(req: Request) {
       // Flip on signup/update may toggle the flag; drop the cached version
       // so server pages don't bounce a freshly-named user to /set-name.
       revalidateTag(USER_DISPLAY_NAME_TAG);
+      revalidateTag(USER_PROFILE_TAG);
       break;
     }
     case "user.deleted": {
       const data = event.data as ClerkDeletedData;
       await db.delete(users).where(eq(users.id, data.id));
       revalidateTag(USER_DISPLAY_NAME_TAG);
+      revalidateTag(USER_PROFILE_TAG);
       break;
     }
     default:

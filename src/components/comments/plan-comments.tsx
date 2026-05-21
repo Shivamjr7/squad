@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
-import { addComment } from "@/lib/actions/comments";
+import { addComment, deleteComment } from "@/lib/actions/comments";
 import {
   usePlanComments,
   type PlanComment,
@@ -45,6 +45,8 @@ export function PlanComments({
     confirmOptimistic,
     failOptimistic,
     retryOptimistic,
+    removeOptimistic,
+    restoreOptimistic,
   } = usePlanComments({ planId, members, initialComments });
 
   // Track body text by tempId so retries don't depend on closure capture.
@@ -101,12 +103,36 @@ export function PlanComments({
     [retryOptimistic, send],
   );
 
+  const onDelete = useCallback(
+    async (id: string) => {
+      const snapshot = comments.find((c) => c.id === id);
+      if (!snapshot) return;
+      // Local-only temp comments (failed sends still in the list) — just drop.
+      if (id.startsWith("tmp:")) {
+        removeOptimistic(id);
+        pendingBodies.current.delete(id);
+        return;
+      }
+      removeOptimistic(id);
+      try {
+        await deleteComment({ commentId: id });
+      } catch (err) {
+        restoreOptimistic(snapshot);
+        const message =
+          err instanceof Error ? err.message : "Couldn't delete comment.";
+        toast.error(message);
+      }
+    },
+    [comments, removeOptimistic, restoreOptimistic],
+  );
+
   return (
     <div className="flex flex-1 flex-col gap-4">
       <CommentThread
         comments={comments}
         currentUserId={currentUser.id}
         onRetry={onRetry}
+        onDelete={onDelete}
       />
       {canCompose ? <CommentComposer onSend={onSend} /> : null}
     </div>

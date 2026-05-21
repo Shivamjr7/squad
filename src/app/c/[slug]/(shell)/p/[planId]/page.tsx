@@ -56,7 +56,6 @@ import type {
   InitialSlotVoter,
   SlotMember,
 } from "@/lib/realtime/use-slot-votes";
-import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { PlanDeepLinks } from "@/components/plan/plan-deeplinks";
 import { buildMapsUrl } from "@/lib/maps";
 import { buildGoogleCalendarUrl } from "@/lib/calendar";
@@ -68,7 +67,6 @@ import {
 import {
   getCircleBySlug,
   getCircleMembers,
-  getUserCircles,
   type CircleMemberRow,
 } from "@/lib/circles";
 import {
@@ -133,7 +131,7 @@ export default async function PlanDetailPage({
   // into a single round-trip via Drizzle's `with:` graph. The plan's
   // creator + member-side data (memberRows) is request-cached at the
   // layout level so this stays a single DB hit on the read path.
-  const [, circle, planFull, userCircles] = await Promise.all([
+  const [, circle, planFull] = await Promise.all([
     requireDisplayNameSet(userId),
     getCircleBySlug(slug),
     db.query.plans.findFirst({
@@ -195,7 +193,6 @@ export default async function PlanDetailPage({
         },
       },
     }),
-    getUserCircles(userId),
   ]);
 
   if (!circle) notFound();
@@ -519,27 +516,33 @@ export default async function PlanDetailPage({
         className={
           // Desktop bump: ≥md the column grows from max-w-2xl (672) → 3xl
           // (768) so the receipt and live ticker breathe on wide screens.
-          "mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-4 pt-3 sm:px-6 md:max-w-3xl " +
+          "mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-5 px-4 pt-2 sm:px-6 md:max-w-3xl " +
           (canMutateStatus && plan.status === "active" ? "pb-48" : "pb-32")
         }
       >
-        <header className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1">
-            <Button
-              asChild
-              variant="ghost"
-              size="icon"
-              className="-ml-2 shrink-0"
-              aria-label="Back to circle"
-            >
-              <Link href={`/c/${circle.slug}`}>
-                <ArrowLeft />
-              </Link>
-            </Button>
-            <CircleSwitcher
-              currentSlug={circle.slug}
-              circles={userCircles}
-              size="sm"
+        {/* Single nav-row: back affordance + status pill + overflow menu.
+            Previously the back/overflow lived on their own line above the
+            pill — with the in-page CircleSwitcher gone, that row floated in
+            empty air. Folding the pill into the same row reclaims the gap
+            below the AppShell top bar. */}
+        <header className="flex min-w-0 items-center gap-2">
+          <Button
+            asChild
+            variant="ghost"
+            size="icon-sm"
+            className="-ml-1.5 shrink-0"
+            aria-label="Back to circle"
+          >
+            <Link href={`/c/${circle.slug}`}>
+              <ArrowLeft className="size-4" />
+            </Link>
+          </Button>
+          <div className="min-w-0 flex-1">
+            <StatusCountdownPill
+              status={plan.status}
+              startsAt={plan.startsAt.toISOString()}
+              decideBy={plan.decideBy?.toISOString() ?? null}
+              timeZone={plan.timeZone}
             />
           </div>
           {canMutateStatus && !isPastPlan ? (
@@ -554,12 +557,6 @@ export default async function PlanDetailPage({
         </header>
 
         <section className="flex flex-col gap-3">
-          <StatusCountdownPill
-            status={plan.status}
-            startsAt={plan.startsAt.toISOString()}
-            decideBy={plan.decideBy?.toISOString() ?? null}
-            timeZone={plan.timeZone}
-          />
           <h1
             className={
               "font-serif text-3xl font-semibold leading-tight text-ink sm:text-4xl " +
