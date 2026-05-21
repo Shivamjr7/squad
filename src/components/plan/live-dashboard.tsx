@@ -220,11 +220,11 @@ export function LiveDashboard({
         className="pointer-events-none absolute -right-16 -top-20 size-60 rounded-full bg-coral/20 blur-[60px] dark:bg-coral/30"
       />
 
-      <div className="relative flex flex-col gap-4 p-5 sm:p-6">
+      <div className="relative flex flex-col gap-3 p-4 sm:p-5">
         {/* Hero card — ring + countdown side-by-side */}
-        <div className="relative overflow-hidden rounded-[18px] border border-ink/8 bg-ink/[0.025] p-4 sm:p-5">
-          <div className="flex items-center gap-4">
-            <div className="relative size-[110px] shrink-0">
+        <div className="relative overflow-hidden rounded-[16px] border border-ink/8 bg-ink/[0.025] p-3.5 sm:p-4">
+          <div className="flex items-center gap-3.5">
+            <div className="relative size-[92px] shrink-0">
               <svg
                 viewBox="0 0 100 100"
                 className="size-full -rotate-90 text-ink/10"
@@ -267,13 +267,13 @@ export function LiveDashboard({
                 ) : null}
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="font-serif text-[36px] leading-none tracking-tight text-ink">
+                <div className="font-serif text-[30px] leading-none tracking-tight text-ink">
                   {counts.in}
-                  <span className="text-[18px] text-ink-muted">
+                  <span className="text-[15px] text-ink-muted">
                     /{recipientCount}
                   </span>
                 </div>
-                <span className="mt-1 text-[8px] font-bold uppercase tracking-[0.16em] text-ink-muted">
+                <span className="mt-0.5 text-[7.5px] font-bold uppercase tracking-[0.16em] text-ink-muted">
                   Consensus
                 </span>
               </div>
@@ -288,27 +288,27 @@ export function LiveDashboard({
                     : "Open"}
               </span>
               {countdown && !countdown.expired ? (
-                <div className="mt-1 flex items-baseline gap-[2px] font-bold tabular-nums leading-none tracking-tight text-ink">
+                <div className="mt-0.5 flex items-baseline gap-[2px] font-bold tabular-nums leading-none tracking-tight text-ink">
                   {countdown.h !== "00" ? (
                     <>
-                      <span className="text-[30px]">{countdown.h}</span>
-                      <span className="text-[30px] text-ink/30">:</span>
+                      <span className="text-[26px]">{countdown.h}</span>
+                      <span className="text-[26px] text-ink/30">:</span>
                     </>
                   ) : null}
-                  <span className="text-[30px]">{countdown.m}</span>
-                  <span className="text-[30px] text-ink/30">:</span>
-                  <span className="text-[30px] text-coral">{countdown.s}</span>
+                  <span className="text-[26px]">{countdown.m}</span>
+                  <span className="text-[26px] text-ink/30">:</span>
+                  <span className="text-[26px] text-coral">{countdown.s}</span>
                 </div>
               ) : countdown?.expired ? (
-                <div className="mt-1 text-[24px] font-bold text-coral">
+                <div className="mt-0.5 text-[22px] font-bold text-coral">
                   00:00
                 </div>
               ) : (
-                <div className="mt-1 text-[22px] font-bold text-ink">
+                <div className="mt-0.5 text-[20px] font-bold text-ink">
                   No deadline
                 </div>
               )}
-              <p className="mt-2 text-[11px] leading-snug text-ink-muted">
+              <p className="mt-1.5 text-[11px] leading-snug text-ink-muted">
                 Auto-locks at{" "}
                 <b className="font-semibold text-ink">{lockThreshold} in</b>
                 {decideBy ? (
@@ -327,23 +327,23 @@ export function LiveDashboard({
           </div>
 
           {/* IN / MAYBE / OUT mini legend */}
-          <div className="mt-4 grid grid-cols-3 gap-2 border-t border-ink/8 pt-3">
+          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-ink/8 pt-2.5">
             {[
               { n: counts.in, l: "In", color: "var(--in)" },
               { n: counts.maybe, l: "Maybe", color: "var(--maybe)" },
               { n: counts.out, l: "Out", color: "var(--out)" },
             ].map((r) => (
-              <div key={r.l} className="flex items-center gap-2">
+              <div key={r.l} className="flex items-center gap-1.5">
                 <span
                   aria-hidden
-                  className="size-2 shrink-0 rounded-full"
+                  className="size-1.5 shrink-0 rounded-full"
                   style={{ background: r.color }}
                 />
                 <div className="min-w-0">
-                  <div className="text-[17px] font-bold leading-none tabular-nums text-ink">
+                  <div className="text-[15px] font-bold leading-none tabular-nums text-ink">
                     {r.n}
                   </div>
-                  <div className="mt-0.5 text-[8.5px] font-bold uppercase tracking-[0.14em] text-ink-muted">
+                  <div className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.14em] text-ink-muted">
                     {r.l}
                   </div>
                 </div>
@@ -353,25 +353,25 @@ export function LiveDashboard({
         </div>
 
         {/* Title + meta strip */}
-        <div className="flex flex-col gap-2">
-          <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-ink-muted">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[8.5px] font-bold uppercase tracking-[0.16em] text-ink-muted">
             {circleName} · {dateLabel}
           </span>
           <h1
-            className="text-[22px] font-bold leading-tight tracking-tight text-ink"
+            className="text-[19px] font-bold leading-tight tracking-tight text-ink"
             style={{ viewTransitionName: `plan-title-${planId}` }}
           >
             {planTitle}
             {location ? (
               <>
                 {" "}
-                <span className="font-serif text-[22px] font-normal italic text-coral">
+                <span className="font-serif text-[19px] font-normal italic text-coral">
                   at {location}
                 </span>
               </>
             ) : null}
           </h1>
-          <div className="mt-1 grid grid-cols-3 overflow-hidden rounded-xl border border-ink/8 bg-ink/[0.025]">
+          <div className="mt-0.5 grid grid-cols-3 overflow-hidden rounded-xl border border-ink/8 bg-ink/[0.025]">
             <MetaCell
               label="When"
               value={time}
@@ -401,12 +401,12 @@ export function LiveDashboard({
         </div>
 
         {/* Squad grid */}
-        <section className="flex flex-col gap-2.5">
+        <section className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between">
-            <span className="text-[9.5px] font-bold uppercase tracking-[0.16em] text-ink">
+            <span className="text-[8.5px] font-bold uppercase tracking-[0.16em] text-ink">
               Squad
             </span>
-            <span className="text-[9px] font-medium uppercase tracking-[0.11em] text-ink-muted">
+            <span className="text-[8.5px] font-medium uppercase tracking-[0.11em] text-ink-muted">
               {squad.length} {squad.length === 1 ? "person" : "people"}
             </span>
           </div>
@@ -462,16 +462,16 @@ function MetaCell({
   return (
     <div
       className={cn(
-        "min-w-0 px-3 py-2.5",
+        "min-w-0 px-2.5 py-2",
         border && "border-l border-ink/8",
       )}
     >
-      <span className="text-[8.5px] font-bold uppercase tracking-[0.14em] text-ink-muted">
+      <span className="text-[8px] font-bold uppercase tracking-[0.14em] text-ink-muted">
         {label}
       </span>
       <div
         className={cn(
-          "mt-1 truncate text-[15px] font-bold leading-tight tracking-tight tabular-nums",
+          "mt-0.5 truncate text-[14px] font-bold leading-tight tracking-tight tabular-nums",
           valueMuted ? "text-ink-muted" : "text-ink",
         )}
       >
