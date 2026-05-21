@@ -23,9 +23,9 @@
 // (plan_leave_soon) skip this module entirely — the edge function inserts
 // its own rows and fans out without an HTTP round-trip.
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/db/client";
-import { memberships, notifications, planRecipients } from "@/db/schema";
+import { memberships, notifications, planRecipients, users } from "@/db/schema";
 import type { NotificationPayload } from "@/lib/notifications-payload";
 
 // Re-export the pure composer + types so existing call sites keep working.
@@ -118,6 +118,11 @@ async function invokeSendPush(notificationIds: string[]): Promise<void> {
 // Resolves "everyone on this plan except the actor". Plan recipients if the
 // row set is non-empty, else full circle membership. Used by the in-app
 // trigger sites so they share one definition of audience.
+//
+// M31 — filters out users with `users.notifications_enabled = false`. The
+// global mute (set via /you → Manage devices) is enforced here so muted
+// users don't get either an in-app feed row or a push. Permission is on by
+// default for every account; this is the opt-out.
 export async function resolvePlanAudience(
   planId: string,
   circleId: string,
@@ -128,22 +133,37 @@ export async function resolvePlanAudience(
     .from(planRecipients)
     .where(eq(planRecipients.planId, planId));
 
+  let candidateIds: string[];
   if (recipientRows.length > 0) {
-    const ids = recipientRows.map((r) => r.userId);
-    if (!excludeUserId) return ids;
-    return ids.filter((id) => id !== excludeUserId);
+    candidateIds = recipientRows.map((r) => r.userId);
+    if (excludeUserId) {
+      candidateIds = candidateIds.filter((id) => id !== excludeUserId);
+    }
+  } else {
+    const memberRows = await db
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(
+        excludeUserId
+          ? and(
+              eq(memberships.circleId, circleId),
+              ne(memberships.userId, excludeUserId),
+            )
+          : eq(memberships.circleId, circleId),
+      );
+    candidateIds = memberRows.map((r) => r.userId);
   }
 
-  const memberRows = await db
-    .select({ userId: memberships.userId })
-    .from(memberships)
+  if (candidateIds.length === 0) return candidateIds;
+
+  const enabledRows = await db
+    .select({ id: users.id })
+    .from(users)
     .where(
-      excludeUserId
-        ? and(
-            eq(memberships.circleId, circleId),
-            ne(memberships.userId, excludeUserId),
-          )
-        : eq(memberships.circleId, circleId),
+      and(
+        inArray(users.id, candidateIds),
+        eq(users.notificationsEnabled, true),
+      ),
     );
-  return memberRows.map((r) => r.userId);
+  return enabledRows.map((r) => r.id);
 }
