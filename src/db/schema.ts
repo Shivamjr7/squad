@@ -85,6 +85,13 @@ export const users = pgTable("users", {
   displayName: text("display_name").notNull(),
   avatarUrl: text("avatar_url"),
   hasSetDisplayName: boolean("has_set_display_name").notNull().default(false),
+  // M31 — global mute. Defaults to true so new accounts are opted in at the
+  // model level (NOTIFICATIONS_PLAN.md §1 principle 2). `resolvePlanAudience`
+  // filters this server-side before any push dispatch. Flipped from /you →
+  // Manage devices → "Mute all notifications".
+  notificationsEnabled: boolean("notifications_enabled")
+    .notNull()
+    .default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),

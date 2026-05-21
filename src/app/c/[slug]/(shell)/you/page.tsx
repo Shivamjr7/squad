@@ -100,7 +100,10 @@ export default async function YouPage() {
                   to lock, and 45 minutes before you should leave. One row per
                   device you&apos;ve enabled.
                 </p>
-                <ManageDevices devices={devices} />
+                <ManageDevices
+                  devices={devices}
+                  notificationsEnabled={me.notificationsEnabled}
+                />
               </section>
             </div>
 

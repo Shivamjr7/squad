@@ -42,6 +42,10 @@ type Props = {
   squad: LiveDashboardMember[];
   shiftedFromTime: Date | null;
   now: Date;
+  // True when the page also renders PlanCreatorActionBar (creator + admin
+  // path). Used to lift the mobile sticky RSVP above the action bar so the
+  // two fixed shelves don't overlap.
+  hasActionBar?: boolean;
 };
 
 const COMMIT_DEBOUNCE_MS = 200;
@@ -82,6 +86,7 @@ export function LiveDashboard({
   squad,
   shiftedFromTime,
   now: serverNow,
+  hasActionBar = false,
 }: Props) {
   const { voters, currentUser } = useCircleVotes();
   const planVoters = useMemo(
@@ -196,7 +201,6 @@ export function LiveDashboard({
 
   const time = shortHourMinute(startsAt, timeZone);
   const dateLabel = shortDate(startsAt, timeZone);
-  const isCreator = creatorId === currentUser.id;
 
   return (
     <article
@@ -428,12 +432,16 @@ export function LiveDashboard({
 
       </div>
 
-      {/* Sticky RSVP — non-creators only; creators have the action bar at
-          the same offset. Mobile-only fixed position; on desktop the bar
-          stacks inline below the cockpit. */}
-      {!isCreator ? (
-        <StickyRSVP effectiveVote={effectiveVote} onVote={onVote} />
-      ) : null}
+      {/* Sticky RSVP — every recipient (creators included) can change their
+          vote. When the page also mounts PlanCreatorActionBar (creator +
+          admin), `hasActionBar` lifts the mobile sticky above it so the two
+          fixed shelves don't overlap. On desktop (md+) StickyRSVP falls
+          inline below the cockpit, no overlap either way. */}
+      <StickyRSVP
+        effectiveVote={effectiveVote}
+        onVote={onVote}
+        raised={hasActionBar}
+      />
     </article>
   );
 }
@@ -543,43 +551,47 @@ function SquadTile({
 function StickyRSVP({
   effectiveVote,
   onVote,
+  raised = false,
 }: {
   effectiveVote: VoteStatus | null;
   onVote: (next: VoteStatus | null) => void;
+  // When the PlanCreatorActionBar is also rendered, lift the sticky higher
+  // so it sits above the Cancel | Mark as set buttons. The action bar's
+  // buttons span ~56px above the +76px safe-area offset; add ~70px of
+  // clearance so the two shelves don't crowd each other.
+  raised?: boolean;
 }) {
   const isIn = effectiveVote === "in";
   return (
     <div
-      // The mobile tab bar sits at bottom-0 + safe-area; offset matches
-      // the creator action bar so the two visually align on the rare
-      // overlap. Below md the bar floats fixed; on md+ it falls back to
-      // relative so it sits inline below the cockpit. paper-card flips
-      // for theme; backdrop blur keeps page content visible behind.
-      className="fixed inset-x-3 z-30 mx-auto flex max-w-2xl gap-1.5 rounded-[22px] border border-ink/10 bg-paper-card/95 p-2 shadow-[0_16px_36px_-12px_rgba(0,0,0,0.25)] backdrop-blur-xl md:relative md:inset-x-auto md:mt-4"
-      style={{
-        bottom: "calc(env(safe-area-inset-bottom, 0px) + 76px)",
-      }}
+      // Below md the bar floats fixed above the mobile tab bar; on md+ it
+      // falls back to relative so it sits inline below the cockpit. The
+      // mobile bottom offset has to live in a Tailwind class (not an inline
+      // style) so `md:bottom-auto` can override it on desktop — inline
+      // styles win specificity over media-query classes and would otherwise
+      // shift the relative-positioned bar up over the squad grid.
+      className={cn(
+        "fixed inset-x-3 z-30 mx-auto flex max-w-2xl gap-1.5 rounded-[22px] border border-ink/10 bg-paper-card/95 p-2 shadow-[0_16px_36px_-12px_rgba(0,0,0,0.25)] backdrop-blur-xl md:relative md:inset-x-auto md:mt-4 md:bottom-auto",
+        raised
+          ? "bottom-[calc(env(safe-area-inset-bottom,0px)+146px)]"
+          : "bottom-[calc(env(safe-area-inset-bottom,0px)+76px)]",
+      )}
     >
-      <button
-        type="button"
+      <RSVPButton
+        label={isIn ? "You're in" : "I'm in"}
+        status="in"
+        active={isIn}
         onClick={() => onVote(isIn ? null : "in")}
-        aria-pressed={isIn}
-        className={cn(
-          "flex-[2] inline-flex h-12 items-center justify-center gap-2 rounded-[14px] text-[14.5px] font-bold tracking-tight text-white transition-shadow",
-          "bg-coral shadow-[0_8px_18px_-2px_oklch(0.62_0.16_18/0.45)]",
-          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral",
-        )}
-      >
-        <Check className="size-4" strokeWidth={2.4} aria-hidden />
-        {isIn ? "You're in" : "I'm in"}
-      </button>
-      <RSVPSecondary
+      />
+      <RSVPButton
         label="Maybe"
+        status="maybe"
         active={effectiveVote === "maybe"}
         onClick={() => onVote(effectiveVote === "maybe" ? null : "maybe")}
       />
-      <RSVPSecondary
+      <RSVPButton
         label="Can't"
+        status="out"
         active={effectiveVote === "out"}
         onClick={() => onVote(effectiveVote === "out" ? null : "out")}
       />
@@ -587,28 +599,44 @@ function StickyRSVP({
   );
 }
 
-function RSVPSecondary({
+// One shared button shape for all three RSVP slots. Equal width, equal
+// height; the only thing that changes is the active fill, which uses the
+// semantic vote token (`bg-in` / `bg-maybe` / `bg-out`) so each state reads
+// its own color when selected. Inactive treatment is identical across all
+// three so the user never has to guess which one is "primary."
+function RSVPButton({
   label,
+  status,
   active,
   onClick,
 }: {
   label: string;
+  status: VoteStatus;
   active: boolean;
   onClick: () => void;
 }) {
+  const activeFill =
+    status === "in"
+      ? "border-transparent bg-in text-paper"
+      : status === "maybe"
+        ? "border-transparent bg-maybe text-ink"
+        : "border-transparent bg-out text-paper";
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "inline-flex h-12 flex-1 items-center justify-center rounded-[14px] border text-[13px] font-semibold transition-colors text-ink",
+        "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[14px] border text-[13px] font-semibold tracking-tight text-ink transition-colors",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral",
         active
-          ? "border-ink/20 bg-ink/[0.14]"
+          ? activeFill
           : "border-ink/10 bg-ink/[0.05] hover:bg-ink/[0.10]",
       )}
     >
+      {active && status === "in" ? (
+        <Check className="size-4" strokeWidth={2.4} aria-hidden />
+      ) : null}
       {label}
     </button>
   );

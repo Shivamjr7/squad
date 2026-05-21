@@ -9,12 +9,11 @@ import type {
   SubscribePushInput,
 } from "@/lib/validation/push-subscription";
 
-// Two localStorage flags — both are set on mount so the redirector never
-// sends the same user here twice. The first covers iOS standalone first-
-// launch; the second covers legacy users (installed before M31) on their
-// first authed page-load after the deploy.
+// Single localStorage flag — set on mount so the redirector never sends the
+// same user here twice. The plan no longer branches by install path
+// (NOTIFICATIONS_PLAN.md §4.a): every user hits /welcome on their first
+// authed page load and `squad_welcome_seen` records that they did.
 const WELCOME_SEEN_KEY = "squad_welcome_seen";
-const REVAMP_SEEN_KEY = "squad_notifications_revamp_seen";
 
 function detectDeviceHint(): "mobile" | "desktop" {
   return /Mobi|Android/i.test(navigator.userAgent) ? "mobile" : "desktop";
@@ -68,11 +67,10 @@ export function WelcomeCta({ fallbackSlug }: { fallbackSlug: string }) {
   const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
   useEffect(() => {
-    // Setting both flags here is what makes /welcome a one-shot — once the
-    // user lands here, neither redirector branch fires again on later visits.
+    // Setting the flag here is what makes /welcome a one-shot — once the
+    // user lands here, the redirector won't send them back on later visits.
     try {
       localStorage.setItem(WELCOME_SEEN_KEY, "1");
-      localStorage.setItem(REVAMP_SEEN_KEY, "1");
     } catch {
       // Private mode or storage quota — best-effort. Worst case the user
       // sees /welcome twice; the second visit is a no-op once they subscribe.

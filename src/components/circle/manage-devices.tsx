@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Laptop, Smartphone, BellOff } from "lucide-react";
+import { Laptop, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import {
-  clearAllMyPushSubscriptions,
   clearPushSubscription,
+  setNotificationsEnabled,
 } from "@/lib/actions/push-subscriptions";
 
 export type ManageDeviceRow = {
@@ -40,15 +40,22 @@ function deviceLabel(hint: "mobile" | "desktop" | null): string {
   return "Device";
 }
 
-// Manage devices (M31.7) — replaces the M30 single push toggle. Lists every
-// push_subscriptions row owned by the user with per-row disable + a global
-// mute. Enabling notifications happens at the install moment (banner +
-// /welcome), so there's intentionally no "Enable" CTA here. If a user has
-// nothing in the list we point them at /welcome.
-export function ManageDevices({ devices }: { devices: ManageDeviceRow[] }) {
+// Manage devices (M31.7) — global mute toggle on top, per-device list below.
+// The toggle flips `users.notifications_enabled`; `resolvePlanAudience`
+// blocks dispatch when it's off, so muted users get neither push nor in-app
+// feed rows. Per-device "Remove" deletes a single push_subscriptions row
+// without touching the column. Enabling notifications happens at /welcome.
+export function ManageDevices({
+  devices,
+  notificationsEnabled,
+}: {
+  devices: ManageDeviceRow[];
+  notificationsEnabled: boolean;
+}) {
   const [rows, setRows] = useState(devices);
+  const [enabled, setEnabled] = useState(notificationsEnabled);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [muting, startMuteTransition] = useTransition();
+  const [toggling, startToggleTransition] = useTransition();
 
   const disable = (row: ManageDeviceRow) => {
     setPendingId(row.id);
@@ -67,77 +74,102 @@ export function ManageDevices({ devices }: { devices: ManageDeviceRow[] }) {
     })();
   };
 
-  const muteAll = () => {
-    startMuteTransition(async () => {
+  const toggleMute = () => {
+    const next = !enabled;
+    // Optimistic flip — speed > polish (CLAUDE.md). Reverted in catch.
+    setEnabled(next);
+    startToggleTransition(async () => {
       try {
-        await clearAllMyPushSubscriptions();
-        setRows([]);
-        toast.success("All devices muted");
+        await setNotificationsEnabled(next);
+        toast.success(
+          next ? "Notifications on" : "Notifications muted",
+        );
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Couldn't mute.";
+        setEnabled(!next);
+        const msg =
+          err instanceof Error ? err.message : "Couldn't update setting.";
         toast.error(msg);
       }
     });
   };
 
-  if (rows.length === 0) {
-    return (
-      <div className="flex flex-col gap-3 rounded-lg border border-ink/10 bg-paper-card/40 px-4 py-4">
-        <span className="text-sm text-ink">No devices subscribed</span>
-        <p className="text-xs leading-relaxed text-ink-muted">
-          Notifications turn on when you install Squad. Open{" "}
-          <a
-            href="/welcome"
-            className="font-medium text-coral underline-offset-2 hover:underline"
-          >
-            the setup page
-          </a>{" "}
-          to enable them on this device.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-2">
-      <ul className="flex flex-col gap-2">
-        {rows.map((row) => {
-          const Icon = row.deviceHint === "desktop" ? Laptop : Smartphone;
-          return (
-            <li
-              key={row.id}
-              className="flex items-center gap-3 rounded-lg border border-ink/10 bg-paper-card/40 px-4 py-3"
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3 rounded-lg border border-ink/10 bg-paper-card/40 px-4 py-3">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm text-ink">
+            All notifications
+          </span>
+          <span className="text-xs text-ink-muted">
+            {enabled
+              ? "You'll get pushes + feed updates."
+              : "Muted — no pushes, no feed rows."}
+          </span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="Mute all notifications"
+          onClick={toggleMute}
+          disabled={toggling}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral disabled:opacity-60 ${
+            enabled ? "bg-coral" : "bg-ink/15"
+          }`}
+        >
+          <span
+            className={`inline-block size-5 transform rounded-full bg-paper shadow transition-transform ${
+              enabled ? "translate-x-[22px]" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="flex flex-col gap-3 rounded-lg border border-ink/10 bg-paper-card/40 px-4 py-4">
+          <span className="text-sm text-ink">No devices subscribed</span>
+          <p className="text-xs leading-relaxed text-ink-muted">
+            Open{" "}
+            <a
+              href="/welcome"
+              className="font-medium text-coral underline-offset-2 hover:underline"
             >
-              <Icon className="size-4 shrink-0 text-ink-muted" aria-hidden />
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="text-sm text-ink">
-                  {deviceLabel(row.deviceHint)}
-                </span>
-                <span className="text-xs text-ink-muted">
-                  Last ping {formatRelative(row.lastUsedAt, row.createdAt)}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => disable(row)}
-                disabled={pendingId === row.id || muting}
-                className="shrink-0 rounded-full border border-ink/15 px-3 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral disabled:opacity-50"
+              the setup page
+            </a>{" "}
+            to enable notifications on this device.
+          </p>
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {rows.map((row) => {
+            const Icon = row.deviceHint === "desktop" ? Laptop : Smartphone;
+            return (
+              <li
+                key={row.id}
+                className="flex items-center gap-3 rounded-lg border border-ink/10 bg-paper-card/40 px-4 py-3"
               >
-                {pendingId === row.id ? "Removing…" : "Remove"}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      <button
-        type="button"
-        onClick={muteAll}
-        disabled={muting || pendingId !== null}
-        className="flex items-center justify-center gap-2 self-start rounded-full px-3 py-1.5 text-xs text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral disabled:opacity-50"
-      >
-        <BellOff className="size-3.5" aria-hidden />
-        {muting ? "Muting…" : "Mute all devices"}
-      </button>
+                <Icon className="size-4 shrink-0 text-ink-muted" aria-hidden />
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-sm text-ink">
+                    {deviceLabel(row.deviceHint)}
+                  </span>
+                  <span className="text-xs text-ink-muted">
+                    Last ping {formatRelative(row.lastUsedAt, row.createdAt)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => disable(row)}
+                  disabled={pendingId === row.id}
+                  className="shrink-0 rounded-full border border-ink/15 px-3 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral disabled:opacity-50"
+                >
+                  {pendingId === row.id ? "Removing…" : "Remove"}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

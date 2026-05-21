@@ -628,6 +628,7 @@ export default async function PlanDetailPage({
               squad={dashboardSquad}
               shiftedFromTime={null}
               now={now}
+              hasActionBar={canMutateStatus}
             />
             {canParticipate ? (
               <SuggestAddition

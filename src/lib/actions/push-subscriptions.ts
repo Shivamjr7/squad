@@ -3,9 +3,9 @@
 import { and, eq, sql } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/db/client";
-import { pushSubscriptions } from "@/db/schema";
+import { pushSubscriptions, users } from "@/db/schema";
 import { requireUserId } from "@/lib/auth";
-import { USER_DEVICES_TAG } from "@/lib/server-cache";
+import { USER_DEVICES_TAG, USER_PROFILE_TAG } from "@/lib/server-cache";
 import { ActionError } from "@/lib/actions/errors";
 import {
   subscribePushSchema,
@@ -80,15 +80,32 @@ export async function clearPushSubscription(
   revalidateTag(USER_DEVICES_TAG);
 }
 
-// Global mute — wipes every push subscription row the caller owns. Used by
-// the Manage devices "Mute all devices" affordance on /you. Each device's
-// own browser-side PushSubscription object stays valid until it tries to
-// send (the next push to that endpoint will come back 410 and the row is
-// already gone, so nothing to clean up server-side).
+// Global mute — wipes every push subscription row the caller owns. Each
+// device's own browser-side PushSubscription object stays valid until it
+// tries to send (the next push to that endpoint will come back 410 and the
+// row is already gone, so nothing to clean up server-side). The Manage
+// devices toggle on /you no longer surfaces this; it's kept for callers
+// that want hard subscription removal rather than the column-level mute.
 export async function clearAllMyPushSubscriptions(): Promise<void> {
   const userId = await requireUserId();
   await db
     .delete(pushSubscriptions)
     .where(eq(pushSubscriptions.userId, userId));
   revalidateTag(USER_DEVICES_TAG);
+}
+
+// Global mute toggle — flips `users.notifications_enabled`. False = no in-app
+// feed rows + no pushes (resolvePlanAudience filters muted users out). True =
+// receive normally. Distinct from clearAllMyPushSubscriptions: this leaves
+// push_subscriptions rows in place so unmuting doesn't require re-prompting
+// for OS permission per device.
+export async function setNotificationsEnabled(
+  enabled: boolean,
+): Promise<void> {
+  const userId = await requireUserId();
+  await db
+    .update(users)
+    .set({ notificationsEnabled: enabled })
+    .where(eq(users.id, userId));
+  revalidateTag(USER_PROFILE_TAG);
 }

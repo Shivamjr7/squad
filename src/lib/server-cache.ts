@@ -18,7 +18,12 @@ export const USER_DEVICES_TAG = "user-devices";
 export const getCachedUserProfile = cache(
   async (userId: string) => {
     return db.query.users.findFirst({
-      columns: { displayName: true, email: true, avatarUrl: true },
+      columns: {
+        displayName: true,
+        email: true,
+        avatarUrl: true,
+        notificationsEnabled: true,
+      },
       where: eq(users.id, userId),
     });
   },
