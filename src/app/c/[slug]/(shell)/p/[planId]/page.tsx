@@ -516,8 +516,12 @@ export default async function PlanDetailPage({
         className={
           // Desktop bump: ≥md the column grows from max-w-2xl (672) → 3xl
           // (768) so the receipt and live ticker breathe on wide screens.
+          // Bottom padding has to clear whichever fixed shelves the
+          // variant renders. With the live-ticker cockpit the StickyRSVP
+          // floats above the action bar for creators/admins (pb-64), and
+          // above the mobile tab bar for everyone else (pb-44).
           "mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-5 px-4 pt-2 sm:px-6 md:max-w-3xl " +
-          (canMutateStatus && plan.status === "active" ? "pb-48" : "pb-32")
+          (canMutateStatus && plan.status === "active" ? "pb-64" : "pb-44")
         }
       >
         {/* Single nav-row: back affordance + status pill + overflow menu.

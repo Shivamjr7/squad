@@ -94,7 +94,7 @@ export function PlanCreatorActionBar({
             onClick={() => setOpenDialog("cancel")}
           >
             <X aria-hidden className="size-4" />
-            <span className="leading-none">Cancel</span>
+            <span className="leading-none">Cancel plan</span>
           </Button>
           <Button
             type="button"
@@ -104,7 +104,7 @@ export function PlanCreatorActionBar({
             onClick={() => setOpenDialog("set")}
           >
             <Lock aria-hidden className="size-4" />
-            <span className="leading-none">Mark as set</span>
+            <span className="leading-none">Lock in</span>
           </Button>
         </div>
       </div>
@@ -113,7 +113,7 @@ export function PlanCreatorActionBar({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Mark {planTitle} as set for {planTimeLabel}?
+              Lock {planTitle} in for {planTimeLabel}?
             </DialogTitle>
             <DialogDescription>
               Locks the plan in. Voting stays open so anyone can still join.
