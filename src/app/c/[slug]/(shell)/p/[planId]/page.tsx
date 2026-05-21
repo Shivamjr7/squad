@@ -633,7 +633,29 @@ export default async function PlanDetailPage({
               shiftedFromTime={null}
               now={now}
               hasActionBar={canMutateStatus}
+              venueCount={initialVenues.length}
             />
+            {showVenueVote ? (
+              <VenueVote
+                planId={plan.id}
+                initialVenues={initialVenues}
+                initialVoters={initialVenueVoters}
+                members={venueMembers}
+                currentUserId={userId}
+                canSuggest={plan.status === "active" && canParticipate}
+              />
+            ) : null}
+            {showProposals ? (
+              <TimeProposals
+                planId={plan.id}
+                initialProposals={initialProposals}
+                initialVoters={initialProposalVoters}
+                members={proposalMembers}
+                currentUserId={userId}
+                canSuggest={plan.status === "active" && canParticipate}
+                planDurationMinutes={plan.durationMinutes}
+              />
+            ) : null}
             {canParticipate ? (
               <SuggestAddition
                 planId={plan.id}

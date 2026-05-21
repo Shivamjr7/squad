@@ -3,7 +3,6 @@ import { auth } from "@clerk/nextjs/server";
 import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { comments, plans, votes } from "@/db/schema";
-import { CircleViewToggle } from "@/components/circle/circle-view-toggle";
 import { MyPlansPage, type MyPlansPagePlan } from "@/components/plan/my-plans-page";
 import {
   getCircleBySlug,
@@ -137,14 +136,6 @@ export default async function MyPlansRoute({
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
-      {/* Route header was previously a duplicate of the AppShell mobile top
-          bar's circle switcher + a "My plans" text label that competed with
-          the CircleViewToggle below it. Dropped in favor of letting the
-          toggle be the page's identity. */}
-      <div className="px-4 pt-4 sm:px-6">
-        <CircleViewToggle slug={circle.slug} active="mine" />
-      </div>
-
       <div className="px-4 pt-5 sm:px-6">
         <CircleVotesProvider
           initialVoters={initialVoters}

@@ -43,6 +43,7 @@ type CtxValue = {
   myVenueId: string | null;
   count: (venueId: string) => number;
   isMine: (venueId: string) => boolean;
+  votersFor: (venueId: string) => VenueMember[];
   vote: (venueId: string) => void;
   add: (label: string) => Promise<void>;
   pending: boolean;
@@ -208,6 +209,15 @@ export function VenueVotesProvider({
     [state.votes, currentUserId],
   );
 
+  const votersFor = useCallback(
+    (venueId: string): VenueMember[] => {
+      const inner = state.votes.get(venueId);
+      if (!inner) return [];
+      return Array.from(inner.values());
+    },
+    [state.votes],
+  );
+
   // Single highest-vote venue id, or null on tie / no votes. The home card
   // and upcoming row use this to surface the leading venue without needing
   // server work.
@@ -322,6 +332,7 @@ export function VenueVotesProvider({
       myVenueId,
       count,
       isMine,
+      votersFor,
       vote,
       add,
       pending,
@@ -334,6 +345,7 @@ export function VenueVotesProvider({
       myVenueId,
       count,
       isMine,
+      votersFor,
       vote,
       add,
       pending,
