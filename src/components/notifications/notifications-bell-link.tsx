@@ -25,15 +25,20 @@ export function NotificationsBellLink({
         count > 0 ? `Notifications, ${count} unread` : "Notifications"
       }
       className={cn(
-        "relative inline-flex size-9 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-paper-card hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
+        // Always-visible paper pill behind the bell — matches the reference
+        // design where the icon reads as a contained chrome action against
+        // the page background, rather than a bare glyph. The hairline
+        // border + soft shadow keep it readable on both light paper and
+        // dark surfaces (the semantic tokens flip with theme).
+        "relative inline-flex size-9 items-center justify-center rounded-full border border-ink/8 bg-paper-card text-ink shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
         className,
       )}
     >
-      <Bell className="size-5" aria-hidden />
+      <Bell className="size-[18px]" aria-hidden />
       {count > 0 ? (
         <span
           aria-hidden
-          className="absolute top-1 right-1 flex h-4 min-w-4 animate-badge-pulse items-center justify-center rounded-full bg-coral px-1 text-[10px] font-semibold leading-none text-white"
+          className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 animate-badge-pulse items-center justify-center rounded-full bg-coral px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-paper"
         >
           {badge}
         </span>

@@ -9,6 +9,8 @@ import { circleDotClass } from "@/lib/circle-color";
 import { SquadLogo } from "@/components/brand/squad-logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { NotificationsBellLink } from "@/components/notifications/notifications-bell-link";
+import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
+import type { FormMember } from "@/components/plan/new-plan-form";
 
 const RECENT_WINDOW_MS = 30 * 60_000;
 
@@ -63,6 +65,9 @@ const NAV: {
 
 export function Sidebar({
   currentSlug,
+  currentCircleId,
+  currentUserId,
+  formMembers,
   circles,
   members,
   // ISO ms snapshot — server passes Date.now() so the client can compute
@@ -72,6 +77,11 @@ export function Sidebar({
   activityPromise,
 }: {
   currentSlug: string;
+  // null on cross-circle surfaces (/calendar) where there's no single
+  // circle in scope — the chrome's "+" trigger hides in that case.
+  currentCircleId: string | null;
+  currentUserId: string | null;
+  formMembers: FormMember[] | null;
   circles: SidebarCircle[];
   members: SidebarMember[];
   nowMs: number;
@@ -81,6 +91,10 @@ export function Sidebar({
   unreadInboxPromise: Promise<number>;
   activityPromise: Promise<Map<string, Date>>;
 }) {
+  const hasPlanContext =
+    currentCircleId !== null &&
+    currentUserId !== null &&
+    formMembers !== null;
   return (
     <>
       {/* Desktop sidebar — sticky, full viewport height, transparent. */}
@@ -108,6 +122,15 @@ export function Sidebar({
               />
             </Suspense>
             <ThemeToggle className="size-7" />
+            {hasPlanContext ? (
+              <NewPlanTrigger
+                circleId={currentCircleId}
+                slug={currentSlug}
+                members={formMembers}
+                currentUserId={currentUserId}
+                mode="header"
+              />
+            ) : null}
           </div>
         </div>
 

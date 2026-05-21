@@ -43,20 +43,20 @@ const SIZE_CLASS: Record<Size, string> = {
   xl: "size-14 text-lg",
 };
 
-// Curated OKLCH flat fills — Editorial Calm family. All sit in the same
-// mid-tone lightness band (0.42–0.56) and the same low-chroma band
-// (0.08–0.14) so a stack of avatars reads as one harmonious set.
-// Eight hues across warm earth tones + cool deep tones for variety
-// without noise.
+// Curated OKLCH flat fills — Vibrant Spotlight family. Lightness band
+// 0.55–0.62 + chroma 0.14–0.18 so the initials read as saturated, warm
+// circles on the dark spotlight surface (matches the reference design)
+// while still sitting close enough in tone that a stack reads as one set
+// rather than a confetti row.
 const AVATAR_FILLS: ReadonlyArray<string> = [
-  "oklch(0.52 0.12 22)", // terra-cotta
-  "oklch(0.46 0.10 40)", // tobacco brown
-  "oklch(0.50 0.10 105)", // mossy olive
-  "oklch(0.46 0.10 220)", // deep teal
-  "oklch(0.42 0.08 270)", // slate navy
-  "oklch(0.44 0.10 330)", // muted plum
-  "oklch(0.52 0.12 55)", // warm clay
-  "oklch(0.50 0.10 5)", // dusty rose
+  "oklch(0.62 0.16 40)",  // warm orange
+  "oklch(0.58 0.18 22)",  // red-orange
+  "oklch(0.56 0.14 200)", // teal
+  "oklch(0.56 0.15 250)", // ocean blue
+  "oklch(0.58 0.15 145)", // emerald
+  "oklch(0.55 0.16 310)", // magenta
+  "oklch(0.62 0.16 60)",  // amber
+  "oklch(0.58 0.18 5)",   // rose
 ] as const;
 
 function hashSeed(seed: string): number {
@@ -69,9 +69,17 @@ function hashSeed(seed: string): number {
 
 function initialsFromName(name: string | null | undefined): string {
   if (!name) return "?";
-  const trimmed = name.trim();
-  if (!trimmed) return "?";
-  const parts = trimmed.split(/\s+/);
+  // Strip any non-letter character (period, comma, emoji, digit, etc.) so a
+  // display name like "S." doesn't render its trailing dot inside the
+  // 24px avatar bubble where it reads as a typo. Collapse leftover runs of
+  // whitespace before splitting into word parts.
+  const cleaned = name
+    .trim()
+    .replace(/[^\p{L}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "?";
+  const parts = cleaned.split(" ");
   if (parts.length === 1) return parts[0]![0]!.toUpperCase();
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }

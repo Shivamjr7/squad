@@ -6,6 +6,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { db } from "@/db/client";
 import { users } from "@/db/schema";
 import { requireUserId, USER_DISPLAY_NAME_TAG } from "@/lib/auth";
+import { USER_PROFILE_TAG } from "@/lib/server-cache";
 import { ActionError } from "@/lib/actions/errors";
 import {
   setDisplayNameSchema,
@@ -29,8 +30,10 @@ export async function setDisplayName(input: SetDisplayNameInput): Promise<void> 
     })
     .where(eq(users.id, userId));
   // Drop the cached flag so the next page render reflects truth and stops
-  // bouncing to /set-name.
+  // bouncing to /set-name. Also drop the profile cache so /you reflects the
+  // new name immediately.
   revalidateTag(USER_DISPLAY_NAME_TAG);
+  revalidateTag(USER_PROFILE_TAG);
 }
 
 // Hard delete: removes the Clerk user (which signs them out everywhere) and

@@ -135,31 +135,65 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
     })();
   };
 
-  // Tick every second for the countdown — only mounts the interval when
-  // there's actually a decideBy to count down to.
+  // Tick once a minute by default — only switch to per-second ticks when
+  // we're inside the final hour, otherwise a 20h-out countdown burns one
+  // re-render per second for no perceptible change.
   const [tick, setTick] = useState(0);
+  const insideLastHour = useMemo(() => {
+    if (!plan.decideBy) return false;
+    if (plan.status === "confirmed") return false;
+    const ms = plan.decideBy.getTime() - serverNow.getTime();
+    return ms > 0 && ms <= 60 * 60 * 1000;
+  }, [plan.decideBy, plan.status, serverNow]);
   useEffect(() => {
     if (!plan.decideBy) return;
     if (plan.status === "confirmed") return;
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    const intervalMs = insideLastHour ? 1000 : 60_000;
+    const id = setInterval(() => setTick((t) => t + 1), intervalMs);
     return () => clearInterval(id);
-  }, [plan.decideBy, plan.status]);
+  }, [plan.decideBy, plan.status, insideLastHour]);
 
+  // Three resolutions, no live HH:MM:SS for far-out plans:
+  //   • > 24h    → "Locks <weekday> <h>:<mm><a/p>"
+  //   • 1h–24h   → "in 3h" / "in 47m"
+  //   • < 1h     → "MM:SS" (tick-tick to convey urgency)
+  // Pre-radiate the radial dot animation already encodes "live" so the
+  // countdown itself doesn't need to scream — copy carries the meaning.
   const countdown = useMemo(() => {
     if (!plan.decideBy) return null;
     if (plan.status === "confirmed") return null;
+    const tickInterval = insideLastHour ? 1000 : 60_000;
     const ms =
-      plan.decideBy.getTime() - (serverNow.getTime() + tick * 1000);
+      plan.decideBy.getTime() - (serverNow.getTime() + tick * tickInterval);
     if (ms <= 0) return null;
     const totalSec = Math.floor(ms / 1000);
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec - h * 3600) / 60);
-    const s = totalSec - h * 3600 - m * 60;
-    if (h > 0) {
-      return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    const totalMin = Math.floor(totalSec / 60);
+    const totalHr = Math.floor(totalMin / 60);
+    if (totalHr >= 24) {
+      const parts = new Intl.DateTimeFormat(undefined, {
+        weekday: "short",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: plan.timeZone,
+      }).formatToParts(plan.decideBy);
+      const wd = parts.find((p) => p.type === "weekday")?.value ?? "";
+      const hr = parts.find((p) => p.type === "hour")?.value ?? "";
+      const mn = parts.find((p) => p.type === "minute")?.value ?? "";
+      const ap =
+        parts.find((p) => p.type === "dayPeriod")?.value.toLowerCase() ?? "";
+      return `Locks ${wd} ${hr}:${mn}${ap}`;
     }
+    if (totalHr >= 1) {
+      return `in ${totalHr}h`;
+    }
+    if (totalMin >= 1 && !insideLastHour) {
+      return `in ${totalMin}m`;
+    }
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec - m * 60;
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }, [plan.decideBy, plan.status, serverNow, tick]);
+  }, [plan.decideBy, plan.status, plan.timeZone, serverNow, tick, insideLastHour]);
 
   const isConfirmed = plan.status === "confirmed";
   const venueLeader = plan.venueSummary?.label ?? null;
@@ -218,7 +252,11 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
               <span
                 aria-hidden
                 className={cn(
-                  "size-1.5 animate-pulse-soft rounded-full",
+                  // Radiating halo — `animate-pulse-radiate` ripples a
+                  // currentColor box-shadow outward so the dot reads as a
+                  // live recording-now indicator. Solid bg-coral fill stays
+                  // visible at the center while the halo expands and fades.
+                  "size-1.5 animate-pulse-radiate rounded-full",
                   isVoting ? "bg-voting" : "bg-coral",
                 )}
               />

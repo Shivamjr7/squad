@@ -298,32 +298,25 @@ export default async function CircleHomePage({
                 design's intimate "Good evening, Sara · SUN MAY 10" hook
                 while keeping the per-circle name in the eyebrow line for
                 orientation. */}
-            <header className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <GradientAvatar
-                  seed={currentUser.id}
-                  name={currentUser.displayName}
-                  src={currentUser.avatarUrl}
-                  size="md"
-                />
-                <div className="min-w-0">
-                  <div className="truncate text-[14px] font-semibold leading-tight text-ink">
-                    <LocalGreeting initialHour={now.getHours()} />,{" "}
-                    {firstName(currentUser.displayName)}
-                  </div>
-                  <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-                    {dateLabel} · {circle.name}
-                  </div>
+            <header className="flex items-center gap-3">
+              <GradientAvatar
+                seed={currentUser.id}
+                name={currentUser.displayName}
+                src={currentUser.avatarUrl}
+                size="md"
+              />
+              <div className="min-w-0">
+                <div className="truncate text-[14px] font-semibold leading-tight text-ink">
+                  <LocalGreeting initialHour={now.getHours()} />,{" "}
+                  {firstName(currentUser.displayName)}
                 </div>
-              </div>
-              <div className="hidden sm:block">
-                <NewPlanTrigger
-                  circleId={circle.id}
-                  slug={circle.slug}
-                  members={formMembers}
-                  currentUserId={userId}
-                  mode="header"
-                />
+                {/* Circle name is already in the AppShell top bar (mobile) /
+                    Sidebar header (desktop) AND the spotlight card eyebrow.
+                    Greeting row keeps only the date so the same string
+                    isn't read three times on a single screen. */}
+                <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+                  {dateLabel}
+                </div>
               </div>
             </header>
 
@@ -450,13 +443,6 @@ export default async function CircleHomePage({
         </div>
       </CircleVotesProvider>
 
-      <NewPlanTrigger
-        circleId={circle.id}
-        slug={circle.slug}
-        members={formMembers}
-        currentUserId={userId}
-        mode="fab"
-      />
       <Suspense fallback={null}>
         <PostJoinToast />
       </Suspense>

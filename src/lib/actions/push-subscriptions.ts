@@ -1,9 +1,11 @@
 "use server";
 
 import { and, eq, sql } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/db/client";
 import { pushSubscriptions } from "@/db/schema";
 import { requireUserId } from "@/lib/auth";
+import { USER_DEVICES_TAG } from "@/lib/server-cache";
 import { ActionError } from "@/lib/actions/errors";
 import {
   subscribePushSchema,
@@ -49,6 +51,7 @@ export async function setPushSubscription(
         lastUsedAt: now,
       },
     });
+  revalidateTag(USER_DEVICES_TAG);
 }
 
 // Unsubscribe is endpoint-scoped. The browser passes the endpoint of the
@@ -74,6 +77,7 @@ export async function clearPushSubscription(
         eq(pushSubscriptions.userId, userId),
       ),
     );
+  revalidateTag(USER_DEVICES_TAG);
 }
 
 // Global mute — wipes every push subscription row the caller owns. Used by
@@ -86,4 +90,5 @@ export async function clearAllMyPushSubscriptions(): Promise<void> {
   await db
     .delete(pushSubscriptions)
     .where(eq(pushSubscriptions.userId, userId));
+  revalidateTag(USER_DEVICES_TAG);
 }

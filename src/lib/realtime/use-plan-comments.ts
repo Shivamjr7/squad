@@ -22,9 +22,10 @@ type Args = {
 };
 
 /**
- * Per-plan comments stream. One channel per planId, INSERTs only (v1 has no
- * edit/delete), filtered server-side via `plan_id=eq.<id>` so we never receive
- * other plans' rows.
+ * Per-plan comments stream. One channel per planId, listens for INSERT and
+ * DELETE events, filtered server-side via `plan_id=eq.<id>` so we never
+ * receive other plans' rows. DELETE payloads carry only the primary key
+ * (default REPLICA IDENTITY) — sufficient since we match by id.
  *
  * Optimistic UX flow:
  *   composer calls addOptimistic(temp) → server action runs → on success
@@ -84,6 +85,23 @@ export function usePlanComments({ planId, members, initialComments }: Args) {
           });
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "comments",
+          // No plan_id filter — default REPLICA IDENTITY only includes PK in
+          // old-record, so the filter would never match. We dedupe by id
+          // against our in-memory list, which is already plan-scoped.
+        },
+        (payload) => {
+          const old = payload.old as { id?: string } | null;
+          if (!old?.id) return;
+          const id = old.id;
+          setComments((prev) => prev.filter((c) => c.id !== id));
+        },
+      )
       .subscribe();
 
     return () => {
@@ -124,11 +142,27 @@ export function usePlanComments({ planId, members, initialComments }: Args) {
     );
   }, []);
 
+  const removeOptimistic = useCallback((id: string) => {
+    setComments((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  const restoreOptimistic = useCallback((c: PlanComment) => {
+    setComments((prev) => {
+      if (prev.some((x) => x.id === c.id)) return prev;
+      // Reinsert in createdAt order so a failed delete doesn't shuffle the list.
+      const next = [...prev, c];
+      next.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return next;
+    });
+  }, []);
+
   return {
     comments,
     addOptimistic,
     confirmOptimistic,
     failOptimistic,
     retryOptimistic,
+    removeOptimistic,
+    restoreOptimistic,
   };
 }
