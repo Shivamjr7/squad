@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { CircleSwitcher } from "@/components/circle/circle-switcher";
 import { NotificationsFeed } from "@/components/notifications/notifications-feed";
-import { getCircleBySlug, getUserCircles } from "@/lib/circles";
+import { getCircleBySlug } from "@/lib/circles";
 import { listNotifications } from "@/lib/actions/notifications";
 import { requireDisplayNameSet } from "@/lib/auth";
 
@@ -19,21 +18,10 @@ export default async function NotificationsPage({
   const circle = await getCircleBySlug(slug);
   if (!circle) notFound();
 
-  const [rows, userCircles] = await Promise.all([
-    listNotifications(),
-    getUserCircles(userId),
-  ]);
+  const rows = await listNotifications();
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl pb-32">
-      <header className="flex items-center justify-between gap-3 px-4 pt-3 sm:px-6">
-        <CircleSwitcher
-          currentSlug={circle.slug}
-          circles={userCircles}
-          size="sm"
-        />
-      </header>
-
       <div className="px-4 pt-6 sm:px-6">
         <div className="space-y-6">
           <div className="flex flex-col gap-1">

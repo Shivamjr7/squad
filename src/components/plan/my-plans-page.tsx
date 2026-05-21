@@ -113,10 +113,8 @@ export function MyPlansPage({
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-5 pb-32">
-      {/* Editorial header — the CircleViewToggle above already says
-          "MY PLANS", so we skip the eyebrow here and lead straight with
-          the headline. The stats subline is filter-aware so it never
-          shows "X past" while the user is looking at the Current tab. */}
+      {/* Stats subline is filter-aware so it never shows "X past" while
+          the user is looking at the Current tab. */}
       <header className="flex flex-col gap-2">
         <HeroQuestion
           prefix={<>What&rsquo;s on,</>}

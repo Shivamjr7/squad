@@ -46,6 +46,11 @@ type Props = {
   // path). Used to lift the mobile sticky RSVP above the action bar so the
   // two fixed shelves don't overlap.
   hasActionBar?: boolean;
+  // Count of competing venue options (`plan_venues` rows). When >1, an
+  // explicit venue ballot is open below the cockpit — the Where cell flips
+  // to a "Voting · N options" hint so the truncated canonical location
+  // doesn't misrepresent the state.
+  venueCount?: number;
 };
 
 const COMMIT_DEBOUNCE_MS = 200;
@@ -87,6 +92,7 @@ export function LiveDashboard({
   shiftedFromTime,
   now: serverNow,
   hasActionBar = false,
+  venueCount = 0,
 }: Props) {
   const { voters, currentUser } = useCircleVotes();
   const planVoters = useMemo(
@@ -362,7 +368,7 @@ export function LiveDashboard({
             style={{ viewTransitionName: `plan-title-${planId}` }}
           >
             {planTitle}
-            {location ? (
+            {location && venueCount <= 1 ? (
               <>
                 {" "}
                 <span className="font-serif text-[19px] font-normal italic text-coral">
@@ -383,8 +389,15 @@ export function LiveDashboard({
             />
             <MetaCell
               label="Where"
-              value={location ?? "TBD"}
-              valueMuted={!location}
+              value={
+                venueCount > 1 ? "Voting" : (location ?? "TBD")
+              }
+              sub={
+                venueCount > 1
+                  ? `${venueCount} options`
+                  : null
+              }
+              valueMuted={venueCount <= 1 && !location}
               border
             />
             <MetaCell

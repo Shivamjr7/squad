@@ -9,14 +9,12 @@ import { db } from "@/db/client";
 import { plans, votes } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { NewPlanTrigger } from "@/components/plan/new-plan-trigger";
-import { CircleCollisionBanner } from "@/components/plan/circle-collision-banner";
-import { SpotlightHero } from "@/components/plan/spotlight-hero";
 import {
-  ThisWeekList,
-  type ThisWeekListPlan,
-} from "@/components/plan/this-week-list";
+  HomePlanFeed,
+  type HomeDeckPlan,
+} from "@/components/plan/home-plan-feed";
+import type { ThisWeekListPlan } from "@/components/plan/this-week-list";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
-import { CircleViewToggle } from "@/components/circle/circle-view-toggle";
 import { GetStartedChecklist } from "@/components/onboarding/get-started-checklist";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import { GradientAvatar } from "@/components/ui/gradient-avatar";
@@ -135,17 +133,14 @@ export default async function CircleHomePage({
         sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
       );
 
-  const upcoming = await db.query.plans.findMany({
+  const upcomingRaw = await db.query.plans.findMany({
     where: and(
       eq(plans.circleId, circle.id),
       inArray(plans.status, ["active", "confirmed"]),
       gte(plans.startsAt, now),
       recipientVisibilityClause,
     ),
-    orderBy: [
-      sql`(${plans.status} = 'confirmed') desc`,
-      asc(plans.startsAt),
-    ],
+    orderBy: [asc(plans.startsAt)],
     with: {
       creator: { columns: { displayName: true, avatarUrl: true } },
       votes: {
@@ -162,6 +157,24 @@ export default async function CircleHomePage({
         },
       },
     },
+  });
+
+  // Re-order upcoming so the cards that demand action surface first.
+  // Priority key (lower = higher priority):
+  //   0 — vote still open + you haven't said
+  //   1 — vote still open + you've said
+  //   2 — locked + you haven't RSVP'd
+  //   3 — locked + you've RSVP'd
+  // Within each bucket: earliest startsAt first.
+  function attentionRank(p: (typeof upcomingRaw)[number]): number {
+    const voted = p.votes.some((v) => v.userId === userId);
+    if (p.status === "active") return voted ? 1 : 0;
+    return voted ? 3 : 2;
+  }
+  const upcoming = [...upcomingRaw].sort((a, b) => {
+    const diff = attentionRank(a) - attentionRank(b);
+    if (diff !== 0) return diff;
+    return a.startsAt.getTime() - b.startsAt.getTime();
   });
 
   const planIds = upcoming.map((p) => p.id);
@@ -212,6 +225,8 @@ export default async function CircleHomePage({
     avatarUrl: me.user?.avatarUrl ?? null,
   };
 
+  // `upcoming` is already attention-ranked above, so the head of the list
+  // is the right card to feature and the tail is the rest of "This week".
   const featured = upcoming[0];
   const restUpcoming = upcoming.slice(1);
   const dateLabel = formatDateHeader(now);
@@ -281,10 +296,6 @@ export default async function CircleHomePage({
         </div>
       )}
 
-      <div className="px-4 pt-4 sm:px-6">
-        <CircleViewToggle slug={circle.slug} active="all" />
-      </div>
-
       <CircleVotesProvider
         initialVoters={initialVoters}
         members={members}
@@ -322,8 +333,8 @@ export default async function CircleHomePage({
 
             <div className="flex flex-col gap-6">
               {featured ? (
-                <SpotlightHero
-                  plan={{
+                <HomePlanFeed
+                  featured={{
                     id: featured.id,
                     title: featured.title,
                     startsAt: featured.startsAt,
@@ -334,6 +345,34 @@ export default async function CircleHomePage({
                     decideBy: featured.decideBy,
                     venueSummary: venueSummaries.get(featured.id) ?? null,
                   }}
+                  restPlans={restUpcoming.map<ThisWeekListPlan>((p) => ({
+                    id: p.id,
+                    title: p.title,
+                    type: p.type,
+                    startsAt: p.startsAt,
+                    timeZone: p.timeZone,
+                    isApproximate: p.isApproximate,
+                    location: p.location,
+                    status: p.status,
+                    venueSummary: venueSummaries.get(p.id) ?? null,
+                  }))}
+                  deckPlans={upcoming.map<HomeDeckPlan>((p) => ({
+                    id: p.id,
+                    title: p.title,
+                    type: p.type,
+                    startsAt: p.startsAt,
+                    timeZone: p.timeZone,
+                    isApproximate: p.isApproximate,
+                    location: p.location,
+                    status: p.status,
+                    // PlansSwipeDeck doesn't render creator or comment count,
+                    // but PlanCardData requires the fields. Pass placeholders
+                    // so we don't pay for a comment-count round-trip the
+                    // deck never reads.
+                    creator: null,
+                    commentCount: 0,
+                  }))}
+                  collision={collision}
                   circleName={circle.name}
                   slug={circle.slug}
                   now={now}
@@ -376,47 +415,6 @@ export default async function CircleHomePage({
               ) : (
                 <NoUpcomingState />
               )}
-
-              {collision ? (
-                <CircleCollisionBanner
-                  planAId={collision.planAId}
-                  planBId={collision.planBId}
-                />
-              ) : null}
-
-              {restUpcoming.length > 0 ? (
-                <section className="flex flex-col gap-3">
-                  <div className="flex items-baseline justify-between gap-2 px-1">
-                    <h3 className="text-[20px] font-bold leading-tight tracking-tight text-ink">
-                      This week
-                    </h3>
-                    <span className="text-[12px] font-medium text-ink-muted">
-                      {restUpcoming.length}{" "}
-                      {restUpcoming.length === 1 ? "plan" : "plans"}
-                    </span>
-                  </div>
-                  <ThisWeekList
-                    plans={restUpcoming.map<ThisWeekListPlan>((p) => ({
-                      id: p.id,
-                      title: p.title,
-                      type: p.type,
-                      startsAt: p.startsAt,
-                      timeZone: p.timeZone,
-                      isApproximate: p.isApproximate,
-                      location: p.location,
-                      status: p.status,
-                      venueSummary: venueSummaries.get(p.id) ?? null,
-                    }))}
-                    slug={circle.slug}
-                  />
-                </section>
-              ) : null}
-
-              {/* "Your circles" chip strip removed — it duplicated the
-                  CircleSwitcher in the AppShell mobile top bar. Desktop
-                  users get the same affordance from the FavouritesSection
-                  in the sidebar, so the inline strip earned its keep on
-                  neither viewport. */}
             </div>
           </div>
 
