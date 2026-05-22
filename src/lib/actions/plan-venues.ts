@@ -12,6 +12,8 @@ import {
 } from "@/db/schema";
 import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
+import { emitBroadcast, RT, RT_EVENT } from "@/lib/realtime/server";
+import { takeToken, RATE } from "@/lib/rate-limit";
 import {
   addVenueSchema,
   castVenueVoteSchema,
@@ -75,6 +77,7 @@ export async function castVenueVote(
     .limit(1);
 
   let voted: boolean;
+  let previousVenueId: string | null = null;
   if (existing.length > 0 && existing[0].venueId === venueId) {
     // Tapping the same venue retracts.
     await db
@@ -83,6 +86,7 @@ export async function castVenueVote(
     voted = false;
   } else {
     if (existing.length > 0) {
+      previousVenueId = existing[0].venueId;
       await db
         .delete(planVenueVotes)
         .where(eq(planVenueVotes.id, existing[0].id));
@@ -90,6 +94,23 @@ export async function castVenueVote(
     await db.insert(planVenueVotes).values({ venueId, userId });
     voted = true;
   }
+
+  // Two broadcasts on a switch: clear the previous venue's vote, then
+  // upsert the new one. Hooks watching this plan apply both.
+  if (previousVenueId) {
+    void emitBroadcast(RT.venues(planId), RT_EVENT.venueVoteChanged, {
+      op: "delete",
+      planId,
+      venueId: previousVenueId,
+      userId,
+    });
+  }
+  void emitBroadcast(RT.venues(planId), RT_EVENT.venueVoteChanged, {
+    op: voted ? "upsert" : "delete",
+    planId,
+    venueId,
+    userId,
+  });
 
   // M22 — venue plurality changes can tip a lock; re-evaluate after each cast.
   await tryAutoLock(planId);
@@ -138,8 +159,10 @@ export async function addVenue(
 
   const { userId } = await requireMembership(plan.circleId);
   await requirePlanRecipient(planId, userId);
+  await takeToken({ action: "addVenue", key: userId, ...RATE.addVenue });
 
-  const venueId = await db.transaction(async (tx) => {
+  type VenueRowOut = { id: string; label: string; createdAt: Date };
+  const { newRow, seededVenue } = await db.transaction(async (tx) => {
     const existing = await tx
       .select({ id: planVenues.id })
       .from(planVenues)
@@ -148,12 +171,21 @@ export async function addVenue(
 
     // Promote single-venue plans to multi-venue by seeding the canonical
     // location as the first option, so the prior choice stays in the vote.
+    let seeded: VenueRowOut | null = null;
     if (existing.length === 0 && plan.location) {
-      await tx.insert(planVenues).values({
-        planId,
-        label: plan.location,
-        suggestedBy: null,
-      });
+      const [seedRow] = await tx
+        .insert(planVenues)
+        .values({
+          planId,
+          label: plan.location,
+          suggestedBy: null,
+        })
+        .returning({
+          id: planVenues.id,
+          label: planVenues.label,
+          createdAt: planVenues.createdAt,
+        });
+      if (seedRow) seeded = seedRow;
     }
 
     const [row] = await tx
@@ -163,7 +195,11 @@ export async function addVenue(
         label,
         suggestedBy: userId,
       })
-      .returning({ id: planVenues.id });
+      .returning({
+        id: planVenues.id,
+        label: planVenues.label,
+        createdAt: planVenues.createdAt,
+      });
     if (!row) {
       throw new ActionError("INVALID", "Could not add venue.");
     }
@@ -176,7 +212,29 @@ export async function addVenue(
       payload: { label },
     });
 
-    return row.id;
+    return { newRow: row, seededVenue: seeded };
+  });
+  const venueId = newRow.id;
+
+  // Broadcast the seed row first so it appears before the new venue in
+  // any client that's listening for the venue stream.
+  if (seededVenue) {
+    void emitBroadcast(RT.venues(planId), RT_EVENT.venueChanged, {
+      op: "upsert",
+      planId,
+      id: seededVenue.id,
+      label: seededVenue.label,
+      suggestedBy: null,
+      createdAt: seededVenue.createdAt.toISOString(),
+    });
+  }
+  void emitBroadcast(RT.venues(planId), RT_EVENT.venueChanged, {
+    op: "upsert",
+    planId,
+    id: newRow.id,
+    label: newRow.label,
+    suggestedBy: userId,
+    createdAt: newRow.createdAt.toISOString(),
   });
 
   const circle = await db.query.circles.findFirst({

@@ -28,16 +28,21 @@ export function StatusCountdownPill({
 }: Props) {
   const decideAt = decideBy ? new Date(decideBy) : null;
 
-  // Tick once per second only when we're inside the countdown window.
-  // We re-evaluate on each render whether that's still true so the timer
-  // shuts itself off at zero.
-  const [now, setNow] = useState<Date>(() => new Date());
-  const remainingMs = decideAt ? decideAt.getTime() - now.getTime() : null;
+  // `now` is null on first render (server + client hydrate) — only the
+  // static fallback label paints. Effect kicks in after mount and starts
+  // the per-second tick. Avoids the hydration mismatch a lazy
+  // `new Date()` init would cause (server's clock ≠ client's clock).
+  const [now, setNow] = useState<Date | null>(null);
+  const remainingMs = decideAt && now ? decideAt.getTime() - now.getTime() : null;
   const inCountdownWindow =
     status === "active" &&
     remainingMs !== null &&
     remainingMs > 0 &&
     remainingMs <= 60 * 60 * 1000;
+
+  useEffect(() => {
+    setNow(new Date());
+  }, []);
 
   useEffect(() => {
     if (!inCountdownWindow) return;
@@ -64,9 +69,11 @@ export function StatusCountdownPill({
     tone = "deciding";
     prefix = "dot";
   } else if (remainingMs !== null && remainingMs <= 0) {
-    label = "Locking now";
-    tone = "deciding";
-    prefix = "dot";
+    // Deadline gone and status is still active — no cron force-locks
+    // these, so they sit in limbo. Read as "Lapsed", not "Locking now".
+    // The next in-app vote can still revive it (threshold path).
+    label = "Lapsed";
+    tone = "muted";
   } else if (decideAt) {
     label = `Deciding now · Ends ${shortTime(decideAt, timeZone)}`;
     tone = "deciding";
@@ -120,9 +127,6 @@ function formatCountdown(ms: number): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
-  if (m >= 10) {
-    return `${m}:${String(s).padStart(2, "0")}`;
-  }
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 

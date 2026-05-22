@@ -169,6 +169,34 @@
       "when": 1779350494162,
       "tag": "0023_notifications_default_on",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1779700000000,
+      "tag": "0024_rls_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1779710000000,
+      "tag": "0025_realtime_to_broadcast",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1779720000000,
+      "tag": "0026_rate_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1779730000000,
+      "tag": "0027_webhook_events",
+      "breakpoints": true
     }
   ]
 }

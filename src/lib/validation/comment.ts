@@ -1,18 +1,16 @@
 import { z } from "zod";
+import { safePlainText } from "@/lib/validation/text";
 
 export const COMMENT_BODY_MAX = 500;
 
 export const addCommentSchema = z.object({
   planId: z.string().uuid(),
-  body: z
-    .string()
-    .transform((s) => s.trim())
-    .pipe(
-      z
-        .string()
-        .min(1, "Say something first.")
-        .max(COMMENT_BODY_MAX, `Keep it under ${COMMENT_BODY_MAX} characters.`),
-    ),
+  body: safePlainText({
+    min: 1,
+    max: COMMENT_BODY_MAX,
+    multiline: true,
+    invalidMessage: "Comment contains characters we can't store.",
+  }),
 });
 export type AddCommentInput = z.infer<typeof addCommentSchema>;
 

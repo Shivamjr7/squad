@@ -543,6 +543,7 @@ export function NotificationsFeed({
                       <span
                         className="shrink-0 text-[11px] font-medium tabular-nums text-ink-muted"
                         aria-label={newest.createdAt.toLocaleString()}
+                        suppressHydrationWarning
                       >
                         {compactRelative(newest.createdAt)}
                       </span>
@@ -667,6 +668,7 @@ function FeedRow({
               compact ? "text-[11px]" : "text-[11px]",
             )}
             aria-label={row.createdAt.toLocaleString()}
+            suppressHydrationWarning
           >
             {compactRelative(row.createdAt)}
           </span>

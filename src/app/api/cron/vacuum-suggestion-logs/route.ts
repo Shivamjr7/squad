@@ -1,6 +1,7 @@
 import { lt } from "drizzle-orm";
 import { db } from "@/db/client";
 import { suggestionLogs } from "@/db/schema";
+import { isAuthorizedCron } from "@/lib/cron-auth";
 
 // S9 — suggestion_logs vacuum. Per 11-observability.md §Privacy &
 // retention: rows older than 180 days are purged daily. ON DELETE CASCADE
@@ -16,18 +17,8 @@ export const runtime = "nodejs";
 
 const RETENTION_DAYS = 180;
 
-function isAuthorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get("authorization");
-  if (!header) return false;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  if (!match) return false;
-  return match[1] === secret;
-}
-
 async function run(req: Request): Promise<Response> {
-  if (!isAuthorized(req)) {
+  if (!isAuthorizedCron(req)) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -54,10 +45,7 @@ async function run(req: Request): Promise<Response> {
   });
 }
 
+// POST only — see vacuum-provider-cache for the reasoning.
 export async function POST(req: Request): Promise<Response> {
-  return run(req);
-}
-
-export async function GET(req: Request): Promise<Response> {
   return run(req);
 }

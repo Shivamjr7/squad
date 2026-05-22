@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { SignIn } from "@clerk/nextjs";
 import { SquadLogo } from "@/components/brand/squad-logo";
+import { safeInternalPath } from "@/lib/url";
 
 export default async function SignInPage({
   searchParams,
@@ -9,8 +10,9 @@ export default async function SignInPage({
   searchParams: Promise<{ redirect_url?: string }>;
 }) {
   const { redirect_url } = await searchParams;
+  const safeRedirect = safeInternalPath(redirect_url);
   const { userId } = await auth();
-  if (userId) redirect(redirect_url ?? "/");
+  if (userId) redirect(safeRedirect);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-8 px-6 pb-12 pt-10 text-center">
@@ -24,7 +26,7 @@ export default async function SignInPage({
         </p>
       </div>
       <SignIn
-        fallbackRedirectUrl={redirect_url ?? "/"}
+        fallbackRedirectUrl={safeRedirect}
         appearance={{
           variables: {
             colorPrimary: "oklch(0.64 0.22 28)",

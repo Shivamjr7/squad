@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { safePlainText } from "@/lib/validation/text";
 
 export const planTypeSchema = z.enum([
   "eat",
@@ -18,11 +19,7 @@ export type PlanTimeMode = z.infer<typeof planTimeModeSchema>;
 // See src/lib/tz.ts for the conversion.
 export const createPlanSchema = z.object({
   circleId: z.string().uuid(),
-  title: z
-    .string()
-    .trim()
-    .min(3, "Title must be at least 3 characters")
-    .max(100, "Title must be 100 characters or fewer"),
+  title: safePlainText({ min: 3, max: 100 }),
   type: planTypeSchema,
   timeMode: planTimeModeSchema.optional().default("exact"),
   startsAtLocal: z
@@ -44,19 +41,33 @@ export const createPlanSchema = z.object({
     .transform((v) => (v ? v : null)),
   location: z
     .string()
-    .trim()
-    .max(100, "Location must be 100 characters or fewer")
     .nullable()
     .optional()
-    .transform((v) => (v ? v : null)),
+    .transform((v) => (v ? v : null))
+    .refine(
+      (v) =>
+        v === null ||
+        safePlainText({ max: 100 }).safeParse(v).success,
+      "Location must be 100 characters or fewer and use plain text.",
+    )
+    .transform((v) =>
+      v === null
+        ? null
+        : safePlainText({ max: 100 }).parse(v),
+    ),
   // Optional extra venue suggestions from the create-plan form. The first
   // input is `location`; anything here becomes additional `plan_venues` rows.
   // Empty / whitespace-only entries are dropped server-side.
   extraVenues: z
-    .array(z.string().trim().max(100, "Venue must be 100 characters or fewer"))
+    .array(z.string())
     .max(8, "Up to 8 venue options")
     .optional()
-    .transform((arr) => (arr ? arr.filter((s) => s.length > 0) : [])),
+    .transform((arr) =>
+      (arr ?? [])
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((s) => safePlainText({ max: 100 }).parse(s)),
+    ),
   maxPeople: z
     .number()
     .int()
@@ -84,11 +95,7 @@ export const createPlanSchema = z.object({
   suggestions: z
     .array(
       z.object({
-        label: z
-          .string()
-          .trim()
-          .min(1, "Suggestion label required")
-          .max(100, "Venue must be 100 characters or fewer"),
+        label: safePlainText({ min: 1, max: 100 }),
         suggestionLogId: z.string().uuid(),
         itemId: z.string().uuid(),
       }),

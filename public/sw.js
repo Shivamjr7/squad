@@ -44,6 +44,34 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Auth-cache purge on sign-out. The networkFirstNavigation handler below
+// stashes HTML responses (including RSC payloads with user-specific
+// state) so offline reloads of /c/<slug> work. On a shared device, after
+// user A signs out, user B can hit "offline reload" and get A's cached
+// shell. The Clerk sign-out button posts this message before redirecting
+// — we drop every cached HTML entry in the shell cache. Static precache
+// entries (offline page, icons, manifest) are re-added on next install.
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "squad:purge-auth-cache") {
+    event.waitUntil(
+      caches.open(CACHE_VERSION).then(async (cache) => {
+        const keys = await cache.keys();
+        await Promise.all(
+          keys
+            .filter((req) => {
+              const url = new URL(req.url);
+              // Keep the offline shell + manifest + icons.
+              if (PRECACHE.includes(url.pathname)) return false;
+              if (SOFT_PRECACHE.includes(url.pathname)) return false;
+              return true;
+            })
+            .map((req) => cache.delete(req)),
+        );
+      }),
+    );
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;

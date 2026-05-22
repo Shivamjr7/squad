@@ -11,6 +11,7 @@ import {
 } from "@/db/schema";
 import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
+import { emitBroadcast, RT, RT_EVENT } from "@/lib/realtime/server";
 import {
   toggleSlotVoteSchema,
   type ToggleSlotVoteInput,
@@ -94,6 +95,13 @@ export async function toggleSlotVote(
     await db.insert(timeSlotVotes).values({ slotId, userId });
     voted = true;
   }
+
+  void emitBroadcast(RT.slotVotes(planId), RT_EVENT.slotVoteChanged, {
+    op: voted ? "upsert" : "delete",
+    planId,
+    slotId,
+    userId,
+  });
 
   let locked = false;
   if (voted) {

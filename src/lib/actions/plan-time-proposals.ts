@@ -12,6 +12,8 @@ import {
 } from "@/db/schema";
 import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
+import { emitBroadcast, RT, RT_EVENT } from "@/lib/realtime/server";
+import { takeToken, RATE } from "@/lib/rate-limit";
 import {
   castProposalVoteSchema,
   proposeTimeSchema,
@@ -78,6 +80,11 @@ export async function proposeTime(
 
   const { userId } = await requireMembership(plan.circleId);
   await requirePlanRecipient(data.planId, userId);
+  await takeToken({
+    action: "proposeTime",
+    key: userId,
+    ...RATE.proposeTime,
+  });
 
   if (startsAt.getTime() <= Date.now()) {
     throw new ActionError("INVALID", "Pick a time in the future.");
@@ -89,7 +96,14 @@ export async function proposeTime(
   const isAddition = data.kind === "addition";
   const label = isAddition ? data.label?.trim() || null : null;
 
-  const proposalId = await db.transaction(async (tx) => {
+  type ProposalRowOut = {
+    id: string;
+    startsAt: Date;
+    proposedBy: string | null;
+    createdAt: Date;
+  };
+  const { newRow, seedRow } = await db.transaction(async (tx) => {
+    let seed: ProposalRowOut | null = null;
     if (!isAddition) {
       const existing = await tx
         .select({ id: planTimeProposals.id })
@@ -102,12 +116,21 @@ export async function proposeTime(
         )
         .limit(1);
       if (existing.length === 0) {
-        await tx.insert(planTimeProposals).values({
-          planId: data.planId,
-          startsAt: plan.startsAt,
-          proposedBy: plan.createdBy,
-          kind: "replacement",
-        });
+        const [seedInsert] = await tx
+          .insert(planTimeProposals)
+          .values({
+            planId: data.planId,
+            startsAt: plan.startsAt,
+            proposedBy: plan.createdBy,
+            kind: "replacement",
+          })
+          .returning({
+            id: planTimeProposals.id,
+            startsAt: planTimeProposals.startsAt,
+            proposedBy: planTimeProposals.proposedBy,
+            createdAt: planTimeProposals.createdAt,
+          });
+        if (seedInsert) seed = seedInsert;
       }
     }
 
@@ -120,7 +143,12 @@ export async function proposeTime(
         kind: data.kind,
         label,
       })
-      .returning({ id: planTimeProposals.id });
+      .returning({
+        id: planTimeProposals.id,
+        startsAt: planTimeProposals.startsAt,
+        proposedBy: planTimeProposals.proposedBy,
+        createdAt: planTimeProposals.createdAt,
+      });
     if (!row) {
       throw new ActionError("INVALID", "Could not save proposal.");
     }
@@ -138,7 +166,29 @@ export async function proposeTime(
       },
     });
 
-    return row.id;
+    return { newRow: row, seedRow: seed };
+  });
+  const proposalId = newRow.id;
+
+  // Broadcast the seeded original first so it appears as the prior
+  // option for any client mid-render.
+  if (seedRow) {
+    void emitBroadcast(RT.proposals(data.planId), RT_EVENT.proposalChanged, {
+      op: "upsert",
+      planId: data.planId,
+      id: seedRow.id,
+      startsAt: seedRow.startsAt.toISOString(),
+      proposedBy: seedRow.proposedBy,
+      createdAt: seedRow.createdAt.toISOString(),
+    });
+  }
+  void emitBroadcast(RT.proposals(data.planId), RT_EVENT.proposalChanged, {
+    op: "upsert",
+    planId: data.planId,
+    id: newRow.id,
+    startsAt: newRow.startsAt.toISOString(),
+    proposedBy: newRow.proposedBy,
+    createdAt: newRow.createdAt.toISOString(),
   });
 
   const circle = await db.query.circles.findFirst({
@@ -211,6 +261,7 @@ export async function castProposalVote(
     .limit(1);
 
   let voted: boolean;
+  let previousProposalId: string | null = null;
   if (existing.length > 0 && existing[0].proposalId === proposalId) {
     await db
       .delete(planTimeProposalVotes)
@@ -218,6 +269,7 @@ export async function castProposalVote(
     voted = false;
   } else {
     if (existing.length > 0) {
+      previousProposalId = existing[0].proposalId;
       await db
         .delete(planTimeProposalVotes)
         .where(eq(planTimeProposalVotes.id, existing[0].id));
@@ -225,6 +277,24 @@ export async function castProposalVote(
     await db.insert(planTimeProposalVotes).values({ proposalId, userId });
     voted = true;
   }
+
+  if (previousProposalId) {
+    void emitBroadcast(
+      RT.proposals(planId),
+      RT_EVENT.proposalVoteChanged,
+      { op: "delete", planId, proposalId: previousProposalId, userId },
+    );
+  }
+  void emitBroadcast(
+    RT.proposals(planId),
+    RT_EVENT.proposalVoteChanged,
+    {
+      op: voted ? "upsert" : "delete",
+      planId,
+      proposalId,
+      userId,
+    },
+  );
 
   // After every vote we re-evaluate auto-lock; cheap because tryAutoLock
   // short-circuits when the in-vote threshold isn't met.

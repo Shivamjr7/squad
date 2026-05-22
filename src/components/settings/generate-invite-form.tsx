@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +13,13 @@ export function GenerateInviteForm({ circleId }: { circleId: string }) {
   const [pending, startTransition] = useTransition();
   const [url, setUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   function onGenerate() {
     startTransition(async () => {
@@ -34,7 +41,8 @@ export function GenerateInviteForm({ circleId }: { circleId: string }) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       toast.success("Invite link copied");
-      setTimeout(() => setCopied(false), 2000);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error("Couldn't copy — long-press the link to copy manually.");
     }

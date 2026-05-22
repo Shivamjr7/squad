@@ -7,6 +7,7 @@ import { pushSubscriptions, users } from "@/db/schema";
 import { requireUserId } from "@/lib/auth";
 import { USER_DEVICES_TAG, USER_PROFILE_TAG } from "@/lib/server-cache";
 import { ActionError } from "@/lib/actions/errors";
+import { takeToken, RATE } from "@/lib/rate-limit";
 import {
   subscribePushSchema,
   unsubscribePushSchema,
@@ -18,10 +19,23 @@ import {
 // VAPID key), refresh keys + last_used_at so the row tracks the most recent
 // successful subscribe. New endpoints insert as fresh rows — never delete
 // other rows for the same user, since that's how multi-device support works.
+//
+// Hijack defense: if the endpoint already exists but is bound to a
+// different user, drop the old row first instead of rebinding via
+// onConflictDoUpdate. Endpoints are issued by the push service and not
+// guessable, but a shared device (browser reset between users, kiosk)
+// can legitimately re-register the same endpoint under a new user — we
+// want the new user to get their own row, not silently inherit the old
+// user's binding.
 export async function setPushSubscription(
   input: SubscribePushInput,
 ): Promise<void> {
   const userId = await requireUserId();
+  await takeToken({
+    action: "pushSubscribe",
+    key: userId,
+    ...RATE.pushSubscribe,
+  });
   const parsed = subscribePushSchema.safeParse(input);
   if (!parsed.success) {
     throw new ActionError(
@@ -31,6 +45,17 @@ export async function setPushSubscription(
   }
   const { subscription, deviceHint } = parsed.data;
   const now = new Date();
+
+  const existing = await db.query.pushSubscriptions.findFirst({
+    columns: { userId: true },
+    where: eq(pushSubscriptions.endpoint, subscription.endpoint),
+  });
+  if (existing && existing.userId !== userId) {
+    await db
+      .delete(pushSubscriptions)
+      .where(eq(pushSubscriptions.endpoint, subscription.endpoint));
+  }
+
   await db
     .insert(pushSubscriptions)
     .values({
@@ -44,6 +69,9 @@ export async function setPushSubscription(
     .onConflictDoUpdate({
       target: pushSubscriptions.endpoint,
       set: {
+        // Constrained by the delete above: we only hit this branch when
+        // the existing row already belongs to this user, so rebinding
+        // userId is a no-op.
         userId,
         p256dh: subscription.keys.p256dh,
         auth: subscription.keys.auth,

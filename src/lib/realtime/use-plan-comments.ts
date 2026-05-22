@@ -21,19 +21,32 @@ type Args = {
   initialComments: PlanComment[];
 };
 
+type CommentAddedPayload = {
+  id: string;
+  planId: string;
+  userId: string;
+  body: string;
+  createdAt: string;
+};
+
+type CommentDeletedPayload = {
+  id: string;
+  planId: string;
+};
+
 /**
- * Per-plan comments stream. One channel per planId, listens for INSERT and
- * DELETE events, filtered server-side via `plan_id=eq.<id>` so we never
- * receive other plans' rows. DELETE payloads carry only the primary key
- * (default REPLICA IDENTITY) — sufficient since we match by id.
+ * Per-plan comment stream. Subscribes to `comments:plan:<planId>` and
+ * listens for `comment.added` and `comment.deleted` broadcasts emitted
+ * by the addComment / deleteComment server actions.
+ *
+ * Same broadcast-vs-postgres-changes reasoning as use-circle-votes:
+ * keeps RLS at default-deny on the `comments` table so the anon key
+ * can't enumerate comment bodies.
  *
  * Optimistic UX flow:
  *   composer calls addOptimistic(temp) → server action runs → on success
- *   composer calls confirmOptimistic(tempId, canonical). If realtime delivers
- *   the canonical row first, dedupe-by-id keeps the list correct.
- *
- * RLS isn't configured in v1 (same posture as M5 votes); anyone with the anon
- * key could subscribe. Acceptable for the friend-app threat model.
+ *   composer calls confirmOptimistic(tempId, canonical). If the broadcast
+ *   delivers the canonical row first, dedupe-by-id keeps the list correct.
  */
 export function usePlanComments({ planId, members, initialComments }: Args) {
   const [comments, setComments] = useState<PlanComment[]>(initialComments);
@@ -44,29 +57,15 @@ export function usePlanComments({ planId, members, initialComments }: Args) {
   useEffect(() => {
     const client = getBrowserClient();
     const channel = client
-      .channel(`comments:${planId}`)
+      .channel(`comments:plan:${planId}`)
       .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "comments",
-          filter: `plan_id=eq.${planId}`,
-        },
-        (payload) => {
-          const row = payload.new as
-            | {
-                id?: string;
-                user_id?: string;
-                body?: string;
-                created_at?: string;
-              }
-            | null;
-          if (!row?.id || !row.user_id || !row.body || !row.created_at) return;
-          const id = row.id;
-          const userId = row.user_id;
-          const body = row.body;
-          const createdAt = row.created_at;
+        "broadcast",
+        { event: "comment.added" },
+        ({ payload }) => {
+          const row = payload as CommentAddedPayload;
+          if (!row?.id || !row.userId || !row.body || !row.createdAt) return;
+          if (row.planId !== planId) return;
+          const { id, userId, body, createdAt } = row;
 
           setComments((prev) => {
             if (prev.some((c) => c.id === id)) return prev;
@@ -86,19 +85,12 @@ export function usePlanComments({ planId, members, initialComments }: Args) {
         },
       )
       .on(
-        "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "comments",
-          // No plan_id filter — default REPLICA IDENTITY only includes PK in
-          // old-record, so the filter would never match. We dedupe by id
-          // against our in-memory list, which is already plan-scoped.
-        },
-        (payload) => {
-          const old = payload.old as { id?: string } | null;
-          if (!old?.id) return;
-          const id = old.id;
+        "broadcast",
+        { event: "comment.deleted" },
+        ({ payload }) => {
+          const row = payload as CommentDeletedPayload;
+          if (!row?.id || row.planId !== planId) return;
+          const id = row.id;
           setComments((prev) => prev.filter((c) => c.id !== id));
         },
       )
@@ -116,7 +108,7 @@ export function usePlanComments({ planId, members, initialComments }: Args) {
   const confirmOptimistic = useCallback(
     (tempId: string, canonical: PlanComment) => {
       setComments((prev) => {
-        // If realtime already delivered the canonical row, just drop the temp.
+        // If the broadcast already delivered the canonical row, drop the temp.
         if (prev.some((c) => c.id === canonical.id)) {
           return prev.filter((c) => c.id !== tempId);
         }

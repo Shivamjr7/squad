@@ -1,10 +1,7 @@
 import { z } from "zod";
+import { safePlainText } from "@/lib/validation/text";
 
-export const displayNameSchema = z
-  .string()
-  .trim()
-  .min(2, "At least 2 characters")
-  .max(40, "40 characters max")
+export const displayNameSchema = safePlainText({ min: 2, max: 40 })
   .refine((s) => !s.includes("@"), "Skip the @ — your friends know your email");
 
 export const setDisplayNameSchema = z.object({

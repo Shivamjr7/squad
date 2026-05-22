@@ -33,11 +33,15 @@ export function DecisionCountCard({
     return n;
   }, [voters, planId]);
 
-  // Ticks once per minute so the deadline phrase ("auto at 5 in · 8:00 PM")
-  // flips to "Locking any moment now" without a page refresh once decideBy
-  // passes. Cheap — no per-second redraw needed since the headline copy
-  // doesn't carry seconds.
-  const [now, setNow] = useState<Date>(() => new Date());
+  // `now` starts null so the first render (server + client hydration)
+  // never depends on the wall clock — avoids the hydration mismatch a
+  // lazy `new Date()` init would cause. The mount effect seeds it; a
+  // second interval (when decideBy is set) ticks once per minute so the
+  // deadline phrase flips to "Locking any moment now" without a refresh.
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+  }, []);
   useEffect(() => {
     if (!decideBy) return;
     const id = setInterval(() => setNow(new Date()), 60_000);
@@ -46,10 +50,19 @@ export function DecisionCountCard({
 
   const decideAt = decideBy ? new Date(decideBy) : null;
   const remaining = Math.max(0, lockThreshold - inCount);
-  const deadlinePassed = decideAt ? decideAt.getTime() <= now.getTime() : false;
+  const deadlinePassed =
+    decideAt && now ? decideAt.getTime() <= now.getTime() : false;
+
+  // Lapsed = deadline already gone but the threshold never landed. No
+  // cron force-locks these today, so "Locking any moment now" would lie.
+  // Threshold-met-but-still-active is a transient race; the in-app vote
+  // path locks within milliseconds, so we keep the urgent copy for it.
+  const isLapsed = deadlinePassed && remaining > 0;
 
   let eyebrow: string;
-  if (remaining <= 0 || deadlinePassed) {
+  if (isLapsed) {
+    eyebrow = "Lapsed";
+  } else if (remaining <= 0) {
     eyebrow = "Locking any moment now";
   } else if (remaining === 1) {
     eyebrow = "One more to lock";
@@ -57,8 +70,9 @@ export function DecisionCountCard({
     eyebrow = `${remaining} more to lock`;
   }
 
-  const subline =
-    decideAt && !deadlinePassed
+  const subline = isLapsed
+    ? "Deadline passed · vote to revive"
+    : decideAt && !deadlinePassed
       ? `auto at ${lockThreshold} in · ${shortTime(decideAt, timeZone)}`
       : `auto at ${lockThreshold} in`;
 
@@ -75,7 +89,12 @@ export function DecisionCountCard({
           <span className="ml-1 text-sm text-ink-muted">in</span>
         </div>
         <div className="flex flex-col items-end gap-1 pt-1 text-right">
-          <span className="eyebrow text-coral-strong tracking-[0.12em]">
+          <span
+            className={
+              "eyebrow tracking-[0.12em] " +
+              (isLapsed ? "text-ink-muted" : "text-coral-strong")
+            }
+          >
             {eyebrow}
           </span>
           <span className="text-[11px] text-ink-muted tabular-nums">

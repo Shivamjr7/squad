@@ -102,83 +102,75 @@ export function VenueVotesProvider({
   useEffect(() => {
     const client = getBrowserClient();
     const channel = client
-      .channel(`venue-votes:${planId}`)
+      .channel(`venues:plan:${planId}`)
       .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "plan_venues" },
-        (payload) => {
-          const newRow = payload.new as
-            | {
-                id?: string;
-                plan_id?: string;
-                label?: string;
-                suggested_by?: string | null;
-                created_at?: string;
-              }
-            | null;
-          const oldRow = payload.old as
-            | { id?: string; plan_id?: string }
-            | null;
-          const targetPlan = newRow?.plan_id ?? oldRow?.plan_id;
-          if (targetPlan !== planId) return;
+        "broadcast",
+        { event: "venue.changed" },
+        ({ payload }) => {
+          const data = payload as {
+            op: "upsert" | "delete";
+            planId: string;
+            id: string;
+            label?: string;
+            suggestedBy?: string | null;
+            createdAt?: string;
+          };
+          if (!data || data.planId !== planId || !data.id) return;
 
           setState((prev) => {
-            if (payload.eventType === "DELETE") {
-              if (!oldRow?.id) return prev;
+            if (data.op === "delete") {
               const venues = new Map(prev.venues);
               const votes = new Map(prev.votes);
-              venues.delete(oldRow.id);
-              votes.delete(oldRow.id);
+              venues.delete(data.id);
+              votes.delete(data.id);
               return { venues, votes };
             }
-            if (!newRow?.id || !newRow.label) return prev;
+            if (!data.label) return prev;
             const venues = new Map(prev.venues);
-            venues.set(newRow.id, {
-              id: newRow.id,
-              label: newRow.label,
-              suggestedBy: newRow.suggested_by ?? null,
+            venues.set(data.id, {
+              id: data.id,
+              label: data.label,
+              suggestedBy: data.suggestedBy ?? null,
               suggesterName:
-                (newRow.suggested_by &&
-                  membersRef.current[newRow.suggested_by]?.displayName) ??
+                (data.suggestedBy &&
+                  membersRef.current[data.suggestedBy]?.displayName) ??
                 null,
-              createdAt: newRow.created_at ?? new Date().toISOString(),
+              createdAt: data.createdAt ?? new Date().toISOString(),
             });
             const votes = new Map(prev.votes);
-            if (!votes.has(newRow.id)) votes.set(newRow.id, new Map());
+            if (!votes.has(data.id)) votes.set(data.id, new Map());
             return { venues, votes };
           });
         },
       )
       .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "plan_venue_votes" },
-        (payload) => {
-          const newRow = payload.new as
-            | { venue_id?: string; user_id?: string }
-            | null;
-          const oldRow = payload.old as
-            | { venue_id?: string; user_id?: string }
-            | null;
+        "broadcast",
+        { event: "venue-vote.changed" },
+        ({ payload }) => {
+          const data = payload as {
+            op: "upsert" | "delete";
+            planId: string;
+            venueId: string;
+            userId: string;
+          };
+          if (!data || data.planId !== planId) return;
 
           setState((prev) => {
             const next = new Map(prev.votes);
+            const vid = data.venueId;
+            if (!vid || !next.has(vid)) return prev;
 
-            if (payload.eventType === "DELETE") {
-              const vid = oldRow?.venue_id;
-              if (!vid || !next.has(vid)) return prev;
-              const inner = new Map(next.get(vid) ?? new Map());
-              if (oldRow?.user_id) inner.delete(oldRow.user_id);
+            const inner = new Map(next.get(vid) ?? new Map());
+            if (data.op === "delete") {
+              if (data.userId) inner.delete(data.userId);
               next.set(vid, inner);
               return { ...prev, votes: next };
             }
 
-            const vid = newRow?.venue_id;
-            const uid = newRow?.user_id;
-            if (!vid || !uid || !next.has(vid)) return prev;
-            const m = membersRef.current[uid];
+            if (!data.userId) return prev;
+            const m = membersRef.current[data.userId];
             if (!m) return prev;
-            const inner = new Map(next.get(vid) ?? new Map());
-            inner.set(uid, m);
+            inner.set(data.userId, m);
             next.set(vid, inner);
             return { ...prev, votes: next };
           });

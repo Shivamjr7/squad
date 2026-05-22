@@ -912,8 +912,16 @@ function LockFooter({
   // the threshold are clearly two independent triggers.
   const anchor = decideBy && decideBy.getTime() > now.getTime() ? decideBy : null;
   const remaining = Math.max(0, lockThreshold - currentInCount);
+  // Lapsed = deadline already gone but the threshold never landed. No
+  // cron force-locks today, so the prior "Locks at … or sooner with N+ in"
+  // copy was a lie — the deadline already passed and nothing fired.
+  const deadlinePassed =
+    decideBy !== null && decideBy.getTime() <= now.getTime();
+  const isLapsed = deadlinePassed && remaining > 0;
   let label: string;
-  if (remaining <= 0) {
+  if (isLapsed) {
+    label = `Lapsed · ${currentInCount} in, ${remaining} short of ${lockThreshold}`;
+  } else if (remaining <= 0) {
     label = "Locking any moment now";
   } else if (anchor) {
     label = `Locks at ${shortTime(anchor, timeZone)}, or sooner with ${lockThreshold}+ in`;
