@@ -103,6 +103,15 @@ export async function getUserCirclesActivity(
     sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
   );
 
+  // LEFT JOIN this user's votes against the plans table. The ON clause
+  // matches at most one row per plan (votes_plan_user_unique). After the
+  // join, `votes.id IS NULL` for any plan the user hasn't voted on.
+  //
+  // We previously used a correlated NOT EXISTS inside COUNT FILTER, which
+  // worked correctly in isolation — but combined with the visibilityFilter
+  // and GROUP BY in the same query, the planner occasionally produced
+  // counts that didn't agree with a hand-run query of the same data.
+  // The LEFT JOIN is semantically identical and avoids that path.
   const rows = await db
     .select({
       circleId: plans.circleId,
@@ -110,13 +119,14 @@ export async function getUserCirclesActivity(
       locked: sql<number>`COUNT(*) FILTER (WHERE ${plans.status} = 'confirmed')::int`,
       needsVote: sql<number>`COUNT(*) FILTER (
         WHERE ${plans.status} = 'active'
-        AND NOT EXISTS (
-          SELECT 1 FROM votes v
-          WHERE v.plan_id = ${plans.id} AND v.user_id = ${userId}
-        )
+        AND ${votes.id} IS NULL
       )::int`,
     })
     .from(plans)
+    .leftJoin(
+      votes,
+      and(eq(votes.planId, plans.id), eq(votes.userId, userId)),
+    )
     .where(
       and(
         inArray(plans.circleId, circleIds),

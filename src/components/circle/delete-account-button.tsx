@@ -25,6 +25,18 @@ export function DeleteAccountButton() {
     startTransition(async () => {
       try {
         await deleteAccount();
+        // Drop the SW's authenticated-page cache before the redirect —
+        // see sign-out-button.tsx for the shared-device leak this closes.
+        if (
+          typeof navigator !== "undefined" &&
+          "serviceWorker" in navigator
+        ) {
+          navigator.serviceWorker.ready
+            .then((reg) => {
+              reg.active?.postMessage({ type: "squad:purge-auth-cache" });
+            })
+            .catch(() => {});
+        }
         // Server already deleted the Clerk user. Calling signOut() clears
         // the local session token and routes to "/".
         await signOut({ redirectUrl: "/" });

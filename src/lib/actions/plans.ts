@@ -1,7 +1,7 @@
 "use server";
 
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { revalidateTag } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { db } from "@/db/client";
 import { CIRCLE_TAGS } from "@/lib/circles";
 import {
@@ -36,11 +36,13 @@ import {
 } from "@/lib/validation/plan";
 import { isValidTimeZone, zonedWallClockToUtc } from "@/lib/tz";
 import { captureWinningVenue } from "@/lib/actions/plan-venues";
+import { takeToken, RATE } from "@/lib/rate-limit";
 
 export async function createPlan(
   input: CreatePlanInput,
 ): Promise<{ planId: string; slug: string }> {
   const { userId } = await requireMembership(input.circleId);
+  await takeToken({ action: "createPlan", key: userId, ...RATE.createPlan });
 
   const parsed = createPlanSchema.safeParse(input);
   if (!parsed.success) {
@@ -198,10 +200,24 @@ export async function createPlan(
     const requestedItemIds = data.suggestions.map((s) => s.itemId);
     const resolvedItemIds = new Set<string>();
     if (requestedItemIds.length > 0) {
+      // Scope item resolution to the caller's own suggestion logs in this
+      // circle. Without the join an attacker could quote any leaked itemId
+      // (e.g., from another circle they're not a member of) and link the
+      // suggestion to a plan they create — cross-circle suggestion IDOR.
       const rows = await tx
         .select({ id: suggestionLogItems.id })
         .from(suggestionLogItems)
-        .where(inArray(suggestionLogItems.id, requestedItemIds));
+        .innerJoin(
+          suggestionLogs,
+          eq(suggestionLogItems.logId, suggestionLogs.id),
+        )
+        .where(
+          and(
+            inArray(suggestionLogItems.id, requestedItemIds),
+            eq(suggestionLogs.userId, userId),
+            eq(suggestionLogs.circleId, data.circleId),
+          ),
+        );
       for (const r of rows) resolvedItemIds.add(r.id);
     }
 
@@ -325,6 +341,15 @@ export async function createPlan(
   // invalidate the activity cache so the home strip reflects it.
   revalidateTag(CIRCLE_TAGS.circleActivity);
 
+  // Router-cache bust for the cross-circle home + per-circle Plans tab so
+  // the new plan shows up immediately (and, critically, doesn't render
+  // with a stale "needs your vote" pip for the creator — their implicit
+  // IN vote is inserted in the same transaction above, but the previously
+  // rendered HTML wouldn't reflect it without an explicit revalidate).
+  revalidatePath("/");
+  revalidatePath(`/c/${circle.slug}`);
+  revalidatePath(`/c/${circle.slug}/plans`);
+
   // M30 — drop a plan_created notification on every recipient. Recipient set
   // if non-empty, else full circle; the creator is excluded since they
   // obviously know. Push is the only channel now (M31 ripped out Resend).
@@ -393,6 +418,23 @@ async function notifyPlanCreated(args: {
   });
 }
 
+// Router-cache bust for the surfaces a status change affects: the
+// cross-circle home (counts for deciding / locked / needs-vote), the
+// per-circle home, and the per-circle Plans tab. The plan detail page
+// gets a `router.refresh()` from its overflow menu, so this doesn't
+// need to revalidate it.
+async function revalidateHomeForCircle(circleId: string): Promise<void> {
+  const circle = await db.query.circles.findFirst({
+    columns: { slug: true },
+    where: eq(circles.id, circleId),
+  });
+  revalidatePath("/");
+  if (circle?.slug) {
+    revalidatePath(`/c/${circle.slug}`);
+    revalidatePath(`/c/${circle.slug}/plans`);
+  }
+}
+
 // Shared auth + lookup for the three status mutations. Caller-or-admin
 // authorization per PLAN.md §6 Flow F. Returns the plan row so the action
 // can read current state for state-machine guards and (later) wire emails.
@@ -436,6 +478,8 @@ export async function markPlanDone(input: PlanIdInput): Promise<void> {
     .set({ status: "done", cancelledAt: null })
     .where(eq(plans.id, plan.id));
 
+  await revalidateHomeForCircle(plan.circleId);
+
   // M32.7 — `done` is a terminal status, same as `cancelled` for the
   // purpose of being a hard commitment. Resolve every ledger row pairing
   // this plan with another. Status flipped → it's no longer eligible.
@@ -456,6 +500,8 @@ export async function cancelPlan(input: PlanIdInput): Promise<void> {
     .update(plans)
     .set({ status: "cancelled", cancelledAt: new Date() })
     .where(eq(plans.id, plan.id));
+
+  await revalidateHomeForCircle(plan.circleId);
 
   void recordPlanEvent({
     planId: plan.id,
@@ -567,6 +613,8 @@ export async function uncancelPlan(input: PlanIdInput): Promise<void> {
     .update(plans)
     .set({ status: "active", cancelledAt: null })
     .where(eq(plans.id, plan.id));
+
+  await revalidateHomeForCircle(plan.circleId);
 }
 
 export async function confirmPlan(input: PlanIdInput): Promise<void> {
@@ -583,6 +631,8 @@ export async function confirmPlan(input: PlanIdInput): Promise<void> {
     .update(plans)
     .set({ status: "confirmed" })
     .where(eq(plans.id, plan.id));
+
+  await revalidateHomeForCircle(plan.circleId);
 
   // M21 — promote leading venue (if any) to plans.location on lock.
   const winningVenue = await captureWinningVenue(plan.id);
@@ -613,4 +663,6 @@ export async function unconfirmPlan(input: PlanIdInput): Promise<void> {
     .update(plans)
     .set({ status: "active" })
     .where(eq(plans.id, plan.id));
+
+  await revalidateHomeForCircle(plan.circleId);
 }

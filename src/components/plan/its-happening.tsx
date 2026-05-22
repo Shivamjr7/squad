@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { AlertTriangle, CalendarPlus, MapPin, MessageCircle } from "lucide-react";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
@@ -62,8 +62,7 @@ function isSameLocalDay(a: Date, b: Date, timeZone?: string): boolean {
   return fmt.format(a) === fmt.format(b);
 }
 
-function dayLabel(startsAt: Date, timeZone?: string): string {
-  const now = new Date();
+function dayLabel(startsAt: Date, now: Date, timeZone?: string): string {
   if (isSameLocalDay(startsAt, now, timeZone)) return "Tonight";
   const tomorrow = new Date(now.getTime() + 86_400_000);
   if (isSameLocalDay(startsAt, tomorrow, timeZone)) return "Tomorrow";
@@ -146,8 +145,19 @@ export function ItsHappening({
     return { liveInCount: inN, outCount: outN, inVoters: ins };
   }, [planVoters, seedInCount]);
 
+  // `now` is null on first render (server + client hydration agree) — the
+  // day-label only resolves to "Tonight"/"Tomorrow" after mount. Avoids a
+  // hydration mismatch from `new Date()` running with different clocks on
+  // each side. Falls back to the full date format on the initial paint.
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+  }, []);
+
   const lockedAt = formatLockTime(lockedAtIso, timeZone);
-  const dayCopy = dayLabel(startsAt, timeZone);
+  const dayCopy = now
+    ? dayLabel(startsAt, now, timeZone)
+    : HEADLINE_DATE.format(startsAt);
   const timeCopy = formatShortTime(startsAt, timeZone);
   const subline = reasonLine(lockTrigger, liveInCount, recipientCount);
   const firstAddition = additions[0] ?? null;

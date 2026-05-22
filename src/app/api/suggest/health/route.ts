@@ -1,6 +1,7 @@
 import { gte, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { providerCache } from "@/db/schema";
+import { isAuthorizedCron } from "@/lib/cron-auth";
 import "@/lib/suggest/providers";
 import { ACTIVITY_CATEGORIES } from "@/lib/suggest/types";
 import type {
@@ -31,16 +32,6 @@ export const runtime = "nodejs";
 
 type ProbeStatus = ProviderHealth | "absent";
 
-function isAuthorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get("authorization");
-  if (!header) return false;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  if (!match) return false;
-  return match[1] === secret;
-}
-
 async function probe(provider: SuggestionProvider): Promise<ProbeStatus> {
   if (!provider.health) return "ok";
   try {
@@ -51,7 +42,7 @@ async function probe(provider: SuggestionProvider): Promise<ProbeStatus> {
 }
 
 async function GET(req: Request): Promise<Response> {
-  if (!isAuthorized(req)) {
+  if (!isAuthorizedCron(req)) {
     return new Response("Unauthorized", { status: 401 });
   }
 

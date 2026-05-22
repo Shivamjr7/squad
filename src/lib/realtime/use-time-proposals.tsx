@@ -110,80 +110,75 @@ export function TimeProposalsProvider({
   useEffect(() => {
     const client = getBrowserClient();
     const channel = client
-      .channel(`time-proposals:${planId}`)
+      .channel(`proposals:plan:${planId}`)
       .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "plan_time_proposals" },
-        (payload) => {
-          const newRow = payload.new as
-            | {
-                id?: string;
-                plan_id?: string;
-                starts_at?: string;
-                proposed_by?: string | null;
-                created_at?: string;
-              }
-            | null;
-          const oldRow = payload.old as
-            | { id?: string; plan_id?: string }
-            | null;
-          const targetPlan = newRow?.plan_id ?? oldRow?.plan_id;
-          if (targetPlan !== planId) return;
+        "broadcast",
+        { event: "proposal.changed" },
+        ({ payload }) => {
+          const data = payload as {
+            op: "upsert" | "delete";
+            planId: string;
+            id: string;
+            startsAt?: string;
+            proposedBy?: string | null;
+            createdAt?: string;
+          };
+          if (!data || data.planId !== planId || !data.id) return;
 
           setState((prev) => {
-            if (payload.eventType === "DELETE") {
-              if (!oldRow?.id) return prev;
+            if (data.op === "delete") {
               const proposals = new Map(prev.proposals);
               const votes = new Map(prev.votes);
-              proposals.delete(oldRow.id);
-              votes.delete(oldRow.id);
+              proposals.delete(data.id);
+              votes.delete(data.id);
               return { proposals, votes };
             }
-            if (!newRow?.id || !newRow.starts_at) return prev;
+            if (!data.startsAt) return prev;
             const proposals = new Map(prev.proposals);
-            proposals.set(newRow.id, {
-              id: newRow.id,
-              startsAt: newRow.starts_at,
-              proposedBy: newRow.proposed_by ?? null,
+            proposals.set(data.id, {
+              id: data.id,
+              startsAt: data.startsAt,
+              proposedBy: data.proposedBy ?? null,
               proposerName:
-                (newRow.proposed_by &&
-                  membersRef.current[newRow.proposed_by]?.displayName) ??
+                (data.proposedBy &&
+                  membersRef.current[data.proposedBy]?.displayName) ??
                 null,
-              createdAt: newRow.created_at ?? new Date().toISOString(),
+              createdAt: data.createdAt ?? new Date().toISOString(),
             });
             const votes = new Map(prev.votes);
-            if (!votes.has(newRow.id)) votes.set(newRow.id, new Map());
+            if (!votes.has(data.id)) votes.set(data.id, new Map());
             return { proposals, votes };
           });
         },
       )
       .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "plan_time_proposal_votes" },
-        (payload) => {
-          const newRow = payload.new as
-            | { proposal_id?: string; user_id?: string }
-            | null;
-          const oldRow = payload.old as
-            | { proposal_id?: string; user_id?: string }
-            | null;
+        "broadcast",
+        { event: "proposal-vote.changed" },
+        ({ payload }) => {
+          const data = payload as {
+            op: "upsert" | "delete";
+            planId: string;
+            proposalId: string;
+            userId: string;
+          };
+          if (!data || data.planId !== planId) return;
+
           setState((prev) => {
             const next = new Map(prev.votes);
-            if (payload.eventType === "DELETE") {
-              const pid = oldRow?.proposal_id;
-              if (!pid || !next.has(pid)) return prev;
-              const inner = new Map(next.get(pid) ?? new Map());
-              if (oldRow?.user_id) inner.delete(oldRow.user_id);
+            const pid = data.proposalId;
+            if (!pid || !next.has(pid)) return prev;
+
+            const inner = new Map(next.get(pid) ?? new Map());
+            if (data.op === "delete") {
+              if (data.userId) inner.delete(data.userId);
               next.set(pid, inner);
               return { ...prev, votes: next };
             }
-            const pid = newRow?.proposal_id;
-            const uid = newRow?.user_id;
-            if (!pid || !uid || !next.has(pid)) return prev;
-            const m = membersRef.current[uid];
+
+            if (!data.userId) return prev;
+            const m = membersRef.current[data.userId];
             if (!m) return prev;
-            const inner = new Map(next.get(pid) ?? new Map());
-            inner.set(uid, m);
+            inner.set(data.userId, m);
             next.set(pid, inner);
             return { ...prev, votes: next };
           });

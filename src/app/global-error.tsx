@@ -63,7 +63,10 @@ export default function GlobalError({
               <strong>digest:</strong> {error.digest}
             </div>
           ) : null}
-          {error.stack ? (
+          {/* Stack is dev-only — in prod it leaks internal file paths and
+              code structure to anyone who can trigger an error. Support
+              correlates user reports via the digest, which is opaque. */}
+          {process.env.NODE_ENV !== "production" && error.stack ? (
             <>
               <div style={{ marginTop: 8 }}>
                 <strong>stack:</strong>

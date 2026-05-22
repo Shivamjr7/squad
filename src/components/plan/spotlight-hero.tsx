@@ -427,7 +427,7 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
             onClick={() => onVote("out")}
           />
           <Link
-            href={`/c/${slug}/p/${plan.id}#discussion`}
+            href={`/c/${slug}/p/${plan.id}#comments`}
             className={cn(
               "inline-flex h-10 flex-[1.2] items-center justify-center gap-1.5 rounded-xl text-[13px] font-semibold text-ink",
               "bg-ink/[0.05] hover:bg-ink/[0.10] transition-colors",

@@ -63,6 +63,15 @@ export function MyPlansPage({
   // through useCircleVotes inside each row, not through `now`.
   const now = useMemo(() => new Date(), []);
 
+  // Hour stays null on first render so SSR + client hydration agree;
+  // the mount effect sets it from the viewer's actual clock. Server
+  // runs UTC on Vercel, so reading `getHours()` inline during render
+  // would mismatch.
+  const [localHour, setLocalHour] = useState<number | null>(null);
+  useEffect(() => {
+    setLocalHour(new Date().getHours());
+  }, []);
+
   const currentPlans = useMemo(
     () =>
       normalizedPlans
@@ -118,7 +127,7 @@ export function MyPlansPage({
       <header className="flex flex-col gap-2">
         <HeroQuestion
           prefix={<>What&rsquo;s on,</>}
-          accent={headerAccent(filter)}
+          accent={headerAccent(filter, localHour)}
           size="md"
         />
         <p className="text-sm text-ink-muted">{statsLine(stats, filter)}</p>
@@ -324,16 +333,16 @@ function EmptyState({ filter }: { filter: Filter }) {
 
 // ---------- Helpers ----------
 
-function headerAccent(filter: Filter): string {
+function headerAccent(filter: Filter, hour: number | null): string {
   if (filter === "past") return "looking back.";
-  // Time-of-day flavor for the editorial subhead. Doesn't need to be
-  // pixel-perfect — the goal is the page feeling specific to right-now
-  // rather than reading like a generic page title.
-  const h = new Date().getHours();
-  if (h < 5) return "after hours.";
-  if (h < 12) return "this morning.";
-  if (h < 17) return "this afternoon.";
-  if (h < 21) return "tonight.";
+  // Hour is null on first render (matches SSR) — fall back to a generic
+  // accent. After mount it switches to the time-of-day flavor based on
+  // the viewer's local clock. Reading `new Date().getHours()` during
+  // render would hydration-mismatch (server is UTC on Vercel).
+  if (hour === null) return "right now.";
+  if (hour < 5) return "after hours.";
+  if (hour < 12) return "this morning.";
+  if (hour < 17) return "this afternoon.";
   return "tonight.";
 }
 

@@ -3,7 +3,7 @@ import { revalidateTag } from "next/cache";
 import { after } from "next/server";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, or, isNull, gt, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { invites, memberships } from "@/db/schema";
 import { Button } from "@/components/ui/button";
@@ -50,10 +50,12 @@ export default async function InvitePage({
     return <InvalidInvitePage reason="The link may have been mistyped or revoked." />;
   }
 
+  // Friendly early-exit when the invite is obviously dead. The atomic
+  // UPDATE below re-checks both predicates server-side, so this is just
+  // UX — the actual gate is the conditional UPDATE.
   if (invite.expiresAt && invite.expiresAt < new Date()) {
     return <InvalidInvitePage reason="This invite has expired." />;
   }
-
   if (invite.maxUses != null && invite.uses >= invite.maxUses) {
     return <InvalidInvitePage reason="This invite has been used the maximum number of times." />;
   }
@@ -79,18 +81,36 @@ export default async function InvitePage({
     redirect(`/c/${invite.circle.slug}?joined=existing`);
   }
 
-  // Insert membership and bump uses atomically.
-  await db.transaction(async (tx) => {
-    await tx.insert(memberships).values({
-      userId,
-      circleId: invite.circleId,
-      role: "member",
-    });
-    await tx
-      .update(invites)
-      .set({ uses: sql`${invites.uses} + 1` })
-      .where(eq(invites.id, invite.id));
-  });
+  // Atomic redemption: one conditional UPDATE re-checks expiry + max_uses
+  // under a row lock. If two requests race, only one increments — the
+  // loser sees `claimed` empty and falls through to InvalidInvitePage.
+  // This closes the window where the pre-checks above pass for both
+  // concurrent joiners on a maxUses=1 invite.
+  const claimed = await db
+    .update(invites)
+    .set({ uses: sql`${invites.uses} + 1` })
+    .where(
+      and(
+        eq(invites.id, invite.id),
+        or(isNull(invites.maxUses), sql`${invites.uses} < ${invites.maxUses}`),
+        or(isNull(invites.expiresAt), gt(invites.expiresAt, sql`NOW()`)),
+      ),
+    )
+    .returning({ id: invites.id });
+
+  if (claimed.length === 0) {
+    return (
+      <InvalidInvitePage reason="This invite was just used up. Ask whoever sent it for a fresh link." />
+    );
+  }
+
+  // Membership insert is idempotent against the (user_id, circle_id)
+  // unique constraint, so safe outside the transaction. If two retries
+  // race here, the second hits ON CONFLICT and we just continue.
+  await db
+    .insert(memberships)
+    .values({ userId, circleId: invite.circleId, role: "member" })
+    .onConflictDoNothing();
 
   // Drop cached member + user-circles + activity entries so the home page
   // and squad sidebar show the new member immediately. `after()` defers

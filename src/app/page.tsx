@@ -440,6 +440,7 @@ async function PlansTab({
       isApproximate: plans.isApproximate,
       status: plans.status,
       decideBy: plans.decideBy,
+      lockThreshold: plans.lockThreshold,
       timeMode: plans.timeMode,
       vibe: plans.vibe,
       circleId: circles.id,
@@ -560,10 +561,23 @@ async function PlansTab({
     startsAt: Date,
     venueOptions: number,
     timeMode: "exact" | "open",
+    decideBy: Date | null,
+    inCount: number,
+    lockThreshold: number,
   ): EffectiveStatus {
     if (raw === "done") return "past";
     if (startsAt < now) return "past";
     if (raw === "confirmed") return "locked";
+    // Active plan whose decide_by has slipped past without the threshold
+    // being hit. No cron force-locks today, so the plan sits in limbo —
+    // surface it as "lapsed" instead of lying with "deciding" / "locking".
+    if (
+      decideBy &&
+      decideBy.getTime() <= now.getTime() &&
+      inCount < lockThreshold
+    ) {
+      return "lapsed";
+    }
     if (venueOptions >= 2 || timeMode === "open") return "voting";
     return "deciding";
   }
@@ -580,6 +594,9 @@ async function PlansTab({
       r.startsAt,
       venueOptionsByPlan.get(r.id) ?? 0,
       r.timeMode,
+      r.decideBy,
+      inCountByPlan.get(r.id) ?? 0,
+      r.lockThreshold,
     ),
     circle: {
       id: r.circleId,

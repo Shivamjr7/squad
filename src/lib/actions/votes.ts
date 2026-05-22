@@ -1,7 +1,7 @@
 "use server";
 
 import { and, eq, sql } from "drizzle-orm";
-import { revalidateTag } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { db } from "@/db/client";
 import { circles, plans, users, votes } from "@/db/schema";
 import { requireMembership, requirePlanRecipient } from "@/lib/auth";
@@ -24,6 +24,8 @@ import {
   dispatchNotifications,
   resolvePlanAudience,
 } from "@/lib/notifications";
+import { emitBroadcast, RT, RT_EVENT } from "@/lib/realtime/server";
+import { takeToken, RATE } from "@/lib/rate-limit";
 
 export async function castVote(
   input: CastVoteInput,
@@ -68,6 +70,7 @@ export async function castVote(
 
   const { userId } = await requireMembership(plan.circleId);
   await requirePlanRecipient(data.planId, userId);
+  await takeToken({ action: "vote", key: userId, ...RATE.vote });
 
   // M29 — capture the prior vote (if any) before the upsert so the event
   // payload can distinguish a first cast from a switch.
@@ -78,6 +81,7 @@ export async function castVote(
     .limit(1);
   const previousVote = existing[0]?.status ?? null;
 
+  const votedAt = new Date();
   await db
     .insert(votes)
     .values({
@@ -87,8 +91,18 @@ export async function castVote(
     })
     .onConflictDoUpdate({
       target: [votes.planId, votes.userId],
-      set: { status: data.status, votedAt: new Date() },
+      set: { status: data.status, votedAt },
     });
+
+  // Realtime broadcast to anyone watching this plan's vote stream. Fire
+  // after commit so subscribers never see a vote that didn't land.
+  void emitBroadcast(RT.votes(data.planId), RT_EVENT.voteChanged, {
+    op: "upsert",
+    planId: data.planId,
+    userId,
+    status: data.status,
+    votedAt: votedAt.toISOString(),
+  });
 
   // M29 — post-upsert tally for the event payload. M30's notification
   // dispatcher reads these counts to render "4/6 in" copy without re-querying.
@@ -127,6 +141,21 @@ export async function castVote(
   // Squad-pulse derives from votes — flag the activity cache stale so the
   // home strip reflects this voter's pulse next render.
   revalidateTag(CIRCLE_TAGS.circleActivity);
+
+  // Router-cache bust for the surfaces that show the "needs your vote"
+  // count. getUserCirclesActivity isn't cached at the data layer, but
+  // Next.js's client-side router cache holds the rendered `/` page for
+  // ~5 minutes — without this the user can vote, navigate home, and
+  // still see the same coral "needs your vote" pip on a circle they
+  // just voted in. Per-circle Plans page has the same staleness.
+  revalidatePath("/");
+  const planCircle = await db.query.circles.findFirst({
+    columns: { slug: true },
+    where: eq(circles.id, plan.circleId),
+  });
+  if (planCircle?.slug) {
+    revalidatePath(`/c/${planCircle.slug}/plans`);
+  }
 
   // Re-evaluate auto-lock after every cast. Cheap: short-circuits before any
   // extra queries when the plan isn't active. Three triggers can fire here —
@@ -251,6 +280,24 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
   await db
     .delete(votes)
     .where(and(eq(votes.planId, data.planId), eq(votes.userId, userId)));
+
+  void emitBroadcast(RT.votes(data.planId), RT_EVENT.voteChanged, {
+    op: "delete",
+    planId: data.planId,
+    userId,
+  });
+
+  // Same router-cache bust as castVote — removing a vote also flips the
+  // "needs your vote" signal on the cross-circle home + per-circle Plans
+  // surfaces.
+  revalidatePath("/");
+  const planCircle = await db.query.circles.findFirst({
+    columns: { slug: true },
+    where: eq(circles.id, plan.circleId),
+  });
+  if (planCircle?.slug) {
+    revalidatePath(`/c/${planCircle.slug}/plans`);
+  }
 
   if (previousVote === "in") {
     void resolveConflictsForUserOnPlan(userId, data.planId).catch((err) => {

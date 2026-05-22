@@ -14,7 +14,16 @@ import type { VoteStatus } from "@/lib/validation/vote";
 // the cross-circle home (src/app/page.tsx). It's NEVER written to the DB;
 // the source of truth stays plans.status, and a future pg_cron job should
 // be the one flipping confirmed/active → done when startsAt+grace passes.
-export type EffectiveStatus = "deciding" | "voting" | "locked" | "past";
+// "lapsed" = raw status is still `active` but `decide_by` has already
+// passed without the threshold being hit. No cron force-locks these
+// today, so they sit in limbo — surfaced explicitly here so the UI
+// stops claiming "Deciding" / "Locking now" indefinitely.
+export type EffectiveStatus =
+  | "deciding"
+  | "voting"
+  | "locked"
+  | "lapsed"
+  | "past";
 
 export type FeedPlanCardData = {
   id: string;
@@ -55,6 +64,7 @@ const STATUS_STYLE: Record<
   deciding: { tone: "maybe", label: "Deciding" },
   voting: { tone: "voting", label: "Voting" },
   locked: { tone: "in", label: "Locked" },
+  lapsed: { tone: "muted", label: "Lapsed" },
   past: { tone: "muted", label: "Past" },
 };
 

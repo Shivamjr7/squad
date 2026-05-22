@@ -291,7 +291,12 @@ export async function tryAutoLock(
   if (circle?.slug) {
     revalidatePath(`/c/${circle.slug}/p/${planId}`);
     revalidatePath(`/c/${circle.slug}`);
+    revalidatePath(`/c/${circle.slug}/plans`);
   }
+  // Cross-circle home shows the `deciding` / `locked` counts on each
+  // circle card — bust its router cache too so a lock flips the labels
+  // without needing a hard refresh.
+  revalidatePath("/");
 
   // M31.6 — fire-and-forget "It's happening" push. System-driven from this
   // function's perspective: no actor exclusion, so the voter who tipped the

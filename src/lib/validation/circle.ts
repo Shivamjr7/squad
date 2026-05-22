@@ -1,11 +1,8 @@
 import { z } from "zod";
 import { isReservedSlug, slugRegex } from "@/lib/slug";
+import { safePlainText } from "@/lib/validation/text";
 
-export const circleNameSchema = z
-  .string()
-  .trim()
-  .min(3, "Name must be at least 3 characters")
-  .max(40, "Name must be 40 characters or fewer");
+export const circleNameSchema = safePlainText({ min: 3, max: 40 });
 
 export const circleSlugSchema = z
   .string()

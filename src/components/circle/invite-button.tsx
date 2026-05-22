@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Check, Link as LinkIcon, Share2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -50,10 +50,14 @@ export function InviteButton({
   const [canShare, setCanShare] = useState(false);
   const [addedIds, setAddedIds] = useState<Set<string>>(() => new Set());
   const [addingId, setAddingId] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setOrigin(window.location.origin);
     setCanShare(typeof navigator !== "undefined" && "share" in navigator);
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
   }, []);
 
   const existing: DisplayInvite[] = origin
@@ -89,7 +93,11 @@ export function InviteButton({
       await navigator.clipboard.writeText(invite.url);
       setCopiedCode(invite.code);
       toast.success("Invite link copied");
-      setTimeout(() => setCopiedCode((c) => (c === invite.code ? null : c)), 2000);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(
+        () => setCopiedCode((c) => (c === invite.code ? null : c)),
+        2000,
+      );
     } catch {
       toast.error("Couldn't copy — long-press the link to copy manually.");
     }

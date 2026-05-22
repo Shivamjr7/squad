@@ -103,35 +103,35 @@ export function SlotVotesProvider({
   useEffect(() => {
     const client = getBrowserClient();
     const channel = client
-      .channel(`slot-votes:${planId}`)
+      .channel(`slot-votes:plan:${planId}`)
       .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "time_slot_votes" },
-        (payload) => {
-          const newRow = payload.new as
-            | { slot_id?: string; user_id?: string }
-            | null;
-          const oldRow = payload.old as
-            | { slot_id?: string; user_id?: string }
-            | null;
-          const slotId = newRow?.slot_id ?? oldRow?.slot_id;
-          if (!slotId || !slotIdSetRef.current.has(slotId)) return;
+        "broadcast",
+        { event: "slot-vote.changed" },
+        ({ payload }) => {
+          const data = payload as {
+            op: "upsert" | "delete";
+            planId: string;
+            slotId: string;
+            userId: string;
+          };
+          if (!data || data.planId !== planId) return;
+          if (!data.slotId || !slotIdSetRef.current.has(data.slotId)) return;
 
           setState((prev) => {
             const next = new Map(prev.slots);
-            const inner = new Map(next.get(slotId) ?? new Map());
+            const inner = new Map(next.get(data.slotId) ?? new Map());
 
-            if (payload.eventType === "DELETE") {
-              if (oldRow?.user_id) inner.delete(oldRow.user_id);
-              next.set(slotId, inner);
+            if (data.op === "delete") {
+              if (data.userId) inner.delete(data.userId);
+              next.set(data.slotId, inner);
               return { ...prev, slots: next };
             }
 
-            if (!newRow?.user_id) return prev;
-            const member = membersRef.current[newRow.user_id];
+            if (!data.userId) return prev;
+            const member = membersRef.current[data.userId];
             if (!member) return prev;
-            inner.set(newRow.user_id, member);
-            next.set(slotId, inner);
+            inner.set(data.userId, member);
+            next.set(data.slotId, inner);
             return { ...prev, slots: next };
           });
         },

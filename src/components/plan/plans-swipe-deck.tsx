@@ -91,9 +91,17 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
   const after = deck[index + 2] ?? null;
 
   // Reduced-motion users get button-only voting (no drag exit animation).
-  const reducedMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  // Read after mount via useEffect — touching window.matchMedia during
+  // render differs between SSR (false) and client first paint, which would
+  // produce a hydration mismatch.
+  const [reducedMotion, setReducedMotion] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   const commitVote = useCallback(
     (planId: string, status: VoteStatus, dir: ExitDir) => {

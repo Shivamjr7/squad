@@ -2,11 +2,12 @@ import { headers } from "next/headers";
 import { revalidateTag } from "next/cache";
 import { Webhook } from "svix";
 import { db } from "@/db/client";
-import { users } from "@/db/schema";
+import { users, webhookEvents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { normalizeAvatarUrl } from "@/lib/avatar";
 import { USER_DISPLAY_NAME_TAG } from "@/lib/auth";
 import { USER_PROFILE_TAG } from "@/lib/server-cache";
+import { safePlainText } from "@/lib/validation/text";
 
 // Clerk webhook payload shapes. Only the fields we touch are typed.
 type ClerkEmailAddress = {
@@ -49,11 +50,27 @@ type DerivedName = { displayName: string; isReal: boolean };
 // so the user is prompted to set a name they actually want their friends to see.
 function deriveDisplayName(data: ClerkUserData, email: string): DerivedName {
   const full = [data.first_name, data.last_name].filter(Boolean).join(" ").trim();
-  if (full) return { displayName: full, isReal: true };
-  if (data.username) return { displayName: data.username, isReal: true };
+  // Run the candidate through the same safePlainText sanitization as
+  // user-entered names. If Clerk hands us a name with control chars or
+  // zero-width quirks (third-party SSO can produce these), we fall
+  // through to the next candidate rather than persist garbage.
+  const sanitize = safePlainText({ max: 40 });
+  if (full) {
+    const ok = sanitize.safeParse(full);
+    if (ok.success) return { displayName: ok.data, isReal: true };
+  }
+  if (data.username) {
+    const ok = sanitize.safeParse(data.username);
+    if (ok.success) return { displayName: ok.data, isReal: true };
+  }
   const prefix = email.split("@")[0];
-  if (prefix) return { displayName: prefix, isReal: false };
-  return { displayName: email, isReal: false };
+  if (prefix) {
+    const ok = sanitize.safeParse(prefix);
+    if (ok.success) return { displayName: ok.data, isReal: false };
+  }
+  // Last resort: a guaranteed-safe placeholder. Users hit /set-name on
+  // first signed-in render and pick a real one.
+  return { displayName: "Member", isReal: false };
 }
 
 export async function POST(req: Request) {
@@ -82,6 +99,24 @@ export async function POST(req: Request) {
     }) as ClerkEvent;
   } catch {
     return new Response("Invalid signature", { status: 401 });
+  }
+
+  // Idempotency: insert the svix-id; if it's already present, this event
+  // is a duplicate (Svix retries on non-2xx, network blips can dupe).
+  // We return 200 so Svix stops retrying, but skip the handler body.
+  try {
+    const claim = await db
+      .insert(webhookEvents)
+      .values({ svixId })
+      .onConflictDoNothing()
+      .returning({ svixId: webhookEvents.svixId });
+    if (claim.length === 0) {
+      return new Response("ok (duplicate)", { status: 200 });
+    }
+  } catch (e) {
+    // Don't fail the webhook on idempotency-log issues — better to risk a
+    // duplicate handle than to drop the event entirely.
+    console.error("[clerk-webhook] idempotency log failed", e);
   }
 
   switch (event.type) {

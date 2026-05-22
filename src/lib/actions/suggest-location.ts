@@ -18,6 +18,7 @@ import { db } from "@/db/client";
 import { circles, providerCache } from "@/db/schema";
 import { ActionError } from "@/lib/actions/errors";
 import { requireMembership } from "@/lib/auth";
+import { takeToken, RATE } from "@/lib/rate-limit";
 
 const QUERY_MIN_LEN = 2;
 const QUERY_MAX_LEN = 120;
@@ -304,7 +305,12 @@ export async function searchPlaces(input: {
       parsed.error.issues[0]?.message ?? "Bad query.",
     );
   }
-  await requireMembership(parsed.data.circleId);
+  const { userId } = await requireMembership(parsed.data.circleId);
+  await takeToken({
+    action: "placeSearch",
+    key: userId,
+    ...RATE.placeSearch,
+  });
 
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) {

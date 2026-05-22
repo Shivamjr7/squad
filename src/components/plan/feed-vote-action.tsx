@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { castVote, removeVote } from "@/lib/actions/votes";
@@ -39,9 +39,21 @@ export function FeedVoteAction({
   const [expanded, setExpanded] = useState<boolean>(initialVote === null);
   const [, startTransition] = useTransition();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last vote that was successfully committed (or, on mount, the
+  // server-provided initial). Used to roll back to the correct prior
+  // state when a server commit fails — `initialVote` would only ever
+  // roll back to mount-time, ignoring any successful intermediate votes.
+  const lastCommittedRef = useRef<VoteStatus | null>(initialVote);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const commit = (next: VoteStatus | null) => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    const prev = lastCommittedRef.current;
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
       startTransition(async () => {
@@ -63,13 +75,14 @@ export function FeedVoteAction({
               });
             }
           }
+          lastCommittedRef.current = next;
         } catch (err) {
           const message =
             err instanceof Error ? err.message : "Couldn't save vote.";
           toast.error(message, { description: "Tap to retry." });
-          // Roll back the optimistic state so the UI reflects DB truth.
-          setOwnVote(initialVote);
-          setExpanded(initialVote === null);
+          // Roll back to the last successfully committed vote.
+          setOwnVote(prev);
+          setExpanded(prev === null);
         }
       });
     }, COMMIT_DEBOUNCE_MS);

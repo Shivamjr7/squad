@@ -709,6 +709,45 @@ export const providerCache = pgTable(
   }),
 );
 
+// Sliding-window rate-limit counter. One row per (action, identity) key
+// (e.g. "vote:user_abc"); window_start advances when the helper detects
+// the previous window has elapsed. See src/lib/rate-limit.ts.
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    key: text("key").primaryKey(),
+    windowStart: timestamp("window_start", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    count: integer("count").notNull().default(0),
+  },
+  (table) => ({
+    windowIdx: index("rate_limits_window_idx").on(table.windowStart),
+  }),
+);
+
+// Idempotency log for incoming webhooks (currently Clerk via Svix).
+// Svix verifies the signature and rejects payloads outside ±5min, but a
+// replayed payload within that window with a valid signature would still
+// re-fire DB writes. Inserting the svix-id as PK before the handler runs
+// turns "duplicate within window" into a unique-constraint violation we
+// can swallow as a no-op.
+export const webhookEvents = pgTable(
+  "webhook_events",
+  {
+    svixId: text("svix_id").primaryKey(),
+    receivedAt: timestamp("received_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    receivedIdx: index("webhook_events_received_idx").on(table.receivedAt),
+  }),
+);
+
 // ─── Relations ──────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({

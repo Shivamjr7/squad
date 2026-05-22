@@ -5,6 +5,8 @@ import { db } from "@/db/client";
 import { comments, plans } from "@/db/schema";
 import { requireMembership, requirePlanRecipient, requireUserId } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
+import { emitBroadcast, RT, RT_EVENT } from "@/lib/realtime/server";
+import { takeToken, RATE } from "@/lib/rate-limit";
 import {
   addCommentSchema,
   deleteCommentSchema,
@@ -41,6 +43,7 @@ export async function addComment(
 
   const { userId } = await requireMembership(plan.circleId);
   await requirePlanRecipient(data.planId, userId);
+  await takeToken({ action: "comment", key: userId, ...RATE.comment });
 
   const [row] = await db
     .insert(comments)
@@ -51,9 +54,16 @@ export async function addComment(
   }
 
   // Comments don't generate notifications in M31 — keeps the feed quiet.
-  // Realtime channel still delivers the live update to anyone viewing the
-  // plan detail; out-of-app discovery happens via the plan_locked /
+  // Realtime broadcast still delivers the live update to anyone viewing
+  // the plan detail; out-of-app discovery happens via the plan_locked /
   // plan_leave_soon pushes the recipient already gets.
+  void emitBroadcast(RT.comments(data.planId), RT_EVENT.commentAdded, {
+    id: row.id,
+    planId: row.planId,
+    userId: row.userId,
+    body: row.body,
+    createdAt: row.createdAt.toISOString(),
+  });
 
   return {
     id: row.id,
@@ -76,7 +86,7 @@ export async function deleteComment(input: DeleteCommentInput): Promise<void> {
   const result = await db
     .delete(comments)
     .where(and(eq(comments.id, parsed.data.commentId), eq(comments.userId, userId)))
-    .returning({ id: comments.id });
+    .returning({ id: comments.id, planId: comments.planId });
 
   if (result.length === 0) {
     throw new ActionError(
@@ -84,4 +94,9 @@ export async function deleteComment(input: DeleteCommentInput): Promise<void> {
       "Couldn't delete — comment is gone or isn't yours.",
     );
   }
+
+  void emitBroadcast(RT.comments(result[0].planId), RT_EVENT.commentDeleted, {
+    id: result[0].id,
+    planId: result[0].planId,
+  });
 }
