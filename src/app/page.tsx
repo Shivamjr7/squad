@@ -463,6 +463,7 @@ async function PlansTab({
         or(
           sql`NOT EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id})`,
           sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
+          eq(plans.createdBy, userId),
           eq(memberships.role, "admin"),
         ),
       ),
@@ -770,4 +771,3 @@ function PlansEmpty() {
     </div>
   );
 }
-
