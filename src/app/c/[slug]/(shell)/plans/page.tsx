@@ -56,6 +56,7 @@ export default async function MyPlansRoute({
     : or(
         sql`NOT EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id})`,
         sql`EXISTS (SELECT 1 FROM plan_recipients pr WHERE pr.plan_id = ${plans.id} AND pr.user_id = ${userId})`,
+        eq(plans.createdBy, userId),
       );
 
   // Cap the My-Plans feed — older plans are still reachable via direct URL
