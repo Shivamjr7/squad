@@ -306,14 +306,30 @@ export function VenueVotesProvider({
       const trimmed = label.trim();
       if (trimmed.length === 0) return;
       try {
-        await addVenue({ planId, label: trimmed });
+        const created = await addVenue({ planId, label: trimmed });
+        setState((prev) => {
+          if (prev.venues.has(created.venueId)) return prev;
+          const venues = new Map(prev.venues);
+          venues.set(created.venueId, {
+            id: created.venueId,
+            label: created.label,
+            suggestedBy: currentUserId,
+            suggesterName: membersRef.current[currentUserId]?.displayName ?? null,
+            createdAt: created.createdAt,
+          });
+          const votes = new Map(prev.votes);
+          if (!votes.has(created.venueId)) {
+            votes.set(created.venueId, new Map());
+          }
+          return { venues, votes };
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Couldn't add venue.";
         toast.error(msg);
         throw err;
       }
     },
-    [planId],
+    [planId, currentUserId],
   );
 
   const value = useMemo<CtxValue>(

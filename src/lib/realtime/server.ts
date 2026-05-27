@@ -47,14 +47,11 @@ export async function emitBroadcast(
   if (!c) return;
   try {
     const channel = c.channel(channelName);
-    // `send` resolves after the message is acked by the Realtime server.
-    // We await it so the function-level transaction (Vercel serverless)
-    // doesn't tear down the websocket before the message lands.
-    await channel.send({
-      type: "broadcast",
-      event,
-      payload,
-    });
+    // Server actions do not join the websocket channel, so Supabase's
+    // websocket `send()` falls back to REST and logs a deprecation warning.
+    // Use the explicit REST path to keep server-side broadcasts quiet and
+    // forward-compatible.
+    await channel.httpSend(event, payload);
     await c.removeChannel(channel);
   } catch {
     // Swallow; broadcast failure is a UX nicety, not data integrity.

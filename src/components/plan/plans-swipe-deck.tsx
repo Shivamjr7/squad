@@ -59,7 +59,8 @@ type ExitDir = "right" | "left" | "up" | null;
 type UndoEntry = { planId: string; previous: VoteStatus | null };
 
 export function PlansSwipeDeck({ plans, slug, now }: Props) {
-  const { voters, currentUser } = useCircleVotes();
+  const { voters, currentUser, setOptimisticVote, clearOptimisticVote } =
+    useCircleVotes();
 
   // Lock the deck to whatever was unvoted at mount time. If we re-derived
   // it from voters on every render the top card would vanish mid-swipe as
@@ -105,6 +106,7 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
 
   const commitVote = useCallback(
     (planId: string, status: VoteStatus, dir: ExitDir) => {
+      setOptimisticVote(planId, status);
       if (reducedMotion) {
         // Skip the exit animation entirely — just advance and fire.
         setIndex((i) => i + 1);
@@ -115,6 +117,7 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
             null,
         });
         void castVote({ planId, status }).catch((err) => {
+          clearOptimisticVote(planId);
           toast.error(
             err instanceof Error ? err.message : "Couldn't save vote.",
           );
@@ -138,12 +141,13 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
         });
       }, 240);
       void castVote({ planId, status }).catch((err) => {
+        clearOptimisticVote(planId);
         toast.error(
           err instanceof Error ? err.message : "Couldn't save vote.",
         );
       });
     },
-    [reducedMotion, voters, currentUser.id],
+    [reducedMotion, voters, currentUser.id, setOptimisticVote, clearOptimisticVote],
   );
 
   const onUndo = useCallback(() => {
@@ -153,17 +157,20 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
     void (async () => {
       try {
         if (undo.previous === null) {
+          setOptimisticVote(undo.planId, null);
           await removeVote({ planId: undo.planId });
         } else {
+          setOptimisticVote(undo.planId, undo.previous);
           await castVote({ planId: undo.planId, status: undo.previous });
         }
       } catch (err) {
+        clearOptimisticVote(undo.planId);
         toast.error(
           err instanceof Error ? err.message : "Couldn't undo vote.",
         );
       }
     })();
-  }, [undo]);
+  }, [undo, setOptimisticVote, clearOptimisticVote]);
 
   // Pointer-event handlers. We use Pointer Events (not Touch + Mouse) so
   // the same code path handles desktop drag, mobile touch, and stylus
@@ -707,4 +714,3 @@ const TYPE_ICON: Record<PlanType, LucideIcon> = {
   "stay-in": Home,
   other: Sparkles,
 };
-

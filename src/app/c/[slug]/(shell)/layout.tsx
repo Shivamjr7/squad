@@ -19,6 +19,7 @@ import type {
 import type { FormMember } from "@/components/plan/new-plan-form";
 import { getUnreadCount } from "@/lib/actions/notifications";
 import { WelcomeRedirector } from "@/components/pwa/welcome-redirector";
+import { RememberCurrentCircle } from "@/components/circle/remember-current-circle";
 
 export default async function CircleShellLayout({
   children,
@@ -102,6 +103,7 @@ export default async function CircleShellLayout({
       unreadInboxPromise={unreadInboxPromise}
       activityPromise={activityPromise}
     >
+      <RememberCurrentCircle slug={slug} />
       <WelcomeRedirector hasAnyPushSubscription={hasAnyPushSubscription} />
       {children}
     </AppShell>

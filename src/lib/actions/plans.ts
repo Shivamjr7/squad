@@ -130,6 +130,12 @@ export async function createPlan(
       .where(eq(memberships.circleId, data.circleId));
     eligibleVoters = row?.n ?? 1;
   }
+  if (eligibleVoters < 2) {
+    throw new ActionError(
+      "INVALID",
+      "Invite at least one other person to create a plan.",
+    );
+  }
   const requestedThreshold = data.lockThreshold ?? Math.min(5, eligibleVoters);
   const lockThreshold = Math.max(
     1,
@@ -257,11 +263,8 @@ export async function createPlan(
     for (const ex of data.extraVenues) addLabel(ex);
     for (const s of data.suggestions) addLabel(s.label, { itemId: s.itemId });
 
-    const hasResolvedSuggestion = data.suggestions.some((s) =>
-      resolvedItemIds.has(s.itemId),
-    );
     const shouldSeedVenues =
-      data.extraVenues.length > 0 || hasResolvedSuggestion;
+      data.extraVenues.length > 0 || data.suggestions.length > 0;
 
     if (shouldSeedVenues && seedMap.size > 0) {
       await tx.insert(planVenues).values(

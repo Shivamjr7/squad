@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
 import { getUserCircles } from "@/lib/circles";
 import { getUnreadCount } from "@/lib/actions/notifications";
 import { AppShell } from "@/components/layout/AppShell";
+import { LAST_CIRCLE_COOKIE } from "@/lib/circle-memory";
 import type {
   SidebarCircle,
   SidebarMember,
@@ -30,7 +32,11 @@ export default async function CalendarLayout({
   // bottom-nav Calendar tab now lands somewhere instead of bouncing.
   if (userCircles.length === 0) redirect("/onboarding");
 
-  const currentSlug = userCircles[0]!.slug;
+  const cookieStore = await cookies();
+  const rememberedSlug = cookieStore.get(LAST_CIRCLE_COOKIE)?.value;
+  const currentSlug =
+    userCircles.find((c) => c.slug === rememberedSlug)?.slug ??
+    userCircles[0]!.slug;
 
   const sidebarCircles: SidebarCircle[] = userCircles.map((c) => ({
     id: c.id,

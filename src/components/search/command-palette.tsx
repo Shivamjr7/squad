@@ -9,7 +9,7 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, Search, Sparkles, Users } from "lucide-react";
+import { Calendar, Search, Sparkles, Users, X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { GradientAvatar } from "@/components/ui/gradient-avatar";
 import { Pill } from "@/components/ui/pill";
@@ -210,6 +210,14 @@ export function CommandPalette() {
           <kbd className="hidden shrink-0 select-none rounded border border-ink-subtle bg-paper-card px-1.5 py-0.5 font-mono text-[10px] text-ink-muted sm:inline">
             ESC
           </kbd>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close search"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-paper-card hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+          >
+            <X className="size-4" aria-hidden />
+          </button>
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto">

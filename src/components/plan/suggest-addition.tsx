@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,10 @@ function toDateTimeLocal(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function defaultAdditionTime(defaultStartsAt: Date): string {
+  return toDateTimeLocal(new Date(defaultStartsAt.getTime() + 90 * 60_000));
+}
+
 // M24 — inline composer for the PLUS row (live ticker) and AFTER row
 // (receipt). Submitting writes a plan_time_proposals row with kind=addition,
 // label=<text>. The row renders as a stacked sub-plan, NOT a vote candidate
@@ -36,12 +41,12 @@ export function SuggestAddition({
   defaultStartsAt,
   tone = "light",
 }: Props) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState("");
-  const [startsAtLocal, setStartsAtLocal] = useState(() => {
-    const d = new Date(defaultStartsAt.getTime() + 90 * 60_000);
-    return toDateTimeLocal(d);
-  });
+  const [startsAtLocal, setStartsAtLocal] = useState(() =>
+    defaultAdditionTime(defaultStartsAt),
+  );
   const [pending, startTransition] = useTransition();
 
   function onSubmit() {
@@ -61,7 +66,9 @@ export function SuggestAddition({
         });
         toast.success("Add-on suggested");
         setLabel("");
+        setStartsAtLocal(defaultAdditionTime(defaultStartsAt));
         setOpen(false);
+        router.refresh();
       } catch (err) {
         toast.error(
           err instanceof Error ? err.message : "Couldn't add suggestion.",
@@ -124,6 +131,7 @@ export function SuggestAddition({
           onClick={() => {
             setOpen(false);
             setLabel("");
+            setStartsAtLocal(defaultAdditionTime(defaultStartsAt));
           }}
           className={cn(
             "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",

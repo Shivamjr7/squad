@@ -126,7 +126,12 @@ export async function tryAutoLock(
       createdAt: planTimeProposals.createdAt,
     })
     .from(planTimeProposals)
-    .where(eq(planTimeProposals.planId, planId))
+    .where(
+      and(
+        eq(planTimeProposals.planId, planId),
+        eq(planTimeProposals.kind, "replacement"),
+      ),
+    )
     .orderBy(asc(planTimeProposals.createdAt));
 
   let canonicalStartsAt = plan.startsAt;
@@ -141,7 +146,12 @@ export async function tryAutoLock(
         planTimeProposals,
         eq(planTimeProposals.id, planTimeProposalVotes.proposalId),
       )
-      .where(eq(planTimeProposals.planId, planId))
+      .where(
+        and(
+          eq(planTimeProposals.planId, planId),
+          eq(planTimeProposals.kind, "replacement"),
+        ),
+      )
       .groupBy(planTimeProposalVotes.proposalId);
 
     const countMap = new Map<string, number>();

@@ -106,7 +106,12 @@ export function Receipt({
   suggestAddOnSlot,
   deepLinksSlot,
 }: Props) {
-  const { voters, currentUser } = useCircleVotes();
+  const {
+    voters,
+    currentUser,
+    setOptimisticVote,
+    clearOptimisticVote,
+  } = useCircleVotes();
   const planVoters = useMemo(
     () => voters[planId] ?? [],
     [voters, planId],
@@ -121,17 +126,7 @@ export function Receipt({
     return n;
   }, [planVoters, seedInCount]);
 
-  const [pendingVote, setPendingVote] = useState<
-    VoteStatus | null | undefined
-  >(undefined);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (pendingVote === undefined) return;
-    const canonical =
-      planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
-    if (canonical === pendingVote) setPendingVote(undefined);
-  }, [planVoters, pendingVote, currentUser.id]);
 
   useEffect(() => {
     return () => {
@@ -140,12 +135,10 @@ export function Receipt({
   }, []);
 
   const ownVote: VoteStatus | null =
-    pendingVote !== undefined
-      ? pendingVote
-      : (planVoters.find((v) => v.userId === currentUser.id)?.status ?? null);
+    planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
 
   const onVote = (next: VoteStatus | null) => {
-    setPendingVote(next);
+    setOptimisticVote(planId, next);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
@@ -165,7 +158,7 @@ export function Receipt({
             });
           }
         } catch (err) {
-          setPendingVote(undefined);
+          clearOptimisticVote(planId);
           toast.error(
             err instanceof Error ? err.message : "Couldn't save vote.",
           );

@@ -51,6 +51,7 @@ type Props = {
   // to a "Voting · N options" hint so the truncated canonical location
   // doesn't misrepresent the state.
   venueCount?: number;
+  additionsSlot?: React.ReactNode;
 };
 
 const COMMIT_DEBOUNCE_MS = 200;
@@ -93,8 +94,14 @@ export function LiveDashboard({
   now: serverNow,
   hasActionBar = false,
   venueCount = 0,
+  additionsSlot,
 }: Props) {
-  const { voters, currentUser } = useCircleVotes();
+  const {
+    voters,
+    currentUser,
+    setOptimisticVote,
+    clearOptimisticVote,
+  } = useCircleVotes();
   const planVoters = useMemo(
     () => voters[planId] ?? [],
     [voters, planId],
@@ -125,20 +132,10 @@ export function LiveDashboard({
     return { in: inN, maybe: maybeN, out: outN };
   }, [squad, statusByUser]);
 
-  // Optimistic local override. Mirrors live-ticker's pattern: hold the
-  // user's intent until the realtime row arrives, then clear.
-  const [pendingVote, setPendingVote] = useState<VoteStatus | null | undefined>(
-    undefined,
-  );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const canonicalVote =
+  const effectiveVote =
     planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
-
-  useEffect(() => {
-    if (pendingVote === undefined) return;
-    if (canonicalVote === pendingVote) setPendingVote(undefined);
-  }, [canonicalVote, pendingVote]);
 
   useEffect(() => {
     return () => {
@@ -146,11 +143,8 @@ export function LiveDashboard({
     };
   }, []);
 
-  const effectiveVote: VoteStatus | null =
-    pendingVote !== undefined ? pendingVote : canonicalVote;
-
   const onVote = (next: VoteStatus | null) => {
-    setPendingVote(next);
+    setOptimisticVote(planId, next);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
@@ -159,7 +153,7 @@ export function LiveDashboard({
           if (next === null) await removeVote({ planId });
           else await castVote({ planId, status: next });
         } catch (err) {
-          setPendingVote(undefined);
+          clearOptimisticVote(planId);
           toast.error(
             err instanceof Error ? err.message : "Couldn't save vote.",
           );
@@ -412,6 +406,8 @@ export function LiveDashboard({
             />
           </div>
         </div>
+
+        {additionsSlot}
 
         {/* Squad grid */}
         <section className="flex flex-col gap-2">
