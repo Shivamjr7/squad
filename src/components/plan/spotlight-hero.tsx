@@ -77,7 +77,12 @@ function formatHourMinute(d: Date, tz: string): { hour: string; suffix: string }
 }
 
 export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props) {
-  const { voters, currentUser } = useCircleVotes();
+  const {
+    voters,
+    currentUser,
+    setOptimisticVote,
+    clearOptimisticVote,
+  } = useCircleVotes();
   const planVoters = useMemo(
     () => voters[plan.id] ?? [],
     [voters, plan.id],
@@ -104,30 +109,16 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
       .slice(0, 4);
   }, [planVoters]);
 
-  const canonicalVote =
+  const effectiveVote =
     planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
 
-  const [pendingVote, setPendingVote] = useState<VoteStatus | undefined>(
-    undefined,
-  );
-
-  // Clear the optimistic override once the realtime row arrives matching
-  // what we set — mirrors live-ticker's pattern.
-  useEffect(() => {
-    if (pendingVote === undefined) return;
-    if (canonicalVote === pendingVote) setPendingVote(undefined);
-  }, [canonicalVote, pendingVote]);
-
-  const effectiveVote: VoteStatus | null =
-    pendingVote !== undefined ? pendingVote : canonicalVote;
-
   const onVote = (next: VoteStatus) => {
-    setPendingVote(next);
+    setOptimisticVote(plan.id, next);
     void (async () => {
       try {
         await castVote({ planId: plan.id, status: next });
       } catch (err) {
-        setPendingVote(undefined);
+        clearOptimisticVote(plan.id);
         toast.error(
           err instanceof Error ? err.message : "Couldn't save vote.",
         );

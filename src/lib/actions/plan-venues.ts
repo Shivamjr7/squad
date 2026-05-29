@@ -133,7 +133,7 @@ export async function castVenueVote(
 // plan by seeding the original location as the first row.
 export async function addVenue(
   input: AddVenueInput,
-): Promise<{ venueId: string }> {
+): Promise<{ venueId: string; label: string; createdAt: string }> {
   const parsed = addVenueSchema.safeParse(input);
   if (!parsed.success) {
     throw new ActionError(
@@ -246,7 +246,11 @@ export async function addVenue(
     revalidatePath(`/c/${circle.slug}`);
   }
 
-  return { venueId };
+  return {
+    venueId,
+    label: newRow.label,
+    createdAt: newRow.createdAt.toISOString(),
+  };
 }
 
 // On lock (open-time auto-lock or manual confirm), if the plan has multi-

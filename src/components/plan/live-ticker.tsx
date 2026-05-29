@@ -77,23 +77,18 @@ export function LiveTicker({
   suggestAddOnSlot,
   creatorName,
 }: Props) {
-  const { voters, currentUser } = useCircleVotes();
+  const {
+    voters,
+    currentUser,
+    setOptimisticVote,
+    clearOptimisticVote,
+  } = useCircleVotes();
   const planVoters = useMemo(
     () => voters[planId] ?? [],
     [voters, planId],
   );
 
-  const [pendingVote, setPendingVote] = useState<
-    VoteStatus | null | undefined
-  >(undefined);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (pendingVote === undefined) return;
-    const canonical =
-      planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
-    if (canonical === pendingVote) setPendingVote(undefined);
-  }, [planVoters, pendingVote, currentUser.id]);
 
   useEffect(() => {
     return () => {
@@ -102,23 +97,15 @@ export function LiveTicker({
   }, []);
 
   const ownVote: VoteStatus | null =
-    pendingVote !== undefined
-      ? pendingVote
-      : (planVoters.find((v) => v.userId === currentUser.id)?.status ?? null);
+    planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
 
   const inCount = useMemo(() => {
     let n = 0;
     for (const v of planVoters) {
-      if (v.userId === currentUser.id) continue;
       if (v.status === "in") n += 1;
     }
-    if (pendingVote === "in") return n + 1;
-    if (pendingVote === undefined) {
-      const own = planVoters.find((v) => v.userId === currentUser.id);
-      if (own?.status === "in") return n + 1;
-    }
     return n;
-  }, [planVoters, pendingVote, currentUser.id]);
+  }, [planVoters]);
 
   // Countdown: refresh every 10s so the header reads accurately without
   // hammering renders. Clamps at 0.
@@ -139,7 +126,7 @@ export function LiveTicker({
   }, [decideBy, serverNow, tick]);
 
   const onVote = (next: VoteStatus | null) => {
-    setPendingVote(next);
+    setOptimisticVote(planId, next);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
@@ -148,7 +135,7 @@ export function LiveTicker({
           if (next === null) await removeVote({ planId });
           else await castVote({ planId, status: next });
         } catch (err) {
-          setPendingVote(undefined);
+          clearOptimisticVote(planId);
           toast.error(
             err instanceof Error ? err.message : "Couldn't save vote.",
           );

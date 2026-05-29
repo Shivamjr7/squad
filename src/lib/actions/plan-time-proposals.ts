@@ -30,7 +30,14 @@ import { tryAutoLock } from "@/lib/actions/auto-lock";
 // counter-proposal lands.
 export async function proposeTime(
   input: ProposeTimeInput,
-): Promise<{ proposalId: string }> {
+): Promise<{
+  proposalId: string;
+  startsAt: string;
+  proposedBy: string | null;
+  createdAt: string;
+  kind: "replacement" | "addition";
+  label: string | null;
+}> {
   const parsed = proposeTimeSchema.safeParse(input);
   if (!parsed.success) {
     throw new ActionError(
@@ -65,10 +72,16 @@ export async function proposeTime(
   if (!plan) {
     throw new ActionError("NOT_FOUND", "Plan not found.");
   }
-  if (plan.status !== "active") {
+  const isAddition = data.kind === "addition";
+  if (
+    (isAddition && plan.status !== "active" && plan.status !== "confirmed") ||
+    (!isAddition && plan.status !== "active")
+  ) {
     throw new ActionError(
       "INVALID",
-      "This plan is no longer accepting proposals.",
+      isAddition
+        ? "This plan is no longer accepting add-ons."
+        : "This plan is no longer accepting proposals.",
     );
   }
   if (plan.timeMode !== "exact") {
@@ -93,7 +106,6 @@ export async function proposeTime(
   // M24 — additions don't compete with the canonical time, so we never seed
   // the original starts_at row when adding one. Replacements keep the M22
   // behavior of seeding the original so the prior time stays in the vote.
-  const isAddition = data.kind === "addition";
   const label = isAddition ? data.label?.trim() || null : null;
 
   type ProposalRowOut = {
@@ -180,6 +192,8 @@ export async function proposeTime(
       startsAt: seedRow.startsAt.toISOString(),
       proposedBy: seedRow.proposedBy,
       createdAt: seedRow.createdAt.toISOString(),
+      kind: "replacement",
+      label: null,
     });
   }
   void emitBroadcast(RT.proposals(data.planId), RT_EVENT.proposalChanged, {
@@ -189,6 +203,8 @@ export async function proposeTime(
     startsAt: newRow.startsAt.toISOString(),
     proposedBy: newRow.proposedBy,
     createdAt: newRow.createdAt.toISOString(),
+    kind: data.kind,
+    label,
   });
 
   const circle = await db.query.circles.findFirst({
@@ -199,11 +215,19 @@ export async function proposeTime(
     revalidatePath(`/c/${circle.slug}/p/${data.planId}`);
   }
 
-  return { proposalId };
+  return {
+    proposalId,
+    startsAt: newRow.startsAt.toISOString(),
+    proposedBy: newRow.proposedBy,
+    createdAt: newRow.createdAt.toISOString(),
+    kind: data.kind,
+    label,
+  };
 }
 
-// Toggle a vote on a time proposal. One vote per (plan, user): switching to
-// a different proposal deducts the prior. Tapping the same proposal retracts.
+// Toggle a vote on a replacement time proposal. One vote per (plan, user):
+// switching to a different replacement deducts the prior. Tapping the same
+// proposal retracts.
 export async function castProposalVote(
   input: CastProposalVoteInput,
 ): Promise<{ proposalId: string; voted: boolean; locked: boolean }> {
@@ -217,11 +241,14 @@ export async function castProposalVote(
   const { planId, proposalId } = parsed.data;
 
   const proposal = await db.query.planTimeProposals.findFirst({
-    columns: { id: true, planId: true },
+    columns: { id: true, planId: true, kind: true },
     where: eq(planTimeProposals.id, proposalId),
   });
   if (!proposal || proposal.planId !== planId) {
     throw new ActionError("NOT_FOUND", "Proposal not found for that plan.");
+  }
+  if (proposal.kind !== "replacement") {
+    throw new ActionError("INVALID", "Add-ons are not time vote options.");
   }
 
   const plan = await db.query.plans.findFirst({
@@ -255,6 +282,7 @@ export async function castProposalVote(
     .where(
       and(
         eq(planTimeProposals.planId, planId),
+        eq(planTimeProposals.kind, "replacement"),
         eq(planTimeProposalVotes.userId, userId),
       ),
     )
@@ -310,4 +338,90 @@ export async function castProposalVote(
   }
 
   return { proposalId, voted, locked: lockResult.lockedNow };
+}
+
+// Toggle a user's attendance for a stacked add-on. Unlike replacement-time
+// votes, add-on votes are independent: a user can join multiple add-ons, and
+// this never affects canonical plan time selection or auto-lock.
+export async function toggleAdditionVote(
+  input: CastProposalVoteInput,
+): Promise<{ proposalId: string; voted: boolean }> {
+  const parsed = castProposalVoteSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new ActionError(
+      "INVALID",
+      parsed.error.issues[0]?.message ?? "Invalid add-on vote.",
+    );
+  }
+  const { planId, proposalId } = parsed.data;
+
+  const proposal = await db.query.planTimeProposals.findFirst({
+    columns: { id: true, planId: true, kind: true },
+    where: eq(planTimeProposals.id, proposalId),
+  });
+  if (!proposal || proposal.planId !== planId) {
+    throw new ActionError("NOT_FOUND", "Add-on not found for that plan.");
+  }
+  if (proposal.kind !== "addition") {
+    throw new ActionError("INVALID", "That is not an add-on.");
+  }
+
+  const plan = await db.query.plans.findFirst({
+    columns: { id: true, circleId: true, status: true },
+    where: eq(plans.id, planId),
+  });
+  if (!plan) {
+    throw new ActionError("NOT_FOUND", "Plan not found.");
+  }
+  if (plan.status !== "active" && plan.status !== "confirmed") {
+    throw new ActionError(
+      "INVALID",
+      "This plan is no longer accepting add-on votes.",
+    );
+  }
+
+  const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(planId, userId);
+
+  const existing = await db
+    .select({ id: planTimeProposalVotes.id })
+    .from(planTimeProposalVotes)
+    .where(
+      and(
+        eq(planTimeProposalVotes.proposalId, proposalId),
+        eq(planTimeProposalVotes.userId, userId),
+      ),
+    )
+    .limit(1);
+
+  const voted = existing.length === 0;
+  if (voted) {
+    await db.insert(planTimeProposalVotes).values({ proposalId, userId });
+  } else {
+    await db
+      .delete(planTimeProposalVotes)
+      .where(eq(planTimeProposalVotes.id, existing[0].id));
+  }
+
+  void emitBroadcast(
+    RT.proposals(planId),
+    RT_EVENT.proposalVoteChanged,
+    {
+      op: voted ? "upsert" : "delete",
+      planId,
+      proposalId,
+      userId,
+      kind: "addition",
+    },
+  );
+
+  const circle = await db.query.circles.findFirst({
+    columns: { slug: true },
+    where: eq(circles.id, plan.circleId),
+  });
+  if (circle?.slug) {
+    revalidatePath(`/c/${circle.slug}/p/${planId}`);
+  }
+
+  return { proposalId, voted };
 }

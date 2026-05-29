@@ -21,11 +21,6 @@ import { VoteTally } from "./vote-tally";
 // "in → out → in → out" doesn't spawn four round-trips. Last tap wins.
 const COMMIT_DEBOUNCE_MS = 200;
 
-// `undefined` = no pending optimistic override, defer to canonical state.
-// `null` = user wants their vote removed.
-// VoteStatus = user wants to cast that status.
-type PendingVote = VoteStatus | null | undefined;
-
 export function PlanVotes({
   planId,
   showFirstVoteHint: showHint = false,
@@ -39,13 +34,17 @@ export function PlanVotes({
   buttonSize?: "default" | "lg";
   showTally?: boolean;
 }) {
-  const { voters, currentUser } = useCircleVotes();
+  const {
+    voters,
+    currentUser,
+    setOptimisticVote,
+    clearOptimisticVote,
+  } = useCircleVotes();
   const planVoters: Voter[] = useMemo(
     () => voters[planId] ?? [],
     [voters, planId],
   );
 
-  const [pendingVote, setPendingVote] = useState<PendingVote>(undefined);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // M32.3 — pre-vote conflict sheet (CONVERGENCE_PLAN.md §4.1).
@@ -56,18 +55,6 @@ export function PlanVotes({
   const [conflict, setConflict] = useState<VoteConflict | null>(null);
   const conflictGenRef = useRef(0);
 
-  // Once realtime delivers our own vote in a state matching the optimistic
-  // override, drop the override so future realtime updates flow straight
-  // through.
-  useEffect(() => {
-    if (pendingVote === undefined) return;
-    const canonical =
-      planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
-    if (canonical === pendingVote) {
-      setPendingVote(undefined);
-    }
-  }, [planVoters, pendingVote, currentUser.id]);
-
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -75,24 +62,7 @@ export function PlanVotes({
   }, []);
 
   const ownVote: VoteStatus | null =
-    pendingVote !== undefined
-      ? pendingVote
-      : (planVoters.find((v) => v.userId === currentUser.id)?.status ?? null);
-
-  const displayVoters = useMemo<Voter[]>(() => {
-    if (pendingVote === undefined) return planVoters;
-    const without = planVoters.filter((v) => v.userId !== currentUser.id);
-    if (pendingVote === null) return without;
-    return [
-      ...without,
-      {
-        userId: currentUser.id,
-        displayName: currentUser.displayName,
-        avatarUrl: currentUser.avatarUrl,
-        status: pendingVote,
-      },
-    ];
-  }, [planVoters, pendingVote, currentUser]);
+    planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
 
   // Debounced server commit. Pulled out so the conflict sheet can defer the
   // network call until the user accepts the double-booking, without
@@ -109,7 +79,7 @@ export function PlanVotes({
             await castVote({ planId, status: next });
           }
         } catch (err) {
-          setPendingVote(undefined);
+          clearOptimisticVote(planId);
           const message =
             err instanceof Error ? err.message : "Couldn't save vote.";
           toast.error(message, { description: "Tap to retry." });
@@ -122,7 +92,7 @@ export function PlanVotes({
     // Apply the optimistic state immediately either way — speed > polish per
     // CLAUDE.md. The sheet (if it opens) is purely a confirmation; the green
     // pill is already lit while the check runs in the background.
-    setPendingVote(next);
+    setOptimisticVote(planId, next);
 
     // Only IN-edge taps need the conflict check. Switching from in→out, or
     // tapping MAYBE/OUT, can't create a new hard double-booking. Re-taps on
@@ -163,15 +133,15 @@ export function PlanVotes({
     conflictGenRef.current += 1;
     // Drop the optimistic IN so the buttons fall back to the canonical
     // realtime state (the previous vote, or nothing).
-    setPendingVote(undefined);
+    clearOptimisticVote(planId);
   };
 
   // Hint only on the plan detail page (caller opts in). Covers both "no
   // votes at all" and "creator auto-in is the only vote, you're a viewer".
   const showFirstVoteHint =
     showHint &&
-    displayVoters.length <= 1 &&
-    !displayVoters.some((v) => v.userId === currentUser.id);
+    planVoters.length <= 1 &&
+    !planVoters.some((v) => v.userId === currentUser.id);
 
   return (
     <div className="flex flex-col gap-3">
@@ -182,7 +152,7 @@ export function PlanVotes({
       ) : null}
       <VoteButtons selected={ownVote} onChange={onChange} size={buttonSize} />
       {showTally ? (
-        <VoteTally voters={displayVoters} density={density} />
+        <VoteTally voters={planVoters} density={density} />
       ) : null}
       <ConflictWarningSheet
         open={conflict !== null}

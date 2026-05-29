@@ -31,6 +31,12 @@ import {
   LiveDashboard,
   type LiveDashboardMember,
 } from "@/components/plan/live-dashboard";
+import {
+  AdditionVoteList,
+  type AdditionVoteMember,
+  type AdditionVoteRow,
+  type InitialAdditionVoter,
+} from "@/components/plan/addition-vote-list";
 import { Receipt, type ReceiptEvent } from "@/components/plan/receipt";
 import { SuggestAddition } from "@/components/plan/suggest-addition";
 import { ConflictCompareLauncher } from "@/components/plan/conflict-compare-launcher";
@@ -240,6 +246,9 @@ export default async function PlanDetailPage({
   const proposalVoteRows = proposalRows.flatMap((p) =>
     p.votes.map((pv) => ({ ...pv, proposalId: p.id })),
   );
+  const additionVoteRows = additionRows.flatMap((p) =>
+    p.votes.map((pv) => ({ ...pv, proposalId: p.id })),
+  );
 
   const isAllRecipients = recipientRows.length === 0;
   const recipientIds = isAllRecipients
@@ -266,7 +275,7 @@ export default async function PlanDetailPage({
               className="-ml-2 shrink-0"
               aria-label="Back to circle"
             >
-              <Link href={`/c/${circle.slug}`}>
+              <Link href={`/c/${circle.slug}`} replace>
                 <ArrowLeft />
               </Link>
             </Button>
@@ -418,6 +427,29 @@ export default async function PlanDetailPage({
       };
     }
   }
+
+  const initialAdditionVoters: InitialAdditionVoter[] = [];
+  const additionMembers: Record<string, AdditionVoteMember> = {};
+  if (me.user) {
+    additionMembers[me.user.id] = {
+      userId: me.user.id,
+      displayName: me.user.displayName,
+      avatarUrl: me.user.avatarUrl,
+    };
+  }
+  for (const av of additionVoteRows) {
+    initialAdditionVoters.push({
+      proposalId: av.proposalId,
+      userId: av.userId,
+    });
+    if (av.user) {
+      additionMembers[av.user.id] = {
+        userId: av.user.id,
+        displayName: av.user.displayName,
+        avatarUrl: av.user.avatarUrl,
+      };
+    }
+  }
   const showProposals =
     !isPastPlan && plan.status === "active" && plan.timeMode === "exact";
 
@@ -441,6 +473,19 @@ export default async function PlanDetailPage({
     proposerName: r.proposer?.displayName ?? null,
     createdAt: r.createdAt.toISOString(),
   }));
+  const additionVoteRowsForUi: AdditionVoteRow[] = additionsForTicker.map(
+    (a) => ({
+      id: a.id,
+      label: a.label,
+      startsAt: a.startsAt,
+      proposerName: a.proposerName,
+      createdAt: a.createdAt,
+    }),
+  );
+  const canVoteOnAdditions =
+    !isPastPlan &&
+    canParticipate &&
+    (plan.status === "active" || plan.status === "confirmed");
 
   const receiptEvents: ReceiptEvent[] = receiptEventRows.map((e) => ({
     id: e.id,
@@ -537,7 +582,7 @@ export default async function PlanDetailPage({
             className="-ml-1.5 shrink-0"
             aria-label="Back to circle"
           >
-            <Link href={`/c/${circle.slug}`}>
+            <Link href={`/c/${circle.slug}`} replace>
               <ArrowLeft className="size-4" />
             </Link>
           </Button>
@@ -634,6 +679,19 @@ export default async function PlanDetailPage({
               now={now}
               hasActionBar={canMutateStatus}
               venueCount={initialVenues.length}
+              additionsSlot={
+                additionVoteRowsForUi.length > 0 ? (
+                  <AdditionVoteList
+                    planId={plan.id}
+                    additions={additionVoteRowsForUi}
+                    initialVoters={initialAdditionVoters}
+                    members={additionMembers}
+                    currentUserId={userId}
+                    canVote={canVoteOnAdditions}
+                    timeZone={plan.timeZone}
+                  />
+                ) : null
+              }
             />
             {showVenueVote ? (
               <VenueVote
@@ -749,8 +807,13 @@ export default async function PlanDetailPage({
               />
             ) : null}
             {additionsForTicker.length > 0 ? (
-              <DecisionAdditions
-                additions={additionsForTicker}
+              <AdditionVoteList
+                planId={plan.id}
+                additions={additionVoteRowsForUi}
+                initialVoters={initialAdditionVoters}
+                members={additionMembers}
+                currentUserId={userId}
+                canVote={canVoteOnAdditions}
                 timeZone={plan.timeZone}
               />
             ) : null}
@@ -836,47 +899,6 @@ function NotInvitedNote({ creatorName }: { creatorName: string | null }) {
         to add you.
       </p>
     </div>
-  );
-}
-
-function DecisionAdditions({
-  additions,
-  timeZone,
-}: {
-  additions: LiveTickerAddition[];
-  timeZone?: string;
-}) {
-  const TIME = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone,
-  });
-  return (
-    <section className="flex flex-col gap-2">
-      <span className="eyebrow text-ink-muted">
-        Plus
-      </span>
-      <ul className="flex flex-col divide-y divide-ink/5 rounded-xl border border-ink/10 bg-paper-card/40">
-        {additions.map((a) => (
-          <li key={a.id} className="flex items-baseline gap-3 px-4 py-3">
-            <span className="font-mono text-sm text-ink-muted tabular-nums">
-              {TIME.format(new Date(a.startsAt))}
-            </span>
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-sm text-ink">
-                {a.label ?? "Add-on"}
-              </span>
-              {a.proposerName ? (
-                <span className="text-[11px] text-ink-muted">
-                  proposed by {a.proposerName}
-                </span>
-              ) : null}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

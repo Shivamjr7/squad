@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -37,6 +38,8 @@ export type CurrentUser = {
 type CtxValue = {
   voters: VotersByPlan;
   currentUser: CurrentUser;
+  setOptimisticVote: (planId: string, status: VoteStatus | null) => void;
+  clearOptimisticVote: (planId: string) => void;
 };
 
 const Ctx = createContext<CtxValue | null>(null);
@@ -88,7 +91,10 @@ export function CircleVotesProvider({
   currentUser: CurrentUser;
   children: ReactNode;
 }) {
-  const [voters, setVoters] = useState<VotersByPlan>(initialVoters);
+  const [baseVoters, setBaseVoters] = useState<VotersByPlan>(initialVoters);
+  const [optimisticVotes, setOptimisticVotes] = useState<
+    Record<string, VoteStatus | null>
+  >({});
 
   const membersRef = useRef(members);
   membersRef.current = members;
@@ -112,7 +118,7 @@ export function CircleVotesProvider({
             const data = payload as VoteBroadcastPayload;
             if (!data || data.planId !== planId || !data.userId) return;
 
-            setVoters((prev) => {
+            setBaseVoters((prev) => {
               const list = prev[planId] ?? [];
 
               if (data.op === "delete") {
@@ -157,9 +163,60 @@ export function CircleVotesProvider({
     // re-render that produced a new array reference for the same set.
   }, [channelKey]);
 
+  useEffect(() => {
+    setOptimisticVotes((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [planId, status] of Object.entries(prev)) {
+        const canonical =
+          baseVoters[planId]?.find((v) => v.userId === currentUser.id)
+            ?.status ?? null;
+        if (canonical === status) {
+          delete next[planId];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [baseVoters, currentUser.id]);
+
+  const voters = useMemo<VotersByPlan>(() => {
+    const next: VotersByPlan = { ...baseVoters };
+    for (const [planId, status] of Object.entries(optimisticVotes)) {
+      const list = next[planId] ?? [];
+      const without = list.filter((v) => v.userId !== currentUser.id);
+      next[planId] =
+        status === null
+          ? without
+          : [
+              ...without,
+              {
+                userId: currentUser.id,
+                displayName: currentUser.displayName,
+                avatarUrl: currentUser.avatarUrl,
+                status,
+              },
+            ];
+    }
+    return next;
+  }, [baseVoters, optimisticVotes, currentUser]);
+
+  const setOptimisticVote = useCallback((planId: string, status: VoteStatus | null) => {
+    setOptimisticVotes((prev) => ({ ...prev, [planId]: status }));
+  }, []);
+
+  const clearOptimisticVote = useCallback((planId: string) => {
+    setOptimisticVotes((prev) => {
+      if (!(planId in prev)) return prev;
+      const next = { ...prev };
+      delete next[planId];
+      return next;
+    });
+  }, []);
+
   const value = useMemo<CtxValue>(
-    () => ({ voters, currentUser }),
-    [voters, currentUser],
+    () => ({ voters, currentUser, setOptimisticVote, clearOptimisticVote }),
+    [voters, currentUser, setOptimisticVote, clearOptimisticVote],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

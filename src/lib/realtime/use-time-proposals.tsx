@@ -122,8 +122,11 @@ export function TimeProposalsProvider({
             startsAt?: string;
             proposedBy?: string | null;
             createdAt?: string;
+            kind?: "replacement" | "addition";
+            label?: string | null;
           };
           if (!data || data.planId !== planId || !data.id) return;
+          if (data.kind === "addition") return;
 
           setState((prev) => {
             if (data.op === "delete") {

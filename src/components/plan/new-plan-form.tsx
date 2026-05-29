@@ -272,14 +272,14 @@ export function NewPlanForm({
 
   const isTitleValid = title.trim().length >= 3;
   const isWhenValid = startsAt !== null && startsAt.getTime() > now.getTime();
-  const canSubmit = isTitleValid && isWhenValid && !pending;
-
   // Recipients chip selection — purely visual in M19. Schema lands in M23.
   // Default state: all members selected; tapping a chip toggles them off.
   const [recipientsExpanded, setRecipientsExpanded] = useState(false);
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
   const selectedCount = members.length - excluded.size;
   const allSelected = excluded.size === 0;
+  const hasEnoughRecipients = selectedCount >= 2;
+  const canSubmit = isTitleValid && isWhenValid && hasEnoughRecipients && !pending;
 
   // Suggest Plan — runtime adds from the in-form Suggest button. The Path 1
   // initialSuggestion (from the home-page drawer) flows in through the
@@ -791,9 +791,11 @@ export function NewPlanForm({
                 </div>
               ) : null}
               <p className="text-[11px] text-ink-muted">
-                {allSelected
-                  ? "Everyone in the circle will be invited."
-                  : `Only ${selectedCount} ${selectedCount === 1 ? "person" : "people"} will be invited.`}
+                {!hasEnoughRecipients
+                  ? "Pick at least two people for a plan."
+                  : allSelected
+                    ? "Everyone in the circle will be invited."
+                    : `Only ${selectedCount} ${selectedCount === 1 ? "person" : "people"} will be invited.`}
               </p>
             </div>
 
