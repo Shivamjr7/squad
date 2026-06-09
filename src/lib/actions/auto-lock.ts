@@ -21,16 +21,12 @@ import {
 import { resolvePlanAudience } from "@/lib/notifications";
 import { dispatchPlanLockedNotification } from "@/lib/actions/plan-lock-notifications";
 
-// Auto-lock. The plan flips to `confirmed` when:
-//   1. M22 threshold path: `votes` with status='in' ≥ plans.lock_threshold AND
-//      a single time proposal AND a single venue option each have unique
-//      plurality.
-//   2. M22 deadline path (forced): the `decide_by` reaper passes `force=true`
-//      so the plurality requirement is relaxed — earliest-proposed wins on
-//      ties.
+// Auto-lock. The plan flips to `confirmed` when `votes` with status='in'
+// reach plans.lock_threshold AND a single time proposal AND a single venue
+// option each have unique plurality.
 //
 // A fully-voted plan with fewer than lock_threshold IN votes stays active
-// until the deadline or a creator/admin locks it manually. That keeps
+// until enough people are actually in or a creator/admin locks it manually. That keeps
 // "1 in + 1 maybe" from looking like consensus in a 2-person plan.
 //
 // Single source of truth so the in-app vote paths and the cron edge function

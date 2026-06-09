@@ -32,7 +32,7 @@ export function LandingHowItWorks() {
           <Step
             n="03"
             title="It locks."
-            body="Hit consensus or hit the deadline — the plan locks. Calendar invite, directions, lock-screen widget. Done."
+            body="Hit consensus before the decision time and the plan locks. Calendar invite, directions, lock-screen widget. Done."
           />
         </ol>
       </div>
