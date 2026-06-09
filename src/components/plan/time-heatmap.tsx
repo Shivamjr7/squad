@@ -21,9 +21,18 @@ const HOUR_FMT = new Intl.DateTimeFormat("en-US", {
   hour12: true,
 });
 
-function hourLabel(iso: string): string {
+const HOUR_MINUTE_FMT = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+function slotLabel(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
+  if (d.getMinutes() !== 0) {
+    return HOUR_MINUTE_FMT.format(d).replace(/\s/g, "").toLowerCase();
+  }
   const parts = HOUR_FMT.formatToParts(d);
   const hour = parts.find((p) => p.type === "hour")?.value ?? "";
   const period = parts.find((p) => p.type === "dayPeriod")?.value ?? "";
@@ -176,7 +185,7 @@ function HeatmapInner({
             key={`hdr-${s.id}`}
             className="text-center text-[11px] font-semibold uppercase tracking-wider text-ink-muted"
           >
-            {hourLabel(s.startsAt)}
+            {slotLabel(s.startsAt)}
           </div>
         ))}
 
@@ -209,7 +218,7 @@ function HeatmapInner({
                     type="button"
                     role="gridcell"
                     aria-selected={voted}
-                    aria-label={`${m.displayName}, ${hourLabel(s.startsAt)}, ${
+                    aria-label={`${m.displayName}, ${slotLabel(s.startsAt)}, ${
                       voted ? "free" : "not free"
                     }`}
                     onClick={isOwn ? () => toggle(s.id) : undefined}

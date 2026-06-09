@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar, Search, Sparkles, Users, X } from "lucide-react";
@@ -78,7 +77,7 @@ export function CommandPalette() {
   // returns. We only show the empty state when settledQuery matches.
   const [settledQuery, setSettledQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isPending, startTransition] = useTransition();
+  const [isSearching, setIsSearching] = useState(false);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Each search bumps this id; results from older queries are dropped to
@@ -111,19 +110,22 @@ export function CommandPalette() {
     };
   }, []);
 
-  // Run the search. Trims + skips empty; debounced informally by the
-  // input change event (no setTimeout — keystrokes already pace this).
+  // Run the search. Debounce slightly so mobile typing doesn't flash
+  // loading/empty states between every keystroke.
   useEffect(() => {
     const trimmed = query.trim();
     if (!open) return;
     if (trimmed.length === 0) {
+      queryIdRef.current += 1;
       setResult({ plans: [], circles: [], members: [] });
       setSettledQuery("");
       setActiveIndex(0);
+      setIsSearching(false);
       return;
     }
     const id = ++queryIdRef.current;
-    startTransition(async () => {
+    setIsSearching(true);
+    const timer = window.setTimeout(async () => {
       try {
         const r = await searchUserScope(trimmed);
         if (id !== queryIdRef.current) return;
@@ -132,8 +134,11 @@ export function CommandPalette() {
         setActiveIndex(0);
       } catch {
         // Silent — palette is best-effort.
+      } finally {
+        if (id === queryIdRef.current) setIsSearching(false);
       }
-    });
+    }, 180);
+    return () => window.clearTimeout(timer);
   }, [query, open]);
 
   // Reset transient state when the palette closes so a re-open is fresh.
@@ -147,6 +152,7 @@ export function CommandPalette() {
       setResult({ plans: [], circles: [], members: [] });
       setSettledQuery("");
       setActiveIndex(0);
+      setIsSearching(false);
     }
   }, [open]);
 
@@ -181,7 +187,7 @@ export function CommandPalette() {
   // current query AND nothing is in flight. Otherwise the previous result
   // (or nothing on the very first keystroke) would flash an empty state
   // until the async search returns.
-  const resultsSettled = settledQuery === trimmedQuery && !isPending;
+  const resultsSettled = settledQuery === trimmedQuery && !isSearching;
   const empty = items.length === 0 && resultsSettled;
   const showLoadingPlaceholder =
     !showHint && items.length === 0 && !resultsSettled;

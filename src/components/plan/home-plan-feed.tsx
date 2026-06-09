@@ -79,7 +79,13 @@ export function HomePlanFeed({
       ) : null}
 
       {view === "swipe" ? (
-        <PlansSwipeDeck plans={deckPlans} slug={slug} now={now} context="home" />
+        <PlansSwipeDeck
+          plans={deckPlans}
+          slug={slug}
+          now={now}
+          context="home"
+          onCaughtUpBack={() => setViewPersisted("list")}
+        />
       ) : (
         <div className="flex flex-col gap-6">
           {featured ? (
