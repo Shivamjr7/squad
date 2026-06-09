@@ -1,13 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { NewPlanForm, type FormMember } from "./new-plan-form";
+import type { FormMember } from "./new-plan-form";
 
 const DESKTOP_QUERY = "(min-width: 640px)";
+
+const NewPlanForm = dynamic(
+  () => import("./new-plan-form").then((mod) => mod.NewPlanForm),
+  { loading: () => <NewPlanFormLoading /> },
+);
 
 type Props = {
   circleId: string;
@@ -44,6 +50,7 @@ export function NewPlanTrigger({
           size="lg"
           onClick={() => setOpen(true)}
           className="h-12 rounded-full bg-ink px-6 text-paper shadow-float hover:bg-ink/90"
+          data-tour="new-plan"
         >
           <Plus className="size-5" />
           Start a plan
@@ -55,6 +62,7 @@ export function NewPlanTrigger({
           onClick={() => setOpen(true)}
           aria-label="New plan"
           className="size-9 rounded-full bg-ink text-paper hover:bg-ink/90"
+          data-tour="new-plan"
         >
           <Plus className="size-5" />
         </Button>
@@ -96,5 +104,21 @@ export function NewPlanTrigger({
           </Sheet>
         ))}
     </>
+  );
+}
+
+function NewPlanFormLoading() {
+  return (
+    <div className="flex h-full flex-col bg-paper px-5 py-6">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">
+        New plan
+      </span>
+      <div className="mt-8 flex flex-col gap-4">
+        <div className="h-10 w-3/4 rounded-xl bg-ink/10" />
+        <div className="h-11 rounded-xl bg-ink/10" />
+        <div className="h-11 rounded-xl bg-ink/10" />
+        <div className="h-24 rounded-2xl bg-ink/10" />
+      </div>
+    </div>
   );
 }

@@ -1,14 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { NewPlanForm, type FormMember } from "@/components/plan/new-plan-form";
+import type { FormMember } from "@/components/plan/new-plan-form";
 import { cn } from "@/lib/utils";
 import { circleDotClass } from "@/lib/circle-color";
 
 const DESKTOP_QUERY = "(min-width: 640px)";
+
+const NewPlanForm = dynamic(
+  () =>
+    import("@/components/plan/new-plan-form").then(
+      (mod) => mod.NewPlanForm,
+    ),
+  { loading: () => <NewPlanFormLoading /> },
+);
 
 export type LauncherCircle = {
   id: string;
@@ -38,6 +47,22 @@ function toDateTimeLocal(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
     d.getDate(),
   )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function NewPlanFormLoading() {
+  return (
+    <div className="flex h-full flex-col bg-paper px-5 py-6">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">
+        New plan
+      </span>
+      <div className="mt-8 flex flex-col gap-4">
+        <div className="h-10 w-3/4 rounded-xl bg-ink/10" />
+        <div className="h-11 rounded-xl bg-ink/10" />
+        <div className="h-11 rounded-xl bg-ink/10" />
+        <div className="h-24 rounded-2xl bg-ink/10" />
+      </div>
+    </div>
+  );
 }
 
 export function CalendarCreateLauncher({

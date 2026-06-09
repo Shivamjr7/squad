@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { and, asc, count, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -35,10 +34,6 @@ import {
   type FeedPlanCardData,
 } from "@/components/plan/feed-plan-card";
 import {
-  HomeTabSwitcher,
-  type HomeTab,
-} from "@/components/home/tab-switcher";
-import {
   PlansFilters,
   type TimeFilter,
 } from "@/components/home/plans-filters";
@@ -55,8 +50,13 @@ import { PrefetchCircle } from "@/components/home/prefetch-circle";
 import { NotificationsBellLink } from "@/components/notifications/notifications-bell-link";
 import { LocalGreeting } from "@/components/home/local-greeting";
 import { AddCircleMenu } from "@/components/home/add-circle-menu";
+import {
+  FirstRunTour,
+  type FirstRunTourStep,
+} from "@/components/onboarding/first-run-tour";
 
 const FEED_LIMIT = 30;
+type HomeView = "circles" | "plans";
 
 type RawSearch = {
   tab?: string;
@@ -73,7 +73,7 @@ export default async function Home({
   searchParams: Promise<RawSearch>;
 }) {
   const params = await searchParams;
-  const tab: HomeTab = params.tab === "plans" ? "plans" : "circles";
+  const tab: HomeView = params.tab === "plans" ? "plans" : "circles";
   const { userId } = await auth();
 
   if (!userId) {
@@ -95,7 +95,6 @@ export default async function Home({
 
   await requireDisplayNameSet(userId);
   const fallbackSlug = await getMostRecentCircleSlug(userId);
-  if (!fallbackSlug) redirect("/onboarding");
 
   return (
     <SignedInHome
@@ -114,8 +113,8 @@ async function SignedInHome({
   rawSearch,
 }: {
   userId: string;
-  fallbackSlug: string;
-  tab: HomeTab;
+  fallbackSlug: string | null;
+  tab: HomeView;
   rawSearch: RawSearch;
 }) {
   const [userCircles, unread, userRow] = await Promise.all([
@@ -141,11 +140,45 @@ async function SignedInHome({
   const displayName = userRow?.displayName ?? "you";
   const avatarUrl = userRow?.avatarUrl ?? null;
   const now = new Date();
-  const showTabs = userCircles.length > 1;
+  const needsVoteTotal = userCircles.reduce(
+    (sum, circle) => sum + (activity.get(circle.id)?.needsVote ?? 0),
+    0,
+  );
+  const decidingTotal = userCircles.reduce(
+    (sum, circle) => sum + (activity.get(circle.id)?.deciding ?? 0),
+    0,
+  );
+  const homeTourSteps: FirstRunTourStep[] = [
+    userCircles.length === 0
+      ? {
+          title: "Add your first circle",
+          body: "Start here. Create a circle for your squad, or join one with an invite link.",
+          selectors: ['[data-tour="home-add-circle"]'],
+        }
+      : {
+          title: "Select a circle",
+          body: "Start here. Tap the squad you want to plan with, then you’ll land on that circle’s home.",
+          selectors: ['[data-tour="home-circle-card"]'],
+        },
+    ...(userCircles.length > 0
+      ? [
+          {
+            title: "Add a circle",
+            body: "Use Add circle when you want to create a new squad or join one with an invite link.",
+            selectors: ['[data-tour="home-add-circle"]'],
+          },
+          {
+            title: "View all plans",
+            body: "Use this secondary link when you want one feed of everything happening across your circles.",
+            selectors: ['[data-tour="home-all-plans"]'],
+          },
+        ]
+      : []),
+  ];
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-5 px-4 pt-3 pb-32 sm:px-6">
-      <PrefetchCircle slug={fallbackSlug} />
+    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 px-4 pt-3 pb-32 sm:px-6">
+      {fallbackSlug ? <PrefetchCircle slug={fallbackSlug} /> : null}
 
       {/* Top bar — brandmark + chrome actions. The "New circle" chip
           sits here (not in the list) so it's reachable from any tab and
@@ -159,54 +192,59 @@ async function SignedInHome({
           <SquadLogo className="size-[18px] text-ink" />
           SQUAD
         </Link>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <AddCircleMenu />
           <ThemeToggle />
-          <NotificationsBellLink slug={fallbackSlug} count={unread} />
+          {fallbackSlug ? (
+            <NotificationsBellLink slug={fallbackSlug} count={unread} />
+          ) : null}
           <UserButton />
         </div>
       </header>
 
-      {/* Greeting row — mirrors the per-circle home pattern so the two
-          surfaces feel consistent. Drops the prior "YOUR CIRCLES" /
-          serif "Pick a circle." stack that ate ~120px for orientation
-          the user already has. */}
-      <header className="flex items-center gap-3">
-        <GradientAvatar
-          seed={userId}
-          name={displayName}
-          src={avatarUrl}
-          size="md"
-        />
-        <div className="min-w-0">
-          <div className="truncate text-[14px] font-semibold leading-tight text-ink">
-            <LocalGreeting initialHour={now.getHours()} />,{" "}
-            {firstNameOf(displayName)}
-          </div>
-          <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-            {dateLabel(now)}
-          </div>
-        </div>
-      </header>
-
-      {/* Tab switcher — full-width pill row. Hidden entirely when the
-          user has a single circle, since the Plans tab is redundant
-          with the per-circle home in that case. */}
-      {showTabs ? (
-        <div className="flex">
-          <HomeTabSwitcher active={tab} />
-        </div>
-      ) : null}
-
       {tab === "circles" ? (
-        <CirclesTab circles={userCircles} activity={activity} />
+        <>
+          <CircleLaunchHeader
+            userId={userId}
+            displayName={displayName}
+            avatarUrl={avatarUrl}
+            now={now}
+            circleCount={userCircles.length}
+            needsVoteCount={needsVoteTotal}
+            decidingCount={decidingTotal}
+          />
+          <section className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className="min-h-0 flex-1 overflow-y-auto pr-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <CirclesTab circles={userCircles} activity={activity} />
+            </div>
+            {userCircles.length > 0 ? (
+              <Link
+                href="/?tab=plans"
+                data-tour="home-all-plans"
+                className="group inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-ink/10 bg-paper-card text-sm font-semibold text-ink shadow-sm transition-colors hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper sm:w-auto sm:self-center sm:px-5"
+              >
+                View all plans
+                <ChevronRight
+                  className="size-4 transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </Link>
+            ) : null}
+          </section>
+        </>
       ) : (
-        <PlansTab
-          userId={userId}
-          userCircles={userCircles}
-          rawSearch={rawSearch}
-        />
+        <>
+          <PlansLaunchHeader />
+          <PlansTab
+            userId={userId}
+            userCircles={userCircles}
+            rawSearch={rawSearch}
+          />
+        </>
       )}
+      {tab === "circles" ? (
+        <FirstRunTour userId={userId} tourId="home" steps={homeTourSteps} />
+      ) : null}
     </main>
   );
 }
@@ -230,6 +268,122 @@ function dateLabel(now: Date): string {
   return `${wd.toUpperCase()} · ${month.toUpperCase()} ${day}`;
 }
 
+function CircleLaunchHeader({
+  userId,
+  displayName,
+  avatarUrl,
+  now,
+  circleCount,
+  needsVoteCount,
+  decidingCount,
+}: {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  now: Date;
+  circleCount: number;
+  needsVoteCount: number;
+  decidingCount: number;
+}) {
+  return (
+    <section className="flex flex-col gap-5 pt-1">
+      <div className="flex items-center gap-3">
+        {circleCount > 0 ? (
+          <GradientAvatar
+            seed={userId}
+            name={displayName}
+            src={avatarUrl}
+            size="md"
+          />
+        ) : null}
+        <div className="min-w-0">
+          <div className="truncate text-[14px] font-semibold leading-tight text-ink">
+            <LocalGreeting initialHour={now.getHours()} />,{" "}
+            {firstNameOf(displayName)}
+          </div>
+          <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+            {dateLabel(now)}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
+            <h1 className="font-serif text-[34px] leading-[1.02] font-semibold text-ink sm:text-[42px]">
+              {circleCount === 0 ? "Add your first circle" : "Choose a circle"}
+            </h1>
+            <p className="max-w-md text-sm leading-relaxed text-ink-muted">
+              {circleCount === 0
+                ? "Create a private space for your squad, or join one with an invite link."
+                : "Pick where you want to plan today."}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusChip
+            label={
+              circleCount === 1 ? "1 circle" : `${circleCount} circles`
+            }
+          />
+          {needsVoteCount > 0 ? (
+            <StatusChip label={`${needsVoteCount} need your vote`} tone="coral" />
+          ) : decidingCount > 0 ? (
+            <StatusChip label={`${decidingCount} deciding`} tone="ink" />
+          ) : (
+            <StatusChip label="Quiet right now" />
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PlansLaunchHeader() {
+  return (
+    <section className="flex flex-col gap-3 pt-1">
+      <Link
+        href="/"
+        className="inline-flex w-fit items-center gap-1 rounded-full px-1 py-1 text-xs font-semibold text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+      >
+        <ChevronRight className="size-3.5 rotate-180" aria-hidden />
+        Circles
+      </Link>
+      <div className="flex flex-col gap-1">
+        <h1 className="font-serif text-[34px] leading-[1.02] font-semibold text-ink sm:text-[42px]">
+          All plans
+        </h1>
+        <p className="max-w-md text-sm leading-relaxed text-ink-muted">
+          Everything happening across your circles.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function StatusChip({
+  label,
+  tone = "muted",
+}: {
+  label: string;
+  tone?: "muted" | "coral" | "ink";
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-7 items-center rounded-full border px-3 text-xs font-semibold",
+        tone === "coral"
+          ? "border-coral/25 bg-coral/10 text-coral"
+          : tone === "ink"
+            ? "border-ink/12 bg-ink/[0.06] text-ink"
+            : "border-ink/10 bg-paper-card text-ink-muted",
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
 // ─── Circles tab ────────────────────────────────────────────────────────
 
 function CirclesTab({
@@ -240,25 +394,10 @@ function CirclesTab({
   activity: Map<string, CircleActivity>;
 }) {
   if (list.length === 0) {
-    // SignedInHome already redirects to /onboarding when there are no
-    // memberships, so this state is unreachable in practice — keep the
-    // explicit CTA anyway so the page doesn't dead-end if the redirect ever
-    // races a stale render.
-    return (
-      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink-subtle bg-paper-card/40 px-6 py-12 text-center text-sm text-ink-muted">
-        <p>No circles yet.</p>
-        <Link
-          href="/onboarding?mode=create"
-          className="inline-flex items-center gap-1.5 rounded-full bg-coral px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-coral/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
-        >
-          <Plus className="size-4" aria-hidden />
-          New circle
-        </Link>
-      </div>
-    );
+    return <AddCircleMenu variant="empty" />;
   }
   return (
-    <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {list.map((c) => {
         const a = activity.get(c.id) ?? { deciding: 0, locked: 0, needsVote: 0 };
         const meta = formatActivity(a);
@@ -267,16 +406,17 @@ function CirclesTab({
           <li key={c.id}>
             <Link
               href={`/c/${c.slug}`}
+              data-tour="home-circle-card"
               className={cn(
-                "group relative flex items-center gap-3 rounded-2xl border bg-paper-card p-4 transition-shadow duration-200",
-                "hover:shadow-card-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
-                hot ? "border-coral/30" : "border-ink-subtle",
+                "group relative flex min-h-[92px] items-center gap-3 rounded-lg border bg-paper-card px-3.5 py-3.5 shadow-sm transition-all duration-200",
+                "hover:-translate-y-0.5 hover:shadow-card-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
+                hot ? "border-coral/35" : "border-ink/10",
               )}
             >
               <span
                 aria-hidden
                 className={cn(
-                  "relative flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold uppercase text-white",
+                  "relative flex size-12 shrink-0 items-center justify-center rounded-full text-base font-semibold uppercase text-white shadow-sm",
                   circleDotClass(c.id),
                 )}
               >
@@ -289,30 +429,43 @@ function CirclesTab({
                 ) : null}
               </span>
               <div className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate font-medium text-ink">{c.name}</span>
-                <span className="mt-0.5 flex items-center gap-1.5 text-xs">
+                <span className="truncate text-[17px] font-semibold leading-tight text-ink">
+                  {c.name}
+                </span>
+                <span className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                   <span
                     className={cn(
-                      "truncate",
+                      "inline-flex h-6 max-w-full items-center rounded-full border px-2 font-semibold",
                       meta.tone === "coral"
-                        ? "font-semibold text-coral"
+                        ? "border-coral/25 bg-coral/10 text-coral"
                         : meta.tone === "ink"
-                          ? "text-ink"
-                          : "text-ink-muted",
+                          ? "border-ink/10 bg-ink/[0.05] text-ink"
+                          : "border-ink/8 bg-ink/[0.03] text-ink-muted",
                     )}
                   >
                     {meta.label}
                   </span>
-                  <span className="shrink-0 text-ink-muted">
-                    · {c.memberCount}
-                    {c.role === "admin" ? " · admin" : ""}
+                  <span className="inline-flex h-6 shrink-0 items-center rounded-full border border-ink/8 bg-ink/[0.03] px-2 font-medium text-ink-muted">
+                    {c.memberCount} {c.memberCount === 1 ? "person" : "people"}
                   </span>
+                  {c.role === "admin" ? (
+                    <span className="inline-flex h-6 shrink-0 items-center rounded-full border border-ink/8 bg-ink/[0.03] px-2 font-medium text-ink-muted">
+                      admin
+                    </span>
+                  ) : null}
                 </span>
               </div>
-              <ChevronRight
-                className="size-4 shrink-0 text-ink-muted transition-transform group-hover:translate-x-0.5"
-                aria-hidden
-              />
+              <span className="flex shrink-0 items-center gap-2">
+                {hot ? (
+                  <span className="hidden rounded-full bg-coral px-2.5 py-1 text-xs font-semibold text-white sm:inline-flex">
+                    Vote
+                  </span>
+                ) : null}
+                <ChevronRight
+                  className="size-4 text-ink-muted transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </span>
             </Link>
           </li>
         );

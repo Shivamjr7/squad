@@ -9,6 +9,7 @@ import {
   planTimeProposalVotes,
   planTimeProposals,
   plans,
+  votes,
 } from "@/db/schema";
 import { requireMembership, requirePlanRecipient } from "@/lib/auth";
 import { ActionError } from "@/lib/actions/errors";
@@ -306,6 +307,37 @@ export async function castProposalVote(
     voted = true;
   }
 
+  // Picking a concrete replacement time implies "I'm in for this option".
+  // Keep the plan-level RSVP in sync so threshold locking, squad counts,
+  // and the hero CTA don't wait for a second explicit tap on "I'm in".
+  let promotedPlanVoteAt: Date | null = null;
+  if (voted) {
+    const existingPlanVote = await db
+      .select({
+        id: votes.id,
+        status: votes.status,
+      })
+      .from(votes)
+      .where(and(eq(votes.planId, planId), eq(votes.userId, userId)))
+      .limit(1);
+
+    if (existingPlanVote[0]?.status !== "in") {
+      promotedPlanVoteAt = new Date();
+      await db
+        .insert(votes)
+        .values({
+          planId,
+          userId,
+          status: "in",
+          votedAt: promotedPlanVoteAt,
+        })
+        .onConflictDoUpdate({
+          target: [votes.planId, votes.userId],
+          set: { status: "in", votedAt: promotedPlanVoteAt },
+        });
+    }
+  }
+
   if (previousProposalId) {
     void emitBroadcast(
       RT.proposals(planId),
@@ -323,6 +355,15 @@ export async function castProposalVote(
       userId,
     },
   );
+  if (promotedPlanVoteAt) {
+    void emitBroadcast(RT.votes(planId), RT_EVENT.voteChanged, {
+      op: "upsert",
+      planId,
+      userId,
+      status: "in",
+      votedAt: promotedPlanVoteAt.toISOString(),
+    });
+  }
 
   // After every vote we re-evaluate auto-lock; cheap because tryAutoLock
   // short-circuits when the in-vote threshold isn't met.
@@ -335,7 +376,9 @@ export async function castProposalVote(
   if (circle?.slug) {
     revalidatePath(`/c/${circle.slug}/p/${planId}`);
     if (lockResult.lockedNow) revalidatePath(`/c/${circle.slug}`);
+    if (promotedPlanVoteAt) revalidatePath(`/c/${circle.slug}/plans`);
   }
+  if (promotedPlanVoteAt) revalidatePath("/");
 
   return { proposalId, voted, locked: lockResult.lockedNow };
 }

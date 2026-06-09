@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { CalendarClock, ExternalLink, MapPin } from "lucide-react";
+import { AlertTriangle, CalendarClock, ExternalLink, MapPin } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -87,26 +87,34 @@ export function ConflictCompareSheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-3 sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="font-serif text-xl">
-            Two plans, same time.
+      <DialogContent className="max-h-[86dvh] gap-3 overflow-y-auto rounded-[28px] border-ink/10 bg-paper-card p-4 shadow-[0_26px_70px_-36px_rgba(12,12,12,0.55)] sm:max-w-2xl sm:p-5">
+        <DialogHeader className="gap-2 pr-7 text-left">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-coral-soft text-coral-strong">
+              <AlertTriangle className="size-4" aria-hidden />
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-coral-strong">
+              Time conflict
+            </span>
+          </div>
+          <DialogTitle className="font-serif text-[24px] leading-[1.05] text-ink">
+            Choose where you&apos;ll be.
           </DialogTitle>
-          <DialogDescription>
-            Pick the one you&apos;ll be at. You can always change your mind
-            later.
+          <DialogDescription className="text-[13px] leading-relaxed text-ink-muted">
+            These plans overlap. Set one to maybe or decline the one you
+            won&apos;t attend. You can still change your vote later.
           </DialogDescription>
         </DialogHeader>
 
         {error ? (
           <p className="text-sm text-ink-muted">{error}</p>
         ) : loading || !data ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <SideSkeleton />
             <SideSkeleton />
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <CompareCard
               side={data.a}
               onVoted={(newVote) =>
@@ -130,14 +138,14 @@ export function ConflictCompareSheet({
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-2">
+        <DialogFooter className="pt-0 sm:justify-center">
           <Button
             type="button"
             variant="ghost"
             onClick={() => onOpenChange(false)}
-            className="sm:order-1"
+            className="h-10 rounded-full px-5 text-sm font-semibold text-ink-muted hover:bg-ink/[0.06] hover:text-ink"
           >
-            Keep both
+            Decide later
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -149,7 +157,7 @@ function SideSkeleton() {
   return (
     <div
       aria-hidden
-      className="h-44 animate-pulse rounded-xl border border-ink/5 bg-paper-card"
+      className="h-44 animate-pulse rounded-[22px] border border-ink/8 bg-paper"
     />
   );
 }
@@ -164,9 +172,15 @@ function CompareCard({
   const timeLabel = side.isApproximate
     ? formatPlanTime(side.start, true, new Date(), side.timeZone)
     : formatPlanTime(side.start, false, new Date(), side.timeZone);
+  const isIn = side.myVote === "in";
   return (
-    <article className="flex flex-col gap-2.5 rounded-xl border border-ink/10 bg-paper-card p-3">
-      <header className="flex items-baseline justify-between gap-2">
+    <article
+      className={cn(
+        "flex flex-col gap-2 rounded-[22px] border bg-paper p-3 shadow-sm",
+        isIn ? "border-in/25 ring-1 ring-in/10" : "border-ink/10",
+      )}
+    >
+      <header className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
             aria-hidden
@@ -179,11 +193,11 @@ function CompareCard({
         <VoteChip status={side.myVote} />
       </header>
 
-      <h3 className="font-serif text-lg leading-tight text-ink">
+      <h3 className="font-serif text-[20px] font-semibold leading-tight text-ink">
         {side.planTitle}
       </h3>
 
-      <div className="flex flex-col gap-1.5 text-xs text-ink-muted">
+      <div className="flex flex-col gap-1.5 text-[12px] text-ink-muted">
         <div className="flex items-center gap-1.5">
           <CalendarClock className="size-3.5 shrink-0" aria-hidden />
           <span>{timeLabel}</span>
@@ -194,7 +208,7 @@ function CompareCard({
             <span className="truncate">{side.location}</span>
           </div>
         ) : null}
-        <div className="text-[11px]">
+        <div className="text-[11px] font-medium">
           {side.inCount} in
           {side.maybeCount > 0 ? ` · ${side.maybeCount} maybe` : ""}
           {side.outCount > 0 ? ` · ${side.outCount} out` : ""}
@@ -209,21 +223,21 @@ function CompareCard({
 function VoteChip({ status }: { status: CompareSheetSide["myVote"] }) {
   if (status === "in") {
     return (
-      <span className="shrink-0 rounded-full bg-in/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-in-strong">
+      <span className="shrink-0 rounded-full bg-in-soft px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-in-strong">
         You&apos;re in
       </span>
     );
   }
   if (status === "maybe") {
     return (
-      <span className="shrink-0 rounded-full bg-maybe/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-maybe">
+      <span className="shrink-0 rounded-full bg-maybe-soft px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-maybe-strong">
         Maybe
       </span>
     );
   }
   if (status === "out") {
     return (
-      <span className="shrink-0 rounded-full bg-out/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-out">
+      <span className="shrink-0 rounded-full bg-out-soft px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-out">
         Out
       </span>
     );
@@ -272,17 +286,17 @@ function CardActions({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="mt-0.5 grid grid-cols-2 gap-2">
       {side.myVote !== "maybe" ? (
         <button
           type="button"
           disabled={isPending}
           onClick={() => setVote("maybe")}
           className={cn(
-            "rounded-full bg-maybe/15 px-2.5 py-1 text-[11px] font-semibold text-maybe transition-colors hover:bg-maybe/25 disabled:opacity-60",
+            "h-9 rounded-2xl bg-maybe-soft px-3 text-[12px] font-bold text-maybe-strong transition-colors hover:bg-maybe-soft/80 disabled:opacity-60",
           )}
         >
-          Switch to maybe
+          Maybe
         </button>
       ) : null}
       {side.myVote !== "out" ? (
@@ -291,21 +305,21 @@ function CardActions({
           disabled={isPending}
           onClick={() => setVote("out")}
           className={cn(
-            "rounded-full bg-out/15 px-2.5 py-1 text-[11px] font-semibold text-out transition-colors hover:bg-out/25 disabled:opacity-60",
+            "h-9 rounded-2xl bg-out-soft px-3 text-[12px] font-bold text-out transition-colors hover:bg-out-soft/80 disabled:opacity-60",
           )}
         >
-          Decline
+          I can&apos;t go
         </button>
       ) : null}
       <Link
         href={`/c/${side.circleSlug}/p/${side.planId}`}
-        className="ml-auto inline-flex items-center gap-1 rounded-full border border-ink/10 px-2.5 py-1 text-[11px] font-semibold text-ink-muted transition-colors hover:text-ink"
+        className="col-span-2 inline-flex h-9 items-center justify-center gap-1.5 rounded-2xl border border-ink/10 bg-paper-card px-3 text-[12px] font-bold text-ink-muted transition-colors hover:text-ink"
       >
-        Open
+        Open details
         <ExternalLink className="size-3" aria-hidden />
       </Link>
       {err ? (
-        <p className="basis-full text-[10px] text-out">{err}</p>
+        <p className="col-span-2 text-[11px] text-out">{err}</p>
       ) : null}
     </div>
   );

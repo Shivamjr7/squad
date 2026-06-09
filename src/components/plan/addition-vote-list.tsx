@@ -134,7 +134,7 @@ export function AdditionVoteList({
 
   if (rows.length === 0) return null;
 
-  const fmt = new Intl.DateTimeFormat(undefined, {
+  const fmt = new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -142,11 +142,16 @@ export function AdditionVoteList({
   });
 
   return (
-    <section className="flex flex-col gap-2">
-      <span className="text-[8.5px] font-bold uppercase tracking-[0.16em] text-ink">
-        Plus
-      </span>
-      <ul className="flex flex-col divide-y divide-ink/5 overflow-hidden rounded-xl border border-ink/8 bg-ink/[0.025]">
+    <section className="flex flex-col gap-2 rounded-2xl border border-ink/10 bg-paper-card p-4 shadow-sm">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="eyebrow text-ink-muted">
+          Add-ons
+        </span>
+        <span className="text-xs text-ink-muted">
+          {rows.length} suggested
+        </span>
+      </div>
+      <ul className="flex flex-col divide-y divide-ink/8 overflow-hidden rounded-xl border border-ink/10 bg-paper">
         {rows.map((addition) => {
           const voters = state.votes.get(addition.id) ?? new Map();
           const mine = voters.has(currentUserId);
@@ -178,9 +183,9 @@ export function AdditionVoteList({
                   });
                 }}
                 className={cn(
-                  "flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors",
-                  canVote && "hover:bg-ink/[0.04]",
-                  mine && "bg-coral-soft/70",
+                  "flex w-full min-w-0 items-center gap-3 px-3 py-3 text-left transition-colors",
+                  canVote && "hover:bg-in-soft/50",
+                  mine && "bg-in-soft/70",
                   "disabled:cursor-default",
                 )}
               >
@@ -189,7 +194,7 @@ export function AdditionVoteList({
                   className={cn(
                     "flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors",
                     mine
-                      ? "border-coral bg-coral text-white"
+                      ? "border-in bg-in text-white"
                       : "border-ink/20 text-transparent",
                   )}
                 >

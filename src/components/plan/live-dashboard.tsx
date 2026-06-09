@@ -51,7 +51,6 @@ type Props = {
   // to a "Voting · N options" hint so the truncated canonical location
   // doesn't misrepresent the state.
   venueCount?: number;
-  additionsSlot?: React.ReactNode;
 };
 
 const COMMIT_DEBOUNCE_MS = 200;
@@ -59,7 +58,7 @@ const RING_R = 42;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_R;
 
 function shortHourMinute(d: Date, tz: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -94,7 +93,6 @@ export function LiveDashboard({
   now: serverNow,
   hasActionBar = false,
   venueCount = 0,
-  additionsSlot,
 }: Props) {
   const {
     voters,
@@ -204,27 +202,25 @@ export function LiveDashboard({
 
   return (
     <article
-      // Force dark surface regardless of app theme — this cockpit is a
-      // feature card meant to read as a dark hero on every plan-detail
-      // page (mirrors the home spotlight). The semantic tokens defined
-      // under [data-theme="dark"] cascade from here, and `dark:`
-      // utilities inside the subtree activate via the custom Tailwind
-      // variant in globals.css.
-      data-theme="dark"
-      className="relative overflow-hidden rounded-[20px] bg-paper-card text-ink shadow-card-hero"
+      className="relative overflow-hidden rounded-[26px] border border-ink/10 bg-paper-card text-ink shadow-[0_20px_55px_-34px_rgba(12,12,12,0.42)] dark:border-white/10 dark:bg-paper-elevated"
     >
-      {/* Warm coral glow upper-right — pure decoration. Same intensity in
-          both themes; coral itself flips its underlying token. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute -right-16 -top-20 size-60 rounded-full bg-coral/20 blur-[60px] dark:bg-coral/30"
+        className="pointer-events-none absolute -right-24 -top-28 size-72 rounded-full bg-in/12 blur-[85px] dark:bg-white/[0.055]"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_0%,rgba(255,255,255,0.88),transparent_34%),linear-gradient(145deg,rgba(255,255,255,0.50),rgba(48,128,93,0.07))] dark:bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.025))]"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/70 dark:bg-white/12"
       />
 
       <div className="relative flex flex-col gap-3 p-4 sm:p-5">
-        {/* Hero card — ring + countdown side-by-side */}
-        <div className="relative overflow-hidden rounded-[16px] border border-ink/8 bg-ink/[0.025] p-3.5 sm:p-4">
-          <div className="flex items-center gap-3.5">
-            <div className="relative size-[92px] shrink-0">
+        <div className="relative overflow-hidden rounded-2xl border border-ink/8 bg-paper/70 p-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/[0.045]">
+          <div className="flex items-center gap-3">
+            <div className="relative size-[72px] shrink-0">
               <svg
                 viewBox="0 0 100 100"
                 className="size-full -rotate-90 text-ink/10"
@@ -267,13 +263,13 @@ export function LiveDashboard({
                 ) : null}
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="font-serif text-[30px] leading-none tracking-tight text-ink">
+                <div className="font-serif text-[24px] leading-none tracking-tight text-ink">
                   {counts.in}
-                  <span className="text-[15px] text-ink-muted">
+                  <span className="text-[12px] text-ink-muted">
                     /{recipientCount}
                   </span>
                 </div>
-                <span className="mt-0.5 text-[7.5px] font-bold uppercase tracking-[0.16em] text-ink-muted">
+                <span className="mt-0.5 text-[6.5px] font-bold uppercase tracking-[0.14em] text-ink-muted">
                   Consensus
                 </span>
               </div>
@@ -291,24 +287,24 @@ export function LiveDashboard({
                 <div className="mt-0.5 flex items-baseline gap-[2px] font-bold tabular-nums leading-none tracking-tight text-ink">
                   {countdown.h !== "00" ? (
                     <>
-                      <span className="text-[26px]">{countdown.h}</span>
-                      <span className="text-[26px] text-ink/30">:</span>
+                      <span className="text-[23px]">{countdown.h}</span>
+                      <span className="text-[23px] text-ink/30">:</span>
                     </>
                   ) : null}
-                  <span className="text-[26px]">{countdown.m}</span>
-                  <span className="text-[26px] text-ink/30">:</span>
-                  <span className="text-[26px] text-coral">{countdown.s}</span>
+                  <span className="text-[23px]">{countdown.m}</span>
+                  <span className="text-[23px] text-ink/30">:</span>
+                  <span className="text-[23px] text-coral">{countdown.s}</span>
                 </div>
               ) : countdown?.expired ? (
-                <div className="mt-0.5 text-[22px] font-bold text-coral">
+                <div className="mt-0.5 text-[20px] font-bold text-coral">
                   00:00
                 </div>
               ) : (
-                <div className="mt-0.5 text-[20px] font-bold text-ink">
+                <div className="mt-0.5 text-[18px] font-bold text-ink">
                   No deadline
                 </div>
               )}
-              <p className="mt-1.5 text-[11px] leading-snug text-ink-muted">
+              <p className="mt-1 text-[10px] leading-snug text-ink-muted">
                 Auto-locks at{" "}
                 <b className="font-semibold text-ink">{lockThreshold} in</b>
                 {decideBy ? (
@@ -326,27 +322,24 @@ export function LiveDashboard({
             </div>
           </div>
 
-          {/* IN / MAYBE / OUT mini legend */}
-          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-ink/8 pt-2.5">
+          <div className="mt-2.5 grid grid-cols-3 gap-1.5 border-t border-ink/8 pt-2 dark:border-white/10">
             {[
               { n: counts.in, l: "In", color: "var(--in)" },
               { n: counts.maybe, l: "Maybe", color: "var(--maybe)" },
               { n: counts.out, l: "Out", color: "var(--out)" },
             ].map((r) => (
-              <div key={r.l} className="flex items-center gap-1.5">
+              <div key={r.l} className="flex items-center gap-1.5 rounded-full bg-paper-card/80 px-2 py-1 shadow-sm dark:bg-white/[0.055]">
                 <span
                   aria-hidden
                   className="size-1.5 shrink-0 rounded-full"
                   style={{ background: r.color }}
                 />
-                <div className="min-w-0">
-                  <div className="text-[15px] font-bold leading-none tabular-nums text-ink">
-                    {r.n}
-                  </div>
-                  <div className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.14em] text-ink-muted">
-                    {r.l}
-                  </div>
-                </div>
+                <span className="text-[11px] font-bold leading-none tabular-nums text-ink">
+                  {r.n}
+                </span>
+                <span className="truncate text-[8px] font-bold uppercase tracking-[0.12em] text-ink-muted">
+                  {r.l}
+                </span>
               </div>
             ))}
           </div>
@@ -358,20 +351,20 @@ export function LiveDashboard({
             {circleName} · {dateLabel}
           </span>
           <h1
-            className="text-[19px] font-bold leading-tight tracking-tight text-ink"
+            className="text-[18px] font-bold leading-tight tracking-tight text-ink"
             style={{ viewTransitionName: `plan-title-${planId}` }}
           >
             {planTitle}
             {location && venueCount <= 1 ? (
               <>
                 {" "}
-                <span className="font-serif text-[19px] font-normal italic text-coral">
+                <span className="font-serif text-[18px] font-normal italic text-coral">
                   at {location}
                 </span>
               </>
             ) : null}
           </h1>
-          <div className="mt-0.5 grid grid-cols-3 overflow-hidden rounded-xl border border-ink/8 bg-ink/[0.025]">
+          <div className="mt-0.5 grid grid-cols-3 overflow-hidden rounded-2xl border border-ink/8 bg-paper/70 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/[0.045]">
             <MetaCell
               label="When"
               value={time}
@@ -407,8 +400,6 @@ export function LiveDashboard({
           </div>
         </div>
 
-        {additionsSlot}
-
         {/* Squad grid */}
         <section className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between">
@@ -421,8 +412,7 @@ export function LiveDashboard({
           </div>
           <div
             className={cn(
-              "grid gap-1.5",
-              squad.length <= 8 ? "grid-cols-4" : "grid-cols-6",
+              "flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
             )}
           >
             {squad.map((m) => (
@@ -472,7 +462,7 @@ function MetaCell({
     <div
       className={cn(
         "min-w-0 px-2.5 py-2",
-        border && "border-l border-ink/8",
+        border && "border-l border-ink/8 dark:border-white/10",
       )}
     >
       <span className="text-[8px] font-bold uppercase tracking-[0.14em] text-ink-muted">
@@ -520,10 +510,10 @@ function SquadTile({
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-1 rounded-xl border px-1.5 py-2",
+        "flex min-w-[76px] flex-col items-center gap-1 rounded-[14px] border px-2 py-2",
         isYou
           ? "border-coral/40 bg-coral/10"
-          : "border-ink/8 bg-ink/[0.035]",
+          : "border-ink/8 bg-paper/60 dark:border-white/10 dark:bg-white/[0.045]",
       )}
     >
       <div className="relative">
@@ -580,7 +570,7 @@ function StickyRSVP({
       // styles win specificity over media-query classes and would otherwise
       // shift the relative-positioned bar up over the squad grid.
       className={cn(
-        "fixed inset-x-3 z-30 mx-auto flex max-w-2xl gap-1.5 rounded-[22px] border border-ink/10 bg-paper-card/95 p-2 shadow-[0_16px_36px_-12px_rgba(0,0,0,0.25)] backdrop-blur-xl md:relative md:inset-x-auto md:mt-4 md:bottom-auto",
+        "fixed inset-x-3 z-30 mx-auto flex max-w-2xl gap-1.5 rounded-[20px] border border-ink/10 bg-paper-card/95 p-1.5 shadow-[0_16px_36px_-12px_rgba(0,0,0,0.25)] backdrop-blur-xl dark:border-white/10 dark:bg-paper-elevated/92 md:relative md:inset-x-auto md:mt-4 md:bottom-auto",
         raised
           ? "bottom-[calc(env(safe-area-inset-bottom,0px)+146px)]"
           : "bottom-[calc(env(safe-area-inset-bottom,0px)+76px)]",
@@ -636,7 +626,7 @@ function RSVPButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[14px] border text-[13px] font-semibold tracking-tight text-ink transition-colors",
+        "inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-[13px] border text-[13px] font-semibold tracking-tight text-ink transition-colors",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral",
         active
           ? activeFill

@@ -3,7 +3,7 @@ import { PlanDeepLinks } from "./plan-deeplinks";
 import { WalkingTimeHint } from "./walking-time-hint";
 
 function formatShortTime(date: Date, timeZone?: string) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -11,7 +11,7 @@ function formatShortTime(date: Date, timeZone?: string) {
   }).format(date);
 }
 
-const SHORT_DAY = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+const SHORT_DAY = new Intl.DateTimeFormat("en-US", { weekday: "short" });
 
 function isSameLocalDay(a: Date, b: Date, timeZone?: string): boolean {
   const fmt = (d: Date) =>
@@ -43,7 +43,7 @@ function dayDescriptor(startsAt: Date, now: Date, timeZone?: string): string {
   );
   if (diffDays === 1) return "tomorrow";
   if (diffDays > 1 && diffDays < 7) return SHORT_DAY.format(startsAt);
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
   }).format(startsAt);
@@ -94,7 +94,7 @@ export function DecisionCard({
   if (isApproximate) {
     bigTime = formatShortTime(startsAt, timeZone);
   } else {
-    const parts = new Intl.DateTimeFormat(undefined, {
+    const parts = new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,

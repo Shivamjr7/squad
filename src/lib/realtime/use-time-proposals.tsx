@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -103,6 +104,7 @@ export function TimeProposalsProvider({
     return { proposals, votes };
   });
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   const membersRef = useRef(members);
   membersRef.current = members;
@@ -285,7 +287,8 @@ export function TimeProposalsProvider({
     (proposalId: string, previousId: string | null) => {
       startTransition(async () => {
         try {
-          await castProposalVote({ planId, proposalId });
+          const result = await castProposalVote({ planId, proposalId });
+          if (result.locked) router.refresh();
         } catch (err) {
           applyVoteState(previousId);
           const msg = err instanceof Error ? err.message : "Couldn't vote.";
@@ -293,7 +296,7 @@ export function TimeProposalsProvider({
         }
       });
     },
-    [planId, applyVoteState],
+    [planId, applyVoteState, router],
   );
 
   const vote = useCallback(

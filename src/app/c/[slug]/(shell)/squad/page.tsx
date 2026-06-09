@@ -99,14 +99,11 @@ export default async function SquadPage({
 
       <div className="px-4 pt-6 sm:px-6">
         <div className="space-y-6">
-          <div className="flex flex-col gap-1">
+          <div className="flex items-end justify-between gap-3">
             <span className="eyebrow text-ink-muted">
               Squad
             </span>
-            <h1 className="font-serif text-[32px] leading-[1.1] font-semibold text-ink sm:text-[36px]">
-              {circle.name}
-            </h1>
-            <p className="text-sm text-ink-muted">
+            <p className="text-sm font-medium text-ink-muted">
               {members.length} {members.length === 1 ? "person" : "people"}
             </p>
           </div>

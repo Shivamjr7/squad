@@ -12,13 +12,13 @@ import {
 } from "@/lib/realtime/use-time-proposals";
 import { useMyHardCommitments } from "@/lib/use-hard-commitments";
 
-const TIME_FMT = new Intl.DateTimeFormat(undefined, {
+const TIME_FMT = new Intl.DateTimeFormat("en-US", {
   hour: "numeric",
   minute: "2-digit",
   hour12: true,
 });
 
-const DAY_FMT = new Intl.DateTimeFormat(undefined, {
+const DAY_FMT = new Intl.DateTimeFormat("en-US", {
   weekday: "short",
   month: "short",
   day: "numeric",

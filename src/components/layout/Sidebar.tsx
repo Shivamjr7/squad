@@ -211,6 +211,7 @@ function Nav({
   const pathname = usePathname() ?? "";
   return (
     <ul
+      data-tour="primary-nav"
       className={cn(
         variant === "desktop"
           ? "flex flex-col gap-1"
@@ -277,7 +278,7 @@ function FavouritesSection({ circles }: { circles: SidebarCircle[] }) {
   // TODO: filter to pinned circles only once pin feature is added
   if (circles.length === 0) return null;
   return (
-    <section aria-labelledby="sidebar-favourites">
+    <section aria-labelledby="sidebar-favourites" data-tour="circle-list">
       <h2
         id="sidebar-favourites"
         className="px-2 eyebrow text-ink-muted"

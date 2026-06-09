@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowRight, Check, Clock, MessageCircle } from "lucide-react";
+import { ArrowRight, Check, Clock, MessageCircle, Sparkles } from "lucide-react";
 import { castVote } from "@/lib/actions/votes";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
 import type { VoteStatus } from "@/lib/validation/vote";
@@ -24,6 +24,11 @@ export type SpotlightHeroPlan = {
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
   decideBy: Date | null;
+  creator: {
+    id: string;
+    displayName: string;
+    avatarUrl: string | null;
+  } | null;
   venueSummary?: {
     label: string | null;
     total: number;
@@ -87,30 +92,46 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
     () => voters[plan.id] ?? [],
     [voters, plan.id],
   );
+  const displayVoters = useMemo(() => {
+    if (!plan.creator) return planVoters;
+    if (planVoters.some((v) => v.userId === plan.creator!.id)) {
+      return planVoters;
+    }
+    return [
+      ...planVoters,
+      {
+        userId: plan.creator.id,
+        displayName: plan.creator.displayName,
+        avatarUrl: plan.creator.avatarUrl,
+        status: "in" as VoteStatus,
+        votedAt: plan.startsAt.toISOString(),
+      },
+    ];
+  }, [plan.creator, plan.startsAt, planVoters]);
 
   const counts = useMemo(() => {
     let inN = 0;
     let maybeN = 0;
     let outN = 0;
-    for (const v of planVoters) {
+    for (const v of displayVoters) {
       if (v.status === "in") inN += 1;
       else if (v.status === "maybe") maybeN += 1;
       else outN += 1;
     }
     return { in: inN, maybe: maybeN, out: outN };
-  }, [planVoters]);
+  }, [displayVoters]);
 
   // Surface IN voters first in the avatar stack — they're the people who
   // matter most for the at-a-glance count.
   const stackedVoters = useMemo(() => {
     const order: Record<VoteStatus, number> = { in: 0, maybe: 1, out: 2 };
-    return [...planVoters]
+    return [...displayVoters]
       .sort((a, b) => order[a.status] - order[b.status])
       .slice(0, 4);
-  }, [planVoters]);
+  }, [displayVoters]);
 
   const effectiveVote =
-    planVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
+    displayVoters.find((v) => v.userId === currentUser.id)?.status ?? null;
 
   const onVote = (next: VoteStatus) => {
     setOptimisticVote(plan.id, next);
@@ -202,34 +223,30 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
 
   return (
     <article
-      // Force dark surface regardless of app theme — the spotlight is
-      // designed as a feature card that should always read as a dark hero
-      // (mirrors the plan-detail cockpit). The semantic tokens defined
-      // under [data-theme="dark"] cascade from here, and `dark:` utilities
-      // inside the subtree activate via the custom Tailwind variant in
-      // globals.css.
-      data-theme="dark"
-      className="relative overflow-hidden rounded-[28px] bg-paper-card text-ink shadow-card-hero"
+      className="relative overflow-hidden rounded-[26px] border border-ink/10 bg-paper-card text-ink shadow-[0_20px_55px_-34px_rgba(12,12,12,0.42)] dark:border-white/10 dark:bg-paper-elevated"
       data-testid="spotlight-hero"
     >
-      {/* Soft warm glow upper-right — coral token flips its own lightness
-          for theme. Kept low-opacity in both modes: too much saturation
-          on the dark surface reads as a maroon stain rather than warmth.
-          Wider blur + larger radius spreads the light so no single edge
-          dominates the card. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute -right-32 -top-32 size-[420px] rounded-full bg-coral/12 blur-[110px] dark:bg-coral/14"
+        className="pointer-events-none absolute -right-24 -top-28 size-72 rounded-full bg-in/12 blur-[85px] dark:bg-white/[0.055]"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_0%,rgba(255,255,255,0.88),transparent_34%),linear-gradient(145deg,rgba(255,255,255,0.50),rgba(48,128,93,0.07))] dark:bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.025))]"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/70 dark:bg-white/12"
       />
 
-      <div className="relative flex flex-col gap-4 p-5 sm:p-6 lg:gap-5 lg:p-7">
+      <div className="relative flex flex-col gap-3 p-4 sm:p-5">
         {/* Status pill + countdown — single row of meta. Pills use the
             *-soft / *-strong semantic pairs that already flip with
             theme: muted tint in light, brighter on dark. */}
         <div className="flex items-center justify-between gap-3">
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]",
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]",
               isConfirmed
                 ? "border-in/30 bg-in-soft text-in-strong"
                 : isVoting
@@ -255,7 +272,7 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
             {isConfirmed ? "Locked" : isVoting ? "Voting" : "Deciding"}
           </span>
           {countdown ? (
-            <span className="inline-flex items-center gap-1 text-[12px] font-semibold tabular-nums text-ink">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.06] px-2.5 py-1.5 text-[12px] font-semibold tabular-nums text-ink ring-1 ring-ink/8 dark:bg-white/8 dark:ring-white/10">
               <Clock className="size-3.5 text-ink-muted" aria-hidden />
               {countdown}
             </span>
@@ -268,34 +285,32 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
         <Link
           href={`/c/${slug}/p/${plan.id}`}
           prefetch
-          className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper-card"
+          className="block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper-card"
         >
-          <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-muted">
             {circleName} · {whenEyebrow}
           </span>
           <h2
-            className="mt-2 text-[28px] font-bold leading-tight tracking-tight text-ink sm:text-[32px] lg:text-[34px]"
+            className="mt-1.5 text-[30px] font-bold leading-[0.96] tracking-tight text-ink sm:text-[34px]"
             style={{ viewTransitionName: `plan-title-${plan.id}` }}
           >
             {plan.title}
           </h2>
           {venueSubtitle ? (
-            <p className="mt-1 font-serif text-[19px] italic leading-snug text-coral sm:text-[21px] lg:text-[23px]">
+            <p className="mt-1.5 max-w-full truncate font-serif text-[18px] italic leading-snug text-coral sm:text-[20px]">
               at {venueSubtitle}
             </p>
           ) : null}
         </Link>
 
-        {/* When / Where 2-cell grid. The 1px gap on an ink/8 backdrop
-            paints as a hairline divider that flips with theme. */}
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-ink/8">
-          <div className="bg-ink/[0.025] px-3.5 py-3">
-            <span className="block text-[9px] font-semibold uppercase tracking-[0.16em] text-ink-muted">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="min-w-0 rounded-2xl border border-ink/8 bg-paper/70 px-3 py-2.5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/[0.045]">
+            <span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
               When
             </span>
             {time ? (
-              <div className="mt-1.5 flex items-baseline gap-1">
-                <span className="text-[19px] font-bold tabular-nums text-ink">
+              <div className="mt-1 flex items-baseline gap-1">
+                <span className="text-[20px] font-bold tabular-nums text-ink">
                   {time.hour}
                 </span>
                 <span className="text-[11px] font-semibold text-ink-muted">
@@ -303,18 +318,18 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
                 </span>
               </div>
             ) : (
-              <span className="mt-1.5 block text-[15px] font-semibold text-ink">
+              <span className="mt-1 block text-[14px] font-semibold text-ink">
                 TBD
               </span>
             )}
           </div>
-          <div className="flex flex-col bg-ink/[0.025] px-3.5 py-3">
-            <span className="block text-[9px] font-semibold uppercase tracking-[0.16em] text-ink-muted">
+          <div className="flex min-w-0 flex-col rounded-2xl border border-ink/8 bg-paper/70 px-3 py-2.5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/[0.045]">
+            <span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
               Where
             </span>
             <span
               className={cn(
-                "mt-1.5 truncate text-[15px] font-semibold",
+                "mt-1 truncate text-[15px] font-semibold",
                 plan.location ? "text-ink" : "text-ink-muted",
               )}
             >
@@ -323,84 +338,105 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
           </div>
         </div>
 
-        {/* Voter stack + tally. Falls back to "Be first to vote" when the
-            row is empty so the rail never collapses. */}
-        <div className="flex items-center gap-3">
-          <span className="flex -space-x-1.5">
-            {stackedVoters.length > 0 ? (
-              stackedVoters.map((v) => (
-                <GradientAvatar
-                  key={v.userId}
-                  seed={v.userId}
-                  name={v.displayName}
-                  src={v.avatarUrl}
-                  size="sm"
-                  className="ring-2 ring-paper-card"
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-ink/8 bg-paper/75 px-3 py-2.5 shadow-sm dark:border-white/10 dark:bg-white/[0.045]">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex -space-x-1.5">
+              {stackedVoters.length > 0 ? (
+                stackedVoters.map((v) => (
+                  <GradientAvatar
+                    key={v.userId}
+                    seed={v.userId}
+                    name={v.displayName}
+                    src={v.avatarUrl}
+                    size="sm"
+                    className="ring-2 ring-paper-card"
+                  />
+                ))
+              ) : (
+                <span
+                  className="size-6 rounded-full bg-ink/10 ring-2 ring-paper-card"
+                  aria-hidden
                 />
-              ))
-            ) : (
-              <span
-                className="size-6 rounded-full bg-ink/10 ring-2 ring-paper-card"
-                aria-hidden
-              />
-            )}
-          </span>
-          <div className="min-w-0 flex-1 text-[13px] leading-tight">
-            {planVoters.length === 0 ? (
-              <span className="text-ink-muted">Be first to vote.</span>
-            ) : (
-              <>
-                <span className="font-bold text-ink">
-                  {counts.in}{" "}
-                  <span className="font-medium text-ink-muted">in</span>
-                  {counts.maybe > 0 ? (
-                    <>
-                      {" · "}
-                      <span className="text-[color:var(--maybe-strong)]">
-                        {counts.maybe}
-                      </span>{" "}
-                      <span className="font-medium text-ink-muted">maybe</span>
-                    </>
-                  ) : null}
-                </span>
-                {effectiveVote === null ? (
-                  <span className="mt-0.5 block text-[11px] text-ink-muted">
-                    You haven&rsquo;t said yet
+              )}
+            </span>
+            <div className="min-w-0 text-[12.5px] leading-tight">
+              {planVoters.length === 0 ? (
+                <span className="text-ink-muted">Be first to vote.</span>
+              ) : (
+                <>
+                  <span className="font-bold text-ink">
+                    {counts.in}{" "}
+                    <span className="font-medium text-ink-muted">in</span>
+                    {counts.maybe > 0 ? (
+                      <>
+                        {" · "}
+                        <span className="text-[color:var(--maybe-strong)]">
+                          {counts.maybe}
+                        </span>{" "}
+                        <span className="font-medium text-ink-muted">maybe</span>
+                      </>
+                    ) : null}
                   </span>
-                ) : null}
-              </>
-            )}
+                  {effectiveVote === null ? (
+                    <span className="mt-0.5 block text-[11px] text-ink-muted">
+                      Your RSVP is waiting
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </div>
           </div>
+          {effectiveVote === "in" ? (
+            <span className="shrink-0 rounded-full bg-in-soft px-2.5 py-1 text-[11px] font-bold text-in-strong">
+              Joined
+            </span>
+          ) : null}
         </div>
 
-        {/* Dominant CTA. Coral fills are the same hue both themes (the
-            token flips lightness slightly). White text on coral reads at
-            AA in both. Disabled-when-IN turns into quiet confirmation —
-            the icon swaps from arrow (suggests action) to check (signals
-            done) so the locked state doesn't read as a swipe target. */}
+        {/* Dominant CTA. Dark mode uses a neutral glass treatment so the
+            action stays prominent without turning neon on a black surface. */}
         <button
           type="button"
           onClick={() => onVote("in")}
           disabled={effectiveVote === "in"}
           aria-pressed={effectiveVote === "in"}
           className={cn(
-            "flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-base font-bold tracking-tight text-white transition-shadow",
-            "bg-coral shadow-[0_10px_24px_-6px_oklch(0.62_0.16_18/0.45)]",
-            "hover:shadow-[0_14px_28px_-6px_oklch(0.62_0.16_18/0.55)]",
-            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral",
-            effectiveVote === "in" && "cursor-default opacity-90",
+            "group relative flex h-12 w-full items-center justify-center overflow-hidden rounded-2xl px-4 text-[15px] font-bold tracking-tight text-paper transition duration-200",
+            "border border-in/20 bg-in shadow-[0_16px_34px_-22px_oklch(0.60_0.20_148/0.62)]",
+            "dark:border-white/12 dark:bg-white/[0.105] dark:text-ink dark:shadow-[0_16px_30px_-22px_rgba(0,0,0,0.75)] dark:ring-1 dark:ring-white/[0.055]",
+            "hover:-translate-y-0.5 hover:bg-in/95 hover:shadow-[0_20px_42px_-22px_oklch(0.60_0.20_148/0.70)]",
+            "dark:hover:bg-white/[0.14] dark:hover:shadow-[0_20px_42px_-24px_rgba(0,0,0,0.85)]",
+            "active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-in dark:focus-visible:outline-coral",
+            effectiveVote === "in" &&
+              "cursor-default border-in/25 bg-in-soft text-in-strong hover:translate-y-0 hover:bg-in-soft dark:border-white/12 dark:bg-white/[0.12] dark:text-ink dark:hover:bg-white/[0.12]",
           )}
         >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 rotate-12 bg-white/20 blur-md transition-transform duration-700 group-hover:translate-x-[420%] dark:bg-white/10"
+          />
           {effectiveVote === "in" ? (
-            <>
-              <Check className="size-4" strokeWidth={2.6} aria-hidden />
+            <span className="relative flex items-center gap-2">
+              <span className="inline-flex size-7 items-center justify-center rounded-full bg-in text-paper dark:bg-coral dark:text-paper">
+                <Check className="size-4" strokeWidth={2.8} aria-hidden />
+              </span>
               You&rsquo;re in
-            </>
+            </span>
           ) : (
-            <>
-              I&rsquo;m in
-              <ArrowRight className="size-4" strokeWidth={2.4} aria-hidden />
-            </>
+            <span className="relative flex w-full items-center justify-between gap-3">
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-paper/16 text-paper ring-1 ring-paper/20 dark:bg-coral-soft dark:text-coral-strong dark:ring-coral/20">
+                <Sparkles className="size-4" strokeWidth={2.4} aria-hidden />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col items-center leading-tight">
+                <span>I&rsquo;m in</span>
+                <span className="mt-0.5 text-[10.5px] font-semibold text-paper/72 dark:text-ink-muted">
+                  Join {counts.in > 0 ? `${counts.in} already in` : "the plan"}
+                </span>
+              </span>
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-paper text-in-strong transition-transform group-hover:translate-x-0.5 dark:bg-coral dark:text-paper">
+                <ArrowRight className="size-4" strokeWidth={2.6} aria-hidden />
+              </span>
+            </span>
           )}
         </button>
 
@@ -420,7 +456,7 @@ export function SpotlightHero({ plan, circleName, slug, now: serverNow }: Props)
           <Link
             href={`/c/${slug}/p/${plan.id}#comments`}
             className={cn(
-              "inline-flex h-10 flex-[1.2] items-center justify-center gap-1.5 rounded-xl text-[13px] font-semibold text-ink",
+              "inline-flex h-9 flex-[1.2] items-center justify-center gap-1.5 rounded-xl text-[13px] font-semibold text-ink",
               "bg-ink/[0.05] hover:bg-ink/[0.10] transition-colors",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral",
             )}
@@ -449,7 +485,7 @@ function SecondaryButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "inline-flex h-10 flex-1 items-center justify-center rounded-xl text-[13px] font-semibold transition-colors text-ink",
+        "inline-flex h-9 flex-1 items-center justify-center rounded-xl text-[13px] font-semibold transition-colors text-ink",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral",
         active
           ? "bg-ink/[0.18]"

@@ -60,6 +60,7 @@ export function FirstRunChecklist({
               <button
                 type="button"
                 onClick={() => setMode("create")}
+                data-tour="first-circle-action"
                 className="inline-flex h-11 items-center justify-center gap-1.5 rounded-full bg-coral px-4 text-sm font-semibold text-white transition-colors hover:bg-coral/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
               >
                 Create a circle
@@ -67,6 +68,7 @@ export function FirstRunChecklist({
               <button
                 type="button"
                 onClick={() => setMode("join")}
+                data-tour="first-circle-action"
                 className="inline-flex h-11 items-center justify-center gap-1.5 rounded-full border border-ink/15 bg-paper-card px-4 text-sm font-semibold text-ink transition-colors hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
               >
                 Have an invite link?
