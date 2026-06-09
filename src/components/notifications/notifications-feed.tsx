@@ -250,6 +250,20 @@ function decode(row: NotificationRow): Decoded {
     }
     case "plan_reminder": {
       const startsAt = payloadString(p, "startsAtIso");
+      const decideBy = payloadString(p, "decideByIso");
+      if (decideBy) {
+        return {
+          actor: null,
+          actorSeed: null,
+          primary: `Vote before it locks · ${planTitle}`,
+          secondary: `Decide by ${formatShortTime(decideBy, payloadTimeZone(p))}`,
+          meta: null,
+          href,
+          circleSlug: slug,
+          circleName,
+          tag: planId ? `plan:${planId}:reminder` : `row:${row.id}`,
+        };
+      }
       return {
         actor: null,
         actorSeed: null,
