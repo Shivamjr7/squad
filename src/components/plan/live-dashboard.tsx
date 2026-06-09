@@ -305,15 +305,15 @@ export function LiveDashboard({
                 </div>
               )}
               <p className="mt-1 text-[10px] leading-snug text-ink-muted">
-                Auto-locks at{" "}
+                Locks with{" "}
                 <b className="font-semibold text-ink">{lockThreshold} in</b>
                 {decideBy ? (
                   <>
-                    {" "}or{" "}
+                    {" "}by{" "}
                     <b className="font-semibold text-ink">
                       {shortHourMinute(decideBy, timeZone)}
                     </b>
-                    , whichever first.
+                    .
                   </>
                 ) : (
                   "."

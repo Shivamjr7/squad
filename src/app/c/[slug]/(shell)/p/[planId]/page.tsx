@@ -903,10 +903,9 @@ function NotInvitedNote({ creatorName }: { creatorName: string | null }) {
 }
 
 // Lock footer (PLAN.md §10 M22, refined post-launch). The plan locks on
-// whichever of these fires first:
-//   - `in` count hits `lock_threshold`
-//   - `decide_by` deadline reached
-//   - every eligible voter has voted (M29)
+// `in` count hitting `lock_threshold`. `decide_by` is a target decision time;
+// if it passes without enough affirmative votes, the plan is lapsed instead
+// of confirmed.
 // When at threshold already, copy reads "Locking any moment now."
 function LockFooter({
   status,
@@ -924,19 +923,12 @@ function LockFooter({
   timeZone?: string;
 }) {
   if (status !== "active") return null;
-  // The plan locks on the FIRST of these to fire:
-  //   - lock_threshold `in` votes (M22 threshold path)
-  //   - decide_by deadline (M22 forced path)
-  //   - all eligible voters have voted (M29 all-voted path)
-  // Earlier copy ("Plan locks at X if 5+ are in") read both clauses as a
-  // single condition, which confused users who saw a deadline time and
-  // expected it to be the plan start time. Rephrased so the deadline and
-  // the threshold are clearly two independent triggers.
+  // Earlier copy made the deadline sound like an independent confirmation
+  // trigger. It is only the target decision time; threshold still requires
+  // affirmative votes.
   const anchor = decideBy && decideBy.getTime() > now.getTime() ? decideBy : null;
   const remaining = Math.max(0, lockThreshold - currentInCount);
-  // Lapsed = deadline already gone but the threshold never landed. No
-  // cron force-locks today, so the prior "Locks at … or sooner with N+ in"
-  // copy was a lie — the deadline already passed and nothing fired.
+  // Lapsed = deadline already gone but the threshold never landed.
   const deadlinePassed =
     decideBy !== null && decideBy.getTime() <= now.getTime();
   const isLapsed = deadlinePassed && remaining > 0;
@@ -946,7 +938,7 @@ function LockFooter({
   } else if (remaining <= 0) {
     label = "Locking any moment now";
   } else if (anchor) {
-    label = `Locks at ${shortTime(anchor, timeZone)}, or sooner with ${lockThreshold}+ in`;
+    label = `Decide by ${shortTime(anchor, timeZone)} · locks with ${lockThreshold}+ in`;
   } else {
     label = `Locks when ${lockThreshold}+ are in`;
   }

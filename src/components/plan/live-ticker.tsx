@@ -154,7 +154,7 @@ export function LiveTicker({
       ? formatShortTime(decideBy, timeZone)
       : null;
   const lockFooter = deadlineLabel
-    ? `Locks at ${deadlineLabel}, or sooner with ${lockThreshold}+ in`
+    ? `Decide by ${deadlineLabel} · locks with ${lockThreshold}+ in`
     : `Locks when ${lockThreshold}+ are in`;
 
   return (

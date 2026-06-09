@@ -101,6 +101,7 @@ type OpenPlan = {
   location: string | null;
   circle_id: string;
   time_zone: string;
+  lock_threshold: number;
 };
 
 type SlotRow = { id: string; starts_at: string };
@@ -110,7 +111,7 @@ async function processOpenTimeLocks(now: Date): Promise<number> {
   const cutoff = now.toISOString();
   const { data: openPlans, error } = await supabase
     .from("plans")
-    .select("id, title, location, circle_id, time_zone")
+    .select("id, title, location, circle_id, time_zone, lock_threshold")
     .eq("time_mode", "open")
     .eq("status", "active")
     .not("decide_by", "is", null)
@@ -157,6 +158,13 @@ async function processOpenTimeLocks(now: Date): Promise<number> {
           winnerCount = c;
         }
       }
+
+      const audience = await resolveAudienceForPlan(plan.id, plan.circle_id);
+      const effectiveThreshold = Math.max(
+        1,
+        Math.min(plan.lock_threshold, audience.length || plan.lock_threshold),
+      );
+      if (winnerCount < effectiveThreshold) continue;
 
       const { data: claim } = await supabase
         .from("plans")
@@ -205,6 +213,7 @@ type ExactPlan = {
   location: string | null;
   circle_id: string;
   time_zone: string;
+  lock_threshold: number;
 };
 type ProposalRow = { id: string; starts_at: string; created_at: string };
 type ProposalVoteRow = { proposal_id: string };
@@ -233,7 +242,7 @@ async function processExactTimeLocks(now: Date): Promise<number> {
   const cutoff = now.toISOString();
   const { data: exactPlans, error } = await supabase
     .from("plans")
-    .select("id, title, starts_at, location, circle_id, time_zone")
+    .select("id, title, starts_at, location, circle_id, time_zone, lock_threshold")
     .eq("time_mode", "exact")
     .eq("status", "active")
     .not("decide_by", "is", null)
@@ -249,6 +258,14 @@ async function processExactTimeLocks(now: Date): Promise<number> {
   let locked = 0;
   for (const plan of exactPlans) {
     try {
+      const audience = await resolveAudienceForPlan(plan.id, plan.circle_id);
+      const effectiveThreshold = Math.max(
+        1,
+        Math.min(plan.lock_threshold, audience.length || plan.lock_threshold),
+      );
+      const inCount = await countInVotes(plan.id);
+      if (inCount < effectiveThreshold) continue;
+
       // Canonical time.
       const { data: proposals } = await supabase
         .from("plan_time_proposals")
