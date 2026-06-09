@@ -16,7 +16,7 @@ export type HeatmapSlot = {
   startsAt: string;
 };
 
-const HOUR_FMT = new Intl.DateTimeFormat(undefined, {
+const HOUR_FMT = new Intl.DateTimeFormat("en-US", {
   hour: "numeric",
   hour12: true,
 });
@@ -33,7 +33,7 @@ function hourLabel(iso: string): string {
 function bestTimeFormat(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -60,7 +60,7 @@ function whenLabel(iso: string): string {
   ) {
     return "tomorrow";
   }
-  return d.toLocaleDateString(undefined, { weekday: "long" }).toLowerCase();
+  return d.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
 }
 
 type Props = {

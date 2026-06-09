@@ -36,7 +36,24 @@ import {
 } from "@/lib/validation/plan";
 import { isValidTimeZone, zonedWallClockToUtc } from "@/lib/tz";
 import { captureWinningVenue } from "@/lib/actions/plan-venues";
+import { dispatchPlanLockedNotification } from "@/lib/actions/plan-lock-notifications";
 import { takeToken, RATE } from "@/lib/rate-limit";
+
+function floorToZonedHour(date: Date, timeZone: string): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone,
+  }).formatToParts(date);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const second = Number(parts.find((p) => p.type === "second")?.value ?? 0);
+  return new Date(
+    date.getTime() -
+      minute * 60_000 -
+      second * 1_000 -
+      date.getMilliseconds(),
+  );
+}
 
 export async function createPlan(
   input: CreatePlanInput,
@@ -324,8 +341,10 @@ export async function createPlan(
     // Anchored on a top-of-hour boundary so cells line up cleanly with
     // wall-clock labels in the heatmap.
     if (data.timeMode === "open") {
-      const anchorMs = startsAt.getTime();
-      const topOfHourMs = anchorMs - (anchorMs % (60 * 60_000));
+      const topOfHourMs = floorToZonedHour(
+        startsAt,
+        data.timeZone,
+      ).getTime();
       const seedRows = [];
       for (let i = -2; i <= 2; i++) {
         seedRows.push({
@@ -452,6 +471,9 @@ async function loadPlanForStatusChange(input: PlanIdInput) {
       circleId: true,
       createdBy: true,
       status: true,
+      title: true,
+      startsAt: true,
+      timeZone: true,
     },
     where: eq(plans.id, parsed.data.planId),
   });
@@ -650,8 +672,31 @@ export async function confirmPlan(input: PlanIdInput): Promise<void> {
     },
   });
 
-  // M31.6 wires the `plan_locked` notification trigger here for the manual
-  // confirm path. The auto-lock path goes through auto-lock.ts.
+  const circle = await db.query.circles.findFirst({
+    columns: { slug: true, name: true },
+    where: eq(circles.id, plan.circleId),
+  });
+  if (circle) {
+    void dispatchPlanLockedNotification({
+      planId: plan.id,
+      circleId: plan.circleId,
+      circleSlug: circle.slug,
+      circleName: circle.name,
+      startsAt: plan.startsAt,
+      timeZone: plan.timeZone,
+      location: winningVenue,
+      trigger: "forced",
+    });
+  }
+
+  void (async () => {
+    try {
+      const audience = await resolvePlanAudience(plan.id, plan.circleId, null);
+      await detectAndNotifyConflictsForAudience(plan.id, audience);
+    } catch (err) {
+      console.error("[plans.confirmPlan] conflict detect failed", err);
+    }
+  })();
 }
 
 export async function unconfirmPlan(input: PlanIdInput): Promise<void> {

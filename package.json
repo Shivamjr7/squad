@@ -12,7 +12,8 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "release:check": "node scripts/check-release-readiness.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.2.3",

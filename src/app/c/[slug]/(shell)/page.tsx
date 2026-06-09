@@ -16,6 +16,7 @@ import {
 import type { ThisWeekListPlan } from "@/components/plan/this-week-list";
 import { PostJoinToast } from "@/components/circle/post-join-toast";
 import { GetStartedChecklist } from "@/components/onboarding/get-started-checklist";
+import { FirstRunTour } from "@/components/onboarding/first-run-tour";
 import { OrbitalEmptyState } from "@/components/plan/orbital-empty-state";
 import { GradientAvatar } from "@/components/ui/gradient-avatar";
 import {
@@ -119,6 +120,7 @@ export default async function CircleHomePage({
   }
 
   const now = new Date();
+  const recentCancelledSince = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   // M23 — visibility filter. A plan shows on home when (a) it has no
   // explicit recipient rows (back-compat: full circle), (b) the current
@@ -137,8 +139,16 @@ export default async function CircleHomePage({
   const upcomingRaw = await db.query.plans.findMany({
     where: and(
       eq(plans.circleId, circle.id),
-      inArray(plans.status, ["active", "confirmed"]),
-      gte(plans.startsAt, now),
+      or(
+        and(
+          inArray(plans.status, ["active", "confirmed"]),
+          gte(plans.startsAt, now),
+        ),
+        and(
+          eq(plans.status, "cancelled"),
+          gte(plans.cancelledAt, recentCancelledSince),
+        ),
+      ),
       recipientVisibilityClause,
     ),
     orderBy: [asc(plans.startsAt)],
@@ -168,6 +178,7 @@ export default async function CircleHomePage({
   //   3 — locked + you've RSVP'd
   // Within each bucket: earliest startsAt first.
   function attentionRank(p: (typeof upcomingRaw)[number]): number {
+    if (p.status === "cancelled") return 4;
     const voted = p.votes.some((v) => v.userId === userId);
     if (p.status === "active") return voted ? 1 : 0;
     return voted ? 3 : 2;
@@ -226,10 +237,13 @@ export default async function CircleHomePage({
     avatarUrl: me.user?.avatarUrl ?? null,
   };
 
-  // `upcoming` is already attention-ranked above, so the head of the list
-  // is the right card to feature and the tail is the rest of "This week".
-  const featured = upcoming[0];
-  const restUpcoming = upcoming.slice(1);
+  // The hero is for a plan that still needs a decision. Locked plans remain
+  // useful on home, but they belong in the compact "This week" list rather
+  // than occupying the primary voting surface.
+  const featured = upcoming.find((p) => p.status === "active") ?? null;
+  const restUpcoming = featured
+    ? upcoming.filter((p) => p.id !== featured.id)
+    : upcoming;
   const dateLabel = formatDateHeader(now);
   const isEmpty = upcoming.length === 0;
 
@@ -333,19 +347,31 @@ export default async function CircleHomePage({
             </header>
 
             <div className="flex flex-col gap-6">
-              {featured ? (
+              {!isEmpty ? (
                 <HomePlanFeed
-                  featured={{
-                    id: featured.id,
-                    title: featured.title,
-                    startsAt: featured.startsAt,
-                    timeZone: featured.timeZone,
-                    isApproximate: featured.isApproximate,
-                    location: featured.location,
-                    status: featured.status,
-                    decideBy: featured.decideBy,
-                    venueSummary: venueSummaries.get(featured.id) ?? null,
-                  }}
+                  featured={
+                    featured
+                      ? {
+                          id: featured.id,
+                          title: featured.title,
+                          startsAt: featured.startsAt,
+                          timeZone: featured.timeZone,
+                          isApproximate: featured.isApproximate,
+                          location: featured.location,
+                          status: featured.status,
+                          decideBy: featured.decideBy,
+                          creator: featured.createdBy
+                            ? {
+                                id: featured.createdBy,
+                                displayName:
+                                  featured.creator?.displayName ?? "Someone",
+                                avatarUrl: featured.creator?.avatarUrl ?? null,
+                              }
+                            : null,
+                          venueSummary: venueSummaries.get(featured.id) ?? null,
+                        }
+                      : null
+                  }
                   restPlans={restUpcoming.map<ThisWeekListPlan>((p) => ({
                     id: p.id,
                     title: p.title,
@@ -357,22 +383,24 @@ export default async function CircleHomePage({
                     status: p.status,
                     venueSummary: venueSummaries.get(p.id) ?? null,
                   }))}
-                  deckPlans={upcoming.map<HomeDeckPlan>((p) => ({
-                    id: p.id,
-                    title: p.title,
-                    type: p.type,
-                    startsAt: p.startsAt,
-                    timeZone: p.timeZone,
-                    isApproximate: p.isApproximate,
-                    location: p.location,
-                    status: p.status,
-                    // PlansSwipeDeck doesn't render creator or comment count,
-                    // but PlanCardData requires the fields. Pass placeholders
-                    // so we don't pay for a comment-count round-trip the
-                    // deck never reads.
-                    creator: null,
-                    commentCount: 0,
-                  }))}
+                  deckPlans={upcoming
+                    .filter((p) => p.status !== "cancelled")
+                    .map<HomeDeckPlan>((p) => ({
+                      id: p.id,
+                      title: p.title,
+                      type: p.type,
+                      startsAt: p.startsAt,
+                      timeZone: p.timeZone,
+                      isApproximate: p.isApproximate,
+                      location: p.location,
+                      status: p.status,
+                      // PlansSwipeDeck doesn't render creator or comment count,
+                      // but PlanCardData requires the fields. Pass placeholders
+                      // so we don't pay for a comment-count round-trip the
+                      // deck never reads.
+                      creator: null,
+                      commentCount: 0,
+                    }))}
                   collision={collision}
                   circleName={circle.name}
                   slug={circle.slug}
@@ -445,6 +473,7 @@ export default async function CircleHomePage({
       <Suspense fallback={null}>
         <PostJoinToast />
       </Suspense>
+      {!hasUserActivity ? <FirstRunTour userId={userId} /> : null}
     </main>
   );
 }

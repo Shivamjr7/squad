@@ -131,7 +131,7 @@ function formatCountdown(ms: number): string {
 }
 
 function shortTime(date: Date, timeZone?: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -140,7 +140,7 @@ function shortTime(date: Date, timeZone?: string): string {
 }
 
 function shortDay(date: Date, timeZone?: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     weekday: "short",
     timeZone,
   }).format(date);

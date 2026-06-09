@@ -10,17 +10,24 @@
 // drawer never lives "inside" the create-plan button.
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { SuggestDrawer } from "@/components/plan/suggest-drawer";
 import {
-  NewPlanForm,
   type FormMember,
   type InitialSuggestion,
 } from "@/components/plan/new-plan-form";
 
 const DESKTOP_QUERY = "(min-width: 640px)";
+
+const SuggestDrawer = dynamic(() =>
+  import("@/components/plan/suggest-drawer").then((mod) => mod.SuggestDrawer),
+);
+
+const NewPlanForm = dynamic(() =>
+  import("@/components/plan/new-plan-form").then((mod) => mod.NewPlanForm),
+);
 
 function useIsDesktop(): boolean {
   const [isDesktop, setIsDesktop] = useState(false);

@@ -36,7 +36,7 @@ function dayOfMonth(d: Date, tz: string): string {
 }
 
 function shortTime(d: Date, tz: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -77,6 +77,7 @@ function ThisWeekRow({
     : shortTime(plan.startsAt, plan.timeZone);
   const status = pickStatus(plan);
   const venue = plan.venueSummary?.label ?? plan.location;
+  const isCancelled = plan.status === "cancelled";
 
   return (
     <Link
@@ -85,6 +86,7 @@ function ThisWeekRow({
       className={cn(
         "group flex items-center gap-3.5 rounded-2xl border border-ink/8 bg-paper-card px-3 py-2.5",
         "transition-colors hover:bg-paper-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral",
+        isCancelled && "opacity-70",
       )}
     >
       {/* Date pill — left rail. SUNK surface keeps it visually distinct
@@ -99,7 +101,9 @@ function ThisWeekRow({
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-[14.5px] font-semibold leading-tight tracking-tight text-ink">
-          {plan.title}
+          <span className={isCancelled ? "line-through" : undefined}>
+            {plan.title}
+          </span>
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-ink-muted">
           {timeLabel ? <span>{timeLabel}</span> : null}
@@ -125,6 +129,9 @@ function pickStatus(plan: ThisWeekListPlan): {
   label: string;
   toneClass: string;
 } {
+  if (plan.status === "cancelled") {
+    return { label: "Cancelled", toneClass: "text-out" };
+  }
   if (plan.status === "confirmed") {
     return { label: "Locked", toneClass: "text-in" };
   }

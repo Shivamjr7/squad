@@ -477,9 +477,8 @@ export function NewPlanForm({
               </div>
               {timeMode === "open" ? (
                 <p className="text-xs text-ink-muted">
-                  The squad will vote on the hour. Time-slot voting ships in
-                  the next update — for now, this still locks at the time
-                  below.
+                  The squad will vote on nearby hours. The plan locks when
+                  enough people converge on one slot.
                 </p>
               ) : null}
             </div>

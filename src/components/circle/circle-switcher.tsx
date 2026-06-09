@@ -55,6 +55,7 @@ export function CircleSwitcher({ currentSlug, circles, size = "lg" }: Props) {
           onClick={() => setMobileOpen(true)}
           className="-ml-1 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left active:bg-muted"
           aria-label="Switch circle"
+          data-tour="circle-switcher"
         >
           <span className={cn("truncate", TITLE_CLASS[size])}>
             {triggerLabel}
@@ -85,6 +86,7 @@ export function CircleSwitcher({ currentSlug, circles, size = "lg" }: Props) {
               type="button"
               className="-ml-1 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-muted/60"
               aria-label="Switch circle"
+              data-tour="circle-switcher"
             >
               <span className={cn("truncate", TITLE_CLASS[size])}>
                 {triggerLabel}

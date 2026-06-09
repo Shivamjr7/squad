@@ -158,8 +158,8 @@ export async function castVote(
   }
 
   // Re-evaluate auto-lock after every cast. Cheap: short-circuits before any
-  // extra queries when the plan isn't active. Three triggers can fire here —
-  // M22 threshold, M22 deadline (only via cron), M29 all-voted.
+  // extra queries when the plan isn't active. In-app casts can only lock by
+  // hitting the IN threshold; Maybe/Out votes never imply consensus.
   await tryAutoLock(data.planId);
 
   // M30 — notify other members when someone joins (votes "in") a plan. We

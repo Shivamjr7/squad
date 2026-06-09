@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Clock,
   Coffee,
   Gamepad2,
   HelpCircle,
@@ -40,6 +41,7 @@ type Props = {
   plans: DeckPlan[];
   slug: string;
   now: Date;
+  context?: "home" | "page";
 };
 
 // Drag thresholds — distance past which a release commits a vote vs.
@@ -58,9 +60,10 @@ type Drag = { x: number; y: number; active: boolean };
 type ExitDir = "right" | "left" | "up" | null;
 type UndoEntry = { planId: string; previous: VoteStatus | null };
 
-export function PlansSwipeDeck({ plans, slug, now }: Props) {
+export function PlansSwipeDeck({ plans, slug, now, context = "page" }: Props) {
   const { voters, currentUser, setOptimisticVote, clearOptimisticVote } =
     useCircleVotes();
+  const isHomeContext = context === "home";
 
   // Lock the deck to whatever was unvoted at mount time. If we re-derived
   // it from voters on every render the top card would vanish mid-swipe as
@@ -341,34 +344,59 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
   })();
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-5">
+    <div
+      className={cn(
+        "mx-auto flex w-full max-w-md flex-col",
+        isHomeContext ? "-mt-3 gap-2.5" : "gap-5",
+      )}
+    >
       {/* Header — DECIDE · n/total */}
-      <div className="flex items-center justify-between gap-3">
-        <Link
-          href={`/c/${slug}`}
-          className="-ml-2 inline-flex size-9 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-          aria-label="Back to circle"
-        >
-          ←
-        </Link>
+      <div
+        className={cn(
+          "flex items-center gap-3",
+          isHomeContext ? "justify-center" : "justify-between",
+        )}
+      >
+        {isHomeContext ? null : (
+          <Link
+            href={`/c/${slug}`}
+            className="-ml-2 inline-flex size-9 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+            aria-label="Back to circle"
+          >
+            ←
+          </Link>
+        )}
         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
           Decide · {index + 1} / {total}
         </span>
-        <span className="size-9" aria-hidden />
+        {isHomeContext ? null : <span className="size-9" aria-hidden />}
       </div>
 
-      <HeroQuestion
-        as="h2"
-        size="md"
-        prefix="Are you in for"
-        accent={top.title}
-        suffix="?"
-      />
+      {isHomeContext ? null : (
+        <HeroQuestion
+          as="h2"
+          size="md"
+          prefix="Are you in for"
+          accent={top.title}
+          suffix="?"
+        />
+      )}
+      <p
+        className={cn(
+          "text-sm font-medium text-ink-muted",
+          isHomeContext ? "text-center" : "-mt-3",
+        )}
+      >
+        Swipe right to vote in. Swipe left to pass.
+      </p>
 
       {/* Deck stack — 3 cards. The top card responds to pointer events;
           the two behind are scale + offset for the depth illusion. */}
       <div
-        className="relative h-[440px] select-none"
+        className={cn(
+          "relative select-none",
+          isHomeContext ? "h-[420px] sm:h-[440px]" : "h-[350px] sm:h-[380px]",
+        )}
         aria-roledescription="swipe deck"
         aria-live="polite"
       >
@@ -427,7 +455,12 @@ export function PlansSwipeDeck({ plans, slug, now }: Props) {
           Out/Maybe sit at secondary size, In is the primary affordance
           (larger, stronger fill). Each has a visible label so the
           control reads as a vote action, not an abstract icon. */}
-      <div className="flex items-end justify-center gap-6 pt-2">
+      <div
+        className={cn(
+          "flex items-end justify-center gap-6",
+          isHomeContext ? "pt-0" : "pt-2",
+        )}
+      >
         <CircleButton
           label="Out"
           onClick={() => commitVote(top.id, "out", "left")}
@@ -485,68 +518,84 @@ function DeckCardSurface({
     now,
     plan.timeZone,
   );
-  const typeLabel = TYPE_LABEL[plan.type] ?? plan.type.toUpperCase();
   const tally = inVoters.length;
 
   const TypeIcon = TYPE_ICON[plan.type] ?? Sparkles;
 
   return (
-    <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink/10 bg-paper-card shadow-card-raised">
-      {/* Chip row */}
-      <div className="flex items-center justify-between gap-3 px-6 pt-6">
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-          <TypeIcon className="size-3.5" aria-hidden strokeWidth={2} />
-          {typeLabel}
-        </span>
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-          {whenLabel}
-        </span>
-      </div>
+    <article className="relative h-full">
+      <span
+        aria-hidden
+        className="absolute inset-x-7 bottom-1 h-10 rounded-[28px] bg-ink/8 dark:bg-white/10"
+      />
+      <span
+        aria-hidden
+        className="absolute inset-x-4 bottom-4 h-12 rounded-[28px] bg-paper-card shadow-sm dark:bg-paper-elevated/80"
+      />
 
-      {/* Title + location — the headline. Generous top space lets the
-          serif breathe; nothing competes with it visually. */}
-      <div className="flex flex-1 flex-col gap-2.5 px-6 pt-10">
-        <h3 className="font-serif text-[34px] font-semibold leading-[1.04] tracking-[-0.02em] text-ink">
-          {plan.title}
-        </h3>
-        <div className="flex items-center gap-1.5 text-sm text-ink-muted">
-          <MapPin className="size-3.5 shrink-0" aria-hidden strokeWidth={2} />
-          <span className="line-clamp-1">
-            {plan.location ?? "no spot yet"}
+      <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] border border-ink/10 bg-paper-card shadow-[0_20px_48px_-30px_rgba(12,12,12,0.55)] dark:border-white/14 dark:bg-paper-elevated dark:shadow-[0_22px_70px_-34px_rgba(255,255,255,0.22)]">
+        <div className="relative h-[40%] min-h-[118px] overflow-hidden bg-[radial-gradient(circle_at_28%_24%,rgba(239,91,79,0.18),transparent_36%),radial-gradient(circle_at_82%_12%,rgba(28,124,84,0.16),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.92),rgba(239,235,225,0.78))] dark:bg-[radial-gradient(circle_at_28%_24%,rgba(239,91,79,0.22),transparent_38%),radial-gradient(circle_at_82%_12%,rgba(76,175,122,0.22),transparent_32%),linear-gradient(135deg,rgba(255,255,255,0.24),rgba(255,255,255,0.10))]">
+          <span
+            aria-hidden
+            className="absolute left-6 top-6 flex size-12 items-center justify-center rounded-2xl bg-paper/80 text-ink shadow-sm dark:bg-black/35 dark:ring-1 dark:ring-white/12"
+          >
+            <TypeIcon className="size-5" aria-hidden strokeWidth={2} />
+          </span>
+          <span className="absolute right-5 top-5 inline-flex items-center gap-1.5 rounded-full bg-paper/90 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink shadow-sm dark:bg-black/50 dark:ring-1 dark:ring-white/12">
+            <Clock className="size-3.5" aria-hidden strokeWidth={2} />
+            {whenLabel}
           </span>
         </div>
 
-        <div className="mt-auto flex items-end justify-between gap-4 pt-6 pb-6">
-          <div className="flex min-w-0 flex-col gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-              Who&rsquo;s in
-            </span>
-            <AvatarStack voters={inVoters} />
+        <div className="relative flex flex-1 flex-col bg-paper px-5 pb-16 pt-5 dark:bg-[oklch(0.245_0.010_38)]">
+          <h3 className="line-clamp-2 font-serif text-[34px] font-semibold leading-[0.98] text-ink">
+            {plan.title}
+          </h3>
+          <div className="mt-2 flex min-w-0 items-center gap-2 text-sm font-medium text-ink-muted">
+            <MapPin className="size-4 shrink-0" aria-hidden strokeWidth={2} />
+            <span className="truncate">{plan.location ?? "No spot yet"}</span>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-              Votes
-            </span>
-            <span className="font-serif text-3xl leading-none text-ink tabular-nums">
-              {tally}
-              <span className="ml-1 align-baseline text-xs font-sans text-ink-muted">
-                in
+
+          <div className="mt-auto flex items-end gap-5 pt-5">
+            <div className="flex shrink-0 flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-muted">
+                Votes
               </span>
-            </span>
+              <span className="font-serif text-3xl leading-none text-in-strong tabular-nums">
+                {tally}
+                <span className="ml-1 text-sm font-sans text-ink-muted">
+                  in
+                </span>
+              </span>
+            </div>
+            <div className="h-12 w-px bg-ink/8 dark:bg-white/12" aria-hidden />
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-muted">
+                Said yes
+              </span>
+              <AvatarStack voters={inVoters} />
+            </div>
           </div>
+        </div>
+
+        <div className="absolute inset-x-0 bottom-0 grid grid-cols-2 overflow-hidden border-t border-ink/8 bg-paper dark:border-white/10 dark:bg-[oklch(0.205_0.008_35)]">
+          <span className="flex h-13 items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-out">
+            <ArrowLeft className="size-3.5" aria-hidden strokeWidth={2.5} />
+            Pass
+          </span>
+          <span className="flex h-13 items-center justify-center gap-2 border-l border-ink/8 text-[11px] font-bold uppercase tracking-[0.14em] text-in-strong dark:border-white/10">
+            In
+            <ArrowRight className="size-3.5" aria-hidden strokeWidth={2.5} />
+          </span>
         </div>
       </div>
 
-      {/* Pass / In footer hint — quiet, just a reminder of what each
-          swipe direction commits to. */}
-      <div className="grid grid-cols-2 border-t border-ink/8">
-        <span className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-          <ArrowLeft className="size-3" aria-hidden strokeWidth={2} />
-          Pass
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-between px-5 pt-5 opacity-0">
+        <span>
+          <X className="size-4" aria-hidden />
         </span>
-        <span className="flex items-center justify-center gap-1.5 border-l border-ink/8 py-3.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-          In
-          <ArrowRight className="size-3" aria-hidden strokeWidth={2} />
+        <span>
+          <Check className="size-4" aria-hidden />
         </span>
       </div>
 
@@ -698,14 +747,6 @@ function hasVote(rows: { userId: string }[] | undefined, userId: string) {
   if (!rows) return false;
   return rows.some((r) => r.userId === userId);
 }
-
-const TYPE_LABEL: Record<PlanType, string> = {
-  eat: "Eat",
-  play: "Play",
-  chai: "Chai",
-  "stay-in": "Stay in",
-  other: "Other",
-};
 
 const TYPE_ICON: Record<PlanType, LucideIcon> = {
   eat: UtensilsCrossed,

@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import "./receipt-print.css";
 
 function formatShortTime(date: Date, timeZone?: string) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -36,7 +36,7 @@ function formatReceiptDate(date: Date, timeZone?: string) {
   }).format(date);
 }
 
-const LOG_TIME = new Intl.DateTimeFormat(undefined, {
+const LOG_TIME = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,

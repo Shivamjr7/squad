@@ -46,6 +46,7 @@ export function HomeTabSwitcher({ active }: { active: HomeTab }) {
     <div
       role="tablist"
       aria-label="Home view"
+      data-tour="home-tabs"
       className="flex items-center gap-1 rounded-full border border-ink-subtle bg-paper-card/60 p-1"
     >
       {tabs.map((tab) => {

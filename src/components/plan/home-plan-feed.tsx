@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { LayoutGrid, List } from "lucide-react";
 import { CircleCollisionBanner } from "./circle-collision-banner";
-import { PlansSwipeDeck } from "./plans-swipe-deck";
 import { SpotlightHero, type SpotlightHeroPlan } from "./spotlight-hero";
 import { ThisWeekList, type ThisWeekListPlan } from "./this-week-list";
 import type { PlanCardData } from "./plan-card";
 import { cn } from "@/lib/utils";
+
+const PlansSwipeDeck = dynamic(
+  () => import("./plans-swipe-deck").then((mod) => mod.PlansSwipeDeck),
+  { loading: () => <SwipeDeckLoading /> },
+);
 
 // Home's swipe deck shares PlanCardData shape with the deck used on
 // /c/[slug]/plans — the deck itself doesn't read commentCount/creator, but
@@ -15,7 +20,7 @@ import { cn } from "@/lib/utils";
 export type HomeDeckPlan = Omit<PlanCardData, "startsAt"> & { startsAt: Date };
 
 type Props = {
-  featured: SpotlightHeroPlan;
+  featured: SpotlightHeroPlan | null;
   restPlans: ThisWeekListPlan[];
   deckPlans: HomeDeckPlan[];
   collision: { planAId: string; planBId: string } | null;
@@ -74,15 +79,17 @@ export function HomePlanFeed({
       ) : null}
 
       {view === "swipe" ? (
-        <PlansSwipeDeck plans={deckPlans} slug={slug} now={now} />
+        <PlansSwipeDeck plans={deckPlans} slug={slug} now={now} context="home" />
       ) : (
         <div className="flex flex-col gap-6">
-          <SpotlightHero
-            plan={featured}
-            circleName={circleName}
-            slug={slug}
-            now={now}
-          />
+          {featured ? (
+            <SpotlightHero
+              plan={featured}
+              circleName={circleName}
+              slug={slug}
+              now={now}
+            />
+          ) : null}
 
           {collision ? (
             <CircleCollisionBanner
@@ -107,6 +114,23 @@ export function HomePlanFeed({
           ) : null}
         </div>
       )}
+    </div>
+  );
+}
+
+function SwipeDeckLoading() {
+  return (
+    <div className="flex min-h-[420px] flex-col justify-between rounded-[28px] border border-ink/10 bg-paper-card p-5 shadow-card">
+      <div className="space-y-3">
+        <div className="h-5 w-24 rounded-full bg-ink/10" />
+        <div className="h-9 w-3/4 rounded-xl bg-ink/10" />
+        <div className="h-5 w-1/2 rounded-xl bg-ink/10" />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="h-11 rounded-2xl bg-ink/10" />
+        <div className="h-11 rounded-2xl bg-ink/10" />
+        <div className="h-11 rounded-2xl bg-ink/10" />
+      </div>
     </div>
   );
 }

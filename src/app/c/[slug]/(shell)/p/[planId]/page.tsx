@@ -452,6 +452,12 @@ export default async function PlanDetailPage({
   }
   const showProposals =
     !isPastPlan && plan.status === "active" && plan.timeMode === "exact";
+  const isLiveTicker = !isOpenTime && variant === "live-ticker";
+  const canSuggestAddOn =
+    !isPastPlan &&
+    canParticipate &&
+    plan.status === "active" &&
+    plan.timeMode === "exact";
 
   const showVotes = !isPastPlan && (plan.status === "active" || plan.status === "confirmed");
   const memberCount = memberRows.length;
@@ -566,7 +572,9 @@ export default async function PlanDetailPage({
           // floats above the action bar for creators/admins (pb-64), and
           // above the mobile tab bar for everyone else (pb-44).
           "mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-5 px-4 pt-2 sm:px-6 md:max-w-3xl " +
-          (canMutateStatus && plan.status === "active" ? "pb-64" : "pb-44")
+          (canMutateStatus && plan.status === "active" && !isLiveTicker
+            ? "pb-64"
+            : "pb-44")
         }
       >
         {/* Single nav-row: back affordance + status pill + overflow menu.
@@ -594,7 +602,7 @@ export default async function PlanDetailPage({
               timeZone={plan.timeZone}
             />
           </div>
-          {canMutateStatus && !isPastPlan ? (
+          {canMutateStatus && (plan.status === "cancelled" || !isPastPlan) ? (
             <PlanOverflowMenu
               planId={plan.id}
               status={plan.status}
@@ -605,24 +613,26 @@ export default async function PlanDetailPage({
           ) : null}
         </header>
 
-        <section className="flex flex-col gap-3">
-          <h1
-            className={
-              "font-serif text-3xl font-semibold leading-tight text-ink sm:text-4xl " +
-              (plan.status === "cancelled" ? "line-through opacity-60" : "")
-            }
-            style={{ viewTransitionName: `plan-title-${plan.id}` }}
-          >
-            {plan.title}
-          </h1>
-          <p className="text-sm text-ink-muted">
-            started by {plan.creator?.displayName ?? "Someone"}{" "}
-            <span aria-hidden>·</span>{" "}
-            {relativeCreatedAt(plan.createdAt, now, plan.timeZone)}{" "}
-            <span aria-hidden>·</span> {memberCount}{" "}
-            {memberCount === 1 ? "person" : "people"}
-          </p>
-        </section>
+        {!isLiveTicker ? (
+          <section className="flex flex-col gap-3">
+            <h1
+              className={
+                "font-serif text-3xl font-semibold leading-tight text-ink sm:text-4xl " +
+                (plan.status === "cancelled" ? "line-through opacity-60" : "")
+              }
+              style={{ viewTransitionName: `plan-title-${plan.id}` }}
+            >
+              {plan.title}
+            </h1>
+            <p className="text-sm text-ink-muted">
+              started by {plan.creator?.displayName ?? "Someone"}{" "}
+              <span aria-hidden>·</span>{" "}
+              {relativeCreatedAt(plan.createdAt, now, plan.timeZone)}{" "}
+              <span aria-hidden>·</span> {memberCount}{" "}
+              {memberCount === 1 ? "person" : "people"}
+            </p>
+          </section>
+        ) : null}
 
         {/* M24 — variant dispatch. Open-time plans (heatmap path) keep the
             decision-skin chrome regardless of variant since the live ticker
@@ -636,6 +646,7 @@ export default async function PlanDetailPage({
               initialVoters={openInitialVoters}
               members={openMembers}
               currentUserId={userId}
+              lockThreshold={lockThreshold}
             />
             {canParticipate ? (
               <PlanVotes
@@ -661,7 +672,7 @@ export default async function PlanDetailPage({
               timeZone={plan.timeZone}
             />
           </>
-        ) : variant === "live-ticker" ? (
+        ) : isLiveTicker ? (
           <>
             <LiveDashboard
               planId={plan.id}
@@ -677,21 +688,8 @@ export default async function PlanDetailPage({
               squad={dashboardSquad}
               shiftedFromTime={null}
               now={now}
-              hasActionBar={canMutateStatus}
+              hasActionBar={false}
               venueCount={initialVenues.length}
-              additionsSlot={
-                additionVoteRowsForUi.length > 0 ? (
-                  <AdditionVoteList
-                    planId={plan.id}
-                    additions={additionVoteRowsForUi}
-                    initialVoters={initialAdditionVoters}
-                    members={additionMembers}
-                    currentUserId={userId}
-                    canVote={canVoteOnAdditions}
-                    timeZone={plan.timeZone}
-                  />
-                ) : null
-              }
             />
             {showVenueVote ? (
               <VenueVote
@@ -714,11 +712,22 @@ export default async function PlanDetailPage({
                 planDurationMinutes={plan.durationMinutes}
               />
             ) : null}
-            {canParticipate ? (
+            {canSuggestAddOn ? (
               <SuggestAddition
                 planId={plan.id}
                 defaultStartsAt={plan.startsAt}
                 tone="light"
+              />
+            ) : null}
+            {additionsForTicker.length > 0 ? (
+              <AdditionVoteList
+                planId={plan.id}
+                additions={additionVoteRowsForUi}
+                initialVoters={initialAdditionVoters}
+                members={additionMembers}
+                currentUserId={userId}
+                canVote={canVoteOnAdditions}
+                timeZone={plan.timeZone}
               />
             ) : null}
           </>
@@ -750,15 +759,6 @@ export default async function PlanDetailPage({
                 location={plan.location}
                 tone="cream"
               />
-            }
-            suggestAddOnSlot={
-              canParticipate && plan.status === "confirmed" ? (
-                <SuggestAddition
-                  planId={plan.id}
-                  defaultStartsAt={plan.startsAt}
-                  tone="light"
-                />
-              ) : null
             }
           />
         ) : (
@@ -799,7 +799,7 @@ export default async function PlanDetailPage({
                 planDurationMinutes={plan.durationMinutes}
               />
             ) : null}
-            {!isPastPlan && canParticipate ? (
+            {canSuggestAddOn ? (
               <SuggestAddition
                 planId={plan.id}
                 defaultStartsAt={plan.startsAt}
@@ -874,7 +874,7 @@ export default async function PlanDetailPage({
           </Suspense>
         </section>
       </main>
-      {canMutateStatus && plan.status === "active" ? (
+      {canMutateStatus && plan.status === "active" && !isLiveTicker ? (
         <PlanCreatorActionBar
           planId={plan.id}
           status={plan.status}

@@ -31,6 +31,43 @@ type Props = {
 
 type DisplayInvite = { code: string; url: string };
 
+function copyTextFallback(text: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator.clipboard?.writeText === "function") {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Some embedded browsers expose `navigator.clipboard` but reject writes.
+    // Fall back to a user-gesture selection copy before showing an error.
+  }
+
+  return copyTextFallback(text);
+}
+
+function whatsappShareHref(inviteUrl: string): string {
+  const text = `Join my circle on Squad: ${inviteUrl}`;
+  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+}
+
 export function InviteButton({
   circleId,
   isAdmin,
@@ -89,8 +126,7 @@ export function InviteButton({
   }
 
   async function onCopy(invite: DisplayInvite) {
-    try {
-      await navigator.clipboard.writeText(invite.url);
+    if (await copyText(invite.url)) {
       setCopiedCode(invite.code);
       toast.success("Invite link copied");
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
@@ -98,8 +134,8 @@ export function InviteButton({
         () => setCopiedCode((c) => (c === invite.code ? null : c)),
         2000,
       );
-    } catch {
-      toast.error("Couldn't copy — long-press the link to copy manually.");
+    } else {
+      toast.error("Couldn't copy — select the link to copy manually.");
     }
   }
 
@@ -134,16 +170,6 @@ export function InviteButton({
       if (err instanceof Error && err.name === "AbortError") return;
       toast.error("Couldn't open share sheet.");
     }
-  }
-
-  function onShareWhatsApp(invite: DisplayInvite) {
-    // `wa.me` is the WhatsApp universal link: opens the app on mobile when
-    // installed (iOS + Android both honour the deep link), falls back to
-    // WhatsApp Web in a new tab on desktop. No app-id required and no
-    // platform sniffing — same href works everywhere.
-    const text = `Join my circle on Squad: ${invite.url}`;
-    const href = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    window.open(href, "_blank", "noopener");
   }
 
   return (
@@ -260,16 +286,22 @@ export function InviteButton({
                   {invite.url}
                 </code>
                 <Button
+                  asChild
                   size="icon"
                   variant="ghost"
-                  onClick={() => onShareWhatsApp(invite)}
-                  aria-label="Share via WhatsApp"
                   // text-[#25D366] is WhatsApp's brand green — keeps the
                   // affordance instantly recognisable next to the neutral
                   // copy/share icons without a coloured background.
                   className="text-[#25D366] hover:text-[#1da750]"
                 >
-                  <WhatsAppIcon className="size-4" />
+                  <a
+                    href={whatsappShareHref(invite.url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Share via WhatsApp"
+                  >
+                    <WhatsAppIcon className="size-4" />
+                  </a>
                 </Button>
                 <Button
                   size="icon"
