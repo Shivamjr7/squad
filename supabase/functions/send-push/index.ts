@@ -59,6 +59,8 @@ const KNOWN_KINDS: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
   "plan_leave_soon",
   "plan_cancelled",
   "plan_reminder",
+  "plan_conflict",
+  "plan_conflict_resolved",
 ]);
 
 type NotificationRow = {

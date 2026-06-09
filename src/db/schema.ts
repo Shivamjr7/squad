@@ -19,9 +19,9 @@ import {
 export const membershipRole = pgEnum("membership_role", ["admin", "member"]);
 
 // M30 — in-app notification types. M31 extends with plan_locked,
-// plan_leave_soon, and plan_cancelled. `plan_reminder` is kept in the enum
-// for backward compat with rows already in the table, but no new sites write
-// it — `plan_leave_soon` replaces it as the pre-event nudge.
+// plan_leave_soon, and plan_cancelled. `plan_reminder` is used for the
+// pre-decision "you have not voted yet" nudge; `plan_leave_soon` is the
+// post-confirmation pre-event nudge.
 // M32 extends with plan_conflict / plan_conflict_resolved (cross-circle
 // overlap notifications, see CONVERGENCE_PLAN.md §5).
 // Add new kinds at the end — Postgres enums grow forward only.

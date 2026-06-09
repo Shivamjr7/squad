@@ -12,9 +12,9 @@
 // One per notification type. The dispatcher accepts a discriminated union
 // so the call site can't assemble a `vote_in` payload with reminder fields.
 //
-// M31 — five active kinds. The legacy `plan_reminder` type is preserved in
-// the schema enum for in-flight rows but no new code writes it; the
-// composer renders it for back-compat with rows already in the table.
+// M31 — five active kinds. M32 reuses `plan_reminder` for the pre-deadline
+// "you have not voted yet" nudge so the cron can ship the reminder without
+// adding another enum value.
 
 export type VoteInPayload = {
   planId: string;
@@ -136,11 +136,11 @@ export type PlanReminderPayload = {
   // rows in the table predate this field — composer falls back to UTC.
   timeZone?: string;
   location: string | null;
+  decideByIso?: string | null;
 };
 
-// Dispatch input — seven active kinds (M31 five + M32 two). The dispatcher
-// will not insert `plan_reminder` because callers shouldn't be creating new
-// reminder rows.
+// Dispatch input — seven active kinds (M31 five + M32 two). The cron inserts
+// plan_reminder rows directly because it runs in Deno.
 export type NotificationPayload =
   | { type: "vote_in"; payload: VoteInPayload }
   | { type: "plan_created"; payload: PlanCreatedPayload }
@@ -443,17 +443,23 @@ export function composePushPayload(
     }
 
     case "plan_reminder": {
-      // Legacy. Kept so plan_reminder rows already in the DB still render
-      // a sensible push body if the edge function ever replays them. Legacy
-      // rows may lack timeZone — SW falls back to the device zone.
+      // Pre-deadline RSVP nudge. Legacy rows that lack decideByIso still
+      // render a sensible starts-at reminder.
       const when = formatBodyTime(
         input.payload.startsAtIso,
         input.payload.timeZone,
       );
+      const hasDecisionDeadline =
+        typeof input.payload.decideByIso === "string" &&
+        input.payload.decideByIso.length > 0;
       return {
         title: input.payload.planTitle,
-        body: `Starts at ${when}.`,
-        bodyTemplate: `Starts at ${PUSH_TIME_PLACEHOLDER}.`,
+        body: hasDecisionDeadline
+          ? "Vote before it locks."
+          : `Starts at ${when}.`,
+        bodyTemplate: hasDecisionDeadline
+          ? "Vote before it locks."
+          : `Starts at ${PUSH_TIME_PLACEHOLDER}.`,
         url,
         tag: `plan:${planId}:reminder`,
         renotify: true,

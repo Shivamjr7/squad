@@ -431,6 +431,96 @@ async function dispatchPlanLeaveSoon(
   return inserted.length;
 }
 
+type ReminderPlan = {
+  id: string;
+  title: string;
+  starts_at: string;
+  location: string | null;
+  circle_id: string;
+  time_zone: string;
+  decide_by: string;
+};
+
+// M32 — pre-deadline nudge for people who still have not voted on an active
+// plan. This is intentionally different from plan_leave_soon: leave-soon
+// goes to in/maybe voters before a confirmed start; this reminder goes to
+// non-voters before the decision locks.
+async function dispatchPlanVoteReminder(
+  plan: ReminderPlan,
+  circleSlug: string,
+  circleName: string,
+): Promise<number> {
+  const audience = await resolveAudienceForPlan(plan.id, plan.circle_id);
+  if (audience.length === 0) return 0;
+
+  const { data: voteRows, error: voteErr } = await supabase
+    .from("votes")
+    .select("user_id")
+    .eq("plan_id", plan.id)
+    .returns<VoterRow[]>();
+  if (voteErr) {
+    console.error("[remind-plans] reminder vote lookup failed", {
+      planId: plan.id,
+      error: voteErr.message,
+    });
+    return 0;
+  }
+
+  const voted = new Set((voteRows ?? []).map((v) => v.user_id));
+  const pendingUserIds = audience.filter((userId) => !voted.has(userId));
+  if (pendingUserIds.length === 0) return 0;
+
+  const { data: enabledRows, error: enabledErr } = await supabase
+    .from("users")
+    .select("id")
+    .in("id", pendingUserIds)
+    .eq("notifications_enabled", true)
+    .returns<{ id: string }[]>();
+  if (enabledErr) {
+    console.error("[remind-plans] reminder enabled-user lookup failed", {
+      planId: plan.id,
+      error: enabledErr.message,
+    });
+    return 0;
+  }
+  const userIds = (enabledRows ?? []).map((u) => u.id);
+  if (userIds.length === 0) return 0;
+
+  const payload = {
+    planId: plan.id,
+    planTitle: plan.title,
+    circleSlug,
+    circleName,
+    startsAtIso: plan.starts_at,
+    timeZone: plan.time_zone,
+    location: plan.location,
+    decideByIso: plan.decide_by,
+  };
+
+  const { data: inserted, error } = await supabase
+    .from("notifications")
+    .insert(
+      userIds.map((userId) => ({
+        user_id: userId,
+        type: "plan_reminder",
+        payload,
+      })),
+    )
+    .select("id")
+    .returns<{ id: string }[]>();
+  if (error) {
+    console.error("[remind-plans] plan_reminder insert failed", {
+      planId: plan.id,
+      error: error.message,
+    });
+    return 0;
+  }
+  if (!inserted || inserted.length === 0) return 0;
+
+  await invokeSendPush(inserted.map((r) => r.id));
+  return inserted.length;
+}
+
 // M31.6 — fan out the "It's happening" push when the cron locks a plan
 // (open-time or exact-time). System-driven, so audience = full
 // recipients-or-circle (no actor exclusion). Mirrors the in-app dispatch
@@ -542,6 +632,8 @@ Deno.serve(async (req) => {
   // the stamp and the loser sees an empty result set.
   const lower = new Date(now.getTime() + 40 * 60 * 1000).toISOString();
   const upper = new Date(now.getTime() + 50 * 60 * 1000).toISOString();
+  const reminderLower = new Date(now.getTime() + 25 * 60 * 1000).toISOString();
+  const reminderUpper = new Date(now.getTime() + 35 * 60 * 1000).toISOString();
 
   const { data: claimed, error: claimErr } = await supabase
     .from("plans")
@@ -584,18 +676,62 @@ Deno.serve(async (req) => {
     }
   }
 
+  const { data: reminderClaims, error: reminderClaimErr } = await supabase
+    .from("plans")
+    .update({ reminder_sent_at: now.toISOString() })
+    .eq("status", "active")
+    .gte("decide_by", reminderLower)
+    .lte("decide_by", reminderUpper)
+    .is("reminder_sent_at", null)
+    .select("id, title, starts_at, location, circle_id, time_zone, decide_by")
+    .returns<ReminderPlan[]>();
+
+  if (reminderClaimErr) {
+    console.error("[remind-plans] reminder claim failed", reminderClaimErr);
+    return new Response(
+      JSON.stringify({
+        error: "reminder claim failed",
+        detail: reminderClaimErr.message,
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  let voteReminders = 0;
+  for (const plan of reminderClaims ?? []) {
+    try {
+      const { data: circle } = await supabase
+        .from("circles")
+        .select("slug, name")
+        .eq("id", plan.circle_id)
+        .single();
+      if (!circle) continue;
+      voteReminders += await dispatchPlanVoteReminder(
+        plan,
+        circle.slug,
+        circle.name,
+      );
+    } catch (err) {
+      console.error("[remind-plans] per-reminder-plan failed", {
+        planId: plan.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   const lockedOpen = await processOpenTimeLocks(now);
   const lockedExact = await processExactTimeLocks(now);
   const locked = lockedOpen + lockedExact;
 
   console.log("[remind-plans]", {
     leaveSoon,
+    voteReminders,
     locked,
     lockedOpen,
     lockedExact,
     at: now.toISOString(),
   });
-  return new Response(JSON.stringify({ leaveSoon, locked }), {
+  return new Response(JSON.stringify({ leaveSoon, voteReminders, locked }), {
     headers: { "Content-Type": "application/json" },
   });
 });
