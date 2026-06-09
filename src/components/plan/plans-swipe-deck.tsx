@@ -42,6 +42,7 @@ type Props = {
   slug: string;
   now: Date;
   context?: "home" | "page";
+  onCaughtUpBack?: () => void;
 };
 
 // Drag thresholds — distance past which a release commits a vote vs.
@@ -60,7 +61,13 @@ type Drag = { x: number; y: number; active: boolean };
 type ExitDir = "right" | "left" | "up" | null;
 type UndoEntry = { planId: string; previous: VoteStatus | null };
 
-export function PlansSwipeDeck({ plans, slug, now, context = "page" }: Props) {
+export function PlansSwipeDeck({
+  plans,
+  slug,
+  now,
+  context = "page",
+  onCaughtUpBack,
+}: Props) {
   const { voters, currentUser, setOptimisticVote, clearOptimisticVote } =
     useCircleVotes();
   const isHomeContext = context === "home";
@@ -295,7 +302,7 @@ export function PlansSwipeDeck({ plans, slug, now, context = "page" }: Props) {
   }, [top, exit, commitVote, onUndo]);
 
   if (total === 0) {
-    return <AllCaughtUp slug={slug} />;
+    return <AllCaughtUp slug={slug} onBack={onCaughtUpBack} />;
   }
 
   if (!top) {
@@ -304,6 +311,7 @@ export function PlansSwipeDeck({ plans, slug, now, context = "page" }: Props) {
       <AllCaughtUp
         slug={slug}
         message="You've worked through every plan waiting on you."
+        onBack={onCaughtUpBack}
       />
     );
   }
@@ -708,9 +716,11 @@ function CircleButton({
 function AllCaughtUp({
   slug,
   message,
+  onBack,
 }: {
   slug: string;
   message?: string;
+  onBack?: () => void;
 }) {
   // Warm card (solid surface + coral glow) instead of the prior dashed-
   // border treatment, which read as an empty form. Matches the My Plans
@@ -732,12 +742,22 @@ function AllCaughtUp({
         <p className="max-w-xs text-sm text-ink-muted">
           {message ?? "Nothing waiting on your vote right now."}
         </p>
-        <Link
-          href={`/c/${slug}`}
-          className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-4 py-2 text-sm font-semibold text-ink hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
-        >
-          Back to circle
-        </Link>
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-4 py-2 text-sm font-semibold text-ink hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+          >
+            Back to circle
+          </button>
+        ) : (
+          <Link
+            href={`/c/${slug}`}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper px-4 py-2 text-sm font-semibold text-ink hover:bg-paper-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"
+          >
+            Back to circle
+          </Link>
+        )}
       </div>
     </section>
   );

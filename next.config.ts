@@ -19,9 +19,6 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
-  experimental: {
-    viewTransition: true,
-  },
   // Hide the dev "N" indicator entirely. Any bottom corner overlaps the
   // mobile bottom-tab bar (Home / You) and any top corner overlaps the
   // AppShell top bar — there's nowhere to put it on a 380px viewport
