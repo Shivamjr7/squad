@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { useCircleVotes } from "@/lib/realtime/use-circle-votes";
 import { GradientAvatar } from "@/components/ui/gradient-avatar";
 import type { PlanType } from "@/lib/validation/plan";
+import type { EffectiveStatus } from "@/lib/effective-status";
 import { cn } from "@/lib/utils";
 
 export type ThisWeekListPlan = {
@@ -16,6 +17,7 @@ export type ThisWeekListPlan = {
   isApproximate: boolean;
   location: string | null;
   status: "active" | "confirmed" | "done" | "cancelled";
+  effectiveStatus: EffectiveStatus;
   venueSummary?: {
     label: string | null;
     total: number;
@@ -134,6 +136,9 @@ function pickStatus(plan: ThisWeekListPlan): {
   }
   if (plan.status === "confirmed") {
     return { label: "Locked", toneClass: "text-in" };
+  }
+  if (plan.effectiveStatus === "lapsed") {
+    return { label: "Lapsed", toneClass: "text-ink-muted" };
   }
   if (plan.venueSummary && plan.venueSummary.optionCount >= 2) {
     return {

@@ -217,7 +217,6 @@ export default async function PlanDetailPage({
   );
 
   const isOpenTime = plan.timeMode === "open" && plan.status === "active";
-  const variant = getPlanVariant(plan, new Date());
 
   // Pull the nested arrays apart into the shapes the downstream JSX uses.
   // `timeProposals` is split into replacement vs addition because the UI
@@ -232,7 +231,6 @@ export default async function PlanDetailPage({
   const additionRows = plan.timeProposals.filter(
     (p) => p.kind === "addition",
   );
-  const receiptEventRows = variant === "receipt" ? plan.events : [];
   // Vote arrays are nested under their parent rows by the relational
   // query; flatten only when the downstream code expects a flat list.
   const slotVoteRows = isOpenTime
@@ -386,18 +384,6 @@ export default async function PlanDetailPage({
       };
     }
   }
-  const now = new Date();
-  const isPastPlan =
-    plan.status === "done" ||
-    plan.status === "cancelled" ||
-    plan.startsAt < now;
-
-  // Surface multi-venue voting only while the plan is still active and has
-  // more than one option. After lock (status=confirmed/done/cancelled) or a
-  // past time, the canonical plan location is what matters; voting card hides.
-  const showVenueVote =
-    !isPastPlan && plan.status === "active" && initialVenues.length > 1;
-
   const initialProposals: ProposalRow[] = proposalRows.map((p) => ({
     id: p.id,
     startsAt: p.startsAt.toISOString(),
@@ -450,16 +436,6 @@ export default async function PlanDetailPage({
       };
     }
   }
-  const showProposals =
-    !isPastPlan && plan.status === "active" && plan.timeMode === "exact";
-  const isLiveTicker = !isOpenTime && variant === "live-ticker";
-  const canSuggestAddOn =
-    !isPastPlan &&
-    canParticipate &&
-    plan.status === "active" &&
-    plan.timeMode === "exact";
-
-  const showVotes = !isPastPlan && plan.status === "active";
   const memberCount = memberRows.length;
   // Clamp the M22 threshold down to the eligible voter pool so a plan in
   // a 4-person squad doesn't display the unreachable default of 5+ ins.
@@ -471,6 +447,42 @@ export default async function PlanDetailPage({
     1,
     Math.min(plan.lockThreshold, eligibleVoterCount),
   );
+  const now = new Date();
+  const isLapsed =
+    plan.status === "active" &&
+    plan.decideBy !== null &&
+    plan.decideBy.getTime() <= now.getTime() &&
+    currentInCount < lockThreshold;
+  const isPastPlan =
+    plan.status === "done" ||
+    plan.status === "cancelled" ||
+    plan.startsAt < now;
+  const isClosedPlan = isPastPlan || isLapsed;
+  const variant = getPlanVariant(
+    {
+      ...plan,
+      inCount: currentInCount,
+      lockThreshold,
+    },
+    now,
+  );
+  const receiptEventRows = variant === "receipt" ? plan.events : [];
+
+  // Surface multi-venue voting only while the plan is still active and has
+  // more than one option. After lock/lapse/past, the canonical plan location
+  // is what matters; voting cards hide.
+  const showVenueVote =
+    !isClosedPlan && plan.status === "active" && initialVenues.length > 1;
+  const showProposals =
+    !isClosedPlan && plan.status === "active" && plan.timeMode === "exact";
+  const isLiveTicker = !isOpenTime && variant === "live-ticker";
+  const canSuggestAddOn =
+    !isClosedPlan &&
+    canParticipate &&
+    plan.status === "active" &&
+    plan.timeMode === "exact";
+
+  const showVotes = !isClosedPlan && plan.status === "active";
 
   const additionsForTicker: LiveTickerAddition[] = additionRows.map((r) => ({
     id: r.id,
@@ -489,7 +501,7 @@ export default async function PlanDetailPage({
     }),
   );
   const canVoteOnAdditions =
-    !isPastPlan &&
+    !isClosedPlan &&
     canParticipate &&
     (plan.status === "active" || plan.status === "confirmed");
 
@@ -638,7 +650,7 @@ export default async function PlanDetailPage({
             decision-skin chrome regardless of variant since the live ticker
             assumes an exact time. Receipt + live-ticker render compact
             self-contained cards; decision falls back to the M16 stack. */}
-        {isOpenTime ? (
+        {isOpenTime && !isLapsed ? (
           <>
             <TimeHeatmap
               planId={plan.id}
@@ -742,7 +754,11 @@ export default async function PlanDetailPage({
             recipientCount={recipientIds.length || memberCount}
             inCount={currentInCount}
             status={
-              plan.status === "active" ? "confirmed" : plan.status
+              isLapsed
+                ? "lapsed"
+                : plan.status === "active"
+                  ? "confirmed"
+                  : plan.status
             }
             isPast={isPastPlan}
             additions={additionsForTicker.map((a) => ({
@@ -854,7 +870,7 @@ export default async function PlanDetailPage({
           recipientIds={recipientIds}
           isAll={isAllRecipients}
           canAdd={canMutateStatus}
-          isPlanActive={plan.status === "active"}
+          isPlanActive={plan.status === "active" && !isLapsed}
         />
 
         <section
@@ -874,7 +890,7 @@ export default async function PlanDetailPage({
           </Suspense>
         </section>
       </main>
-      {canMutateStatus && plan.status === "active" && !isLiveTicker ? (
+      {canMutateStatus && plan.status === "active" && !isLiveTicker && !isLapsed ? (
         <PlanCreatorActionBar
           planId={plan.id}
           status={plan.status}
