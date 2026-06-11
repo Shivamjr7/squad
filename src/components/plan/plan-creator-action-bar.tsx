@@ -116,7 +116,7 @@ export function PlanCreatorActionBar({
               Lock {planTitle} in for {planTimeLabel}?
             </DialogTitle>
             <DialogDescription>
-              Locks the plan in. Voting stays open so anyone can still join.
+              Locks the plan in. After lock, people can only drop out.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -168,4 +168,3 @@ export function PlanCreatorActionBar({
     </>
   );
 }
-

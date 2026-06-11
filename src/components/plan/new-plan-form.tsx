@@ -114,6 +114,15 @@ function decideBySubhead(
   computed: Date | null,
   now: Date,
 ): string {
+  if (preset !== "none" && computed) {
+    const diffMin = Math.max(1, Math.round((computed.getTime() - now.getTime()) / 60_000));
+    if (diffMin < 60) {
+      return `The squad has ${diffMin} minute${diffMin === 1 ? "" : "s"} to decide.`;
+    }
+    const hours = Math.max(1, Math.round(diffMin / 60));
+    return `The squad has ${hours} hour${hours === 1 ? "" : "s"} to decide.`;
+  }
+
   switch (preset) {
     case "1h":
       return "The squad has 1 hour to decide.";
@@ -136,8 +145,8 @@ function decideBySubhead(
 }
 
 // Resolve a decide-by preset to a concrete Date relative to startsAt + now.
-// Returns null when the preset is "none" or when the computed value would
-// be at/after the start time (server validation rejects that anyway).
+// If the requested window does not fit before an imminent plan, fall back to
+// the midpoint between now and the start so "deciding" plans still lapse.
 function computeDecideBy(
   preset: DecideByPreset,
   startsAt: Date | null,
@@ -169,8 +178,12 @@ function computeDecideBy(
       break;
     }
   }
-  if (candidate.getTime() <= now.getTime()) return null;
   if (candidate.getTime() >= startsAt.getTime()) return null;
+  if (candidate.getTime() <= now.getTime()) {
+    const remainingMs = startsAt.getTime() - now.getTime();
+    if (remainingMs <= 60_000) return null;
+    return new Date(now.getTime() + Math.max(60_000, Math.floor(remainingMs / 2)));
+  }
   return candidate;
 }
 

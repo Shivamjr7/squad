@@ -115,6 +115,49 @@ export function FeedVoteAction({
   return <VoteButtons selected={ownVote} onChange={onChange} size="default" />;
 }
 
+export function LockedDropOutAction({
+  planId,
+  initialVote,
+}: {
+  planId: string;
+  initialVote: VoteStatus | null;
+}) {
+  const [ownVote, setOwnVote] = useState<VoteStatus | null>(initialVote);
+  const [isPending, startTransition] = useTransition();
+
+  if (ownVote === "out") {
+    return (
+      <p className="text-xs font-medium text-ink-muted">
+        Locked. You&rsquo;re out.
+      </p>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={isPending}
+      onClick={() => {
+        startTransition(async () => {
+          const previous = ownVote;
+          setOwnVote("out");
+          try {
+            await castVote({ planId, status: "out" });
+          } catch (err) {
+            setOwnVote(previous);
+            const message =
+              err instanceof Error ? err.message : "Couldn't drop out.";
+            toast.error(message, { description: "Tap to retry." });
+          }
+        });
+      }}
+      className="inline-flex w-fit items-center rounded-full bg-out-soft px-3 py-1.5 text-xs font-semibold text-out-strong transition-colors hover:bg-out-soft/80 disabled:opacity-60"
+    >
+      Drop out
+    </button>
+  );
+}
+
 const VOTE_LABEL: Record<VoteStatus, string> = {
   in: "In",
   maybe: "Maybe",

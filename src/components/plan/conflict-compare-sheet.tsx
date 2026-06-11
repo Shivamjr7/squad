@@ -285,6 +285,32 @@ function CardActions({
     );
   }
 
+  if (side.status === "confirmed") {
+    return (
+      <div className="mt-0.5 grid grid-cols-1 gap-2">
+        {side.myVote !== "out" ? (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setVote("out")}
+            className="h-9 rounded-2xl bg-out-soft px-3 text-[12px] font-bold text-out transition-colors hover:bg-out-soft/80 disabled:opacity-60"
+          >
+            Drop out
+          </button>
+        ) : (
+          <p className="text-[11px] text-ink-muted">Locked. You&rsquo;re out.</p>
+        )}
+        <Link
+          href={`/c/${side.circleSlug}/p/${side.planId}`}
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-2xl border border-ink/10 bg-paper-card px-3 text-[12px] font-bold text-ink-muted transition-colors hover:text-ink"
+        >
+          Open details
+          <ExternalLink className="size-3" aria-hidden />
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-0.5 grid grid-cols-2 gap-2">
       {side.myVote !== "maybe" ? (

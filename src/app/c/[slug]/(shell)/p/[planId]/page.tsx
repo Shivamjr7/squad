@@ -459,7 +459,7 @@ export default async function PlanDetailPage({
     plan.status === "active" &&
     plan.timeMode === "exact";
 
-  const showVotes = !isPastPlan && (plan.status === "active" || plan.status === "confirmed");
+  const showVotes = !isPastPlan && plan.status === "active";
   const memberCount = memberRows.length;
   // Clamp the M22 threshold down to the eligible voter pool so a plan in
   // a 4-person squad doesn't display the unreachable default of 5+ ins.
@@ -739,7 +739,7 @@ export default async function PlanDetailPage({
             timeZone={plan.timeZone}
             location={plan.location}
             circleSlug={circle.slug}
-            recipientCount={recipientIds.length}
+            recipientCount={recipientIds.length || memberCount}
             inCount={currentInCount}
             status={
               plan.status === "active" ? "confirmed" : plan.status

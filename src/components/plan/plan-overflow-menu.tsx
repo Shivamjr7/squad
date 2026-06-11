@@ -144,8 +144,8 @@ export function PlanOverflowMenu({
               Confirm {planTitle} for {planTimeLabel}?
             </DialogTitle>
             <DialogDescription>
-              Friends will see it locked in. Voting stays open — anyone can
-              still join after.
+              Friends will see it locked in. After lock, people can only drop
+              out.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
