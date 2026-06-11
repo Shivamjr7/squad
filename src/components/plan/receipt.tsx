@@ -76,7 +76,7 @@ type Props = {
   circleSlug?: string;
   recipientCount: number;
   inCount: number; // server-rendered seed for "RVD x of y"
-  status: "confirmed" | "done" | "cancelled";
+  status: "confirmed" | "done" | "cancelled" | "lapsed";
   // Fix 3 — when true, the vote buttons are replaced with a muted
   // "You were In/Maybe/Out" label (or hidden if the user never voted).
   // Past plans never offer vote changes.
@@ -171,8 +171,14 @@ export function Receipt({
   const timeLabel = formatShortTime(startsAt, timeZone);
   const afterRow = additions[0] ?? null;
   const shortId = shortReceiptId(planId);
-  const showStamp = status === "confirmed" || status === "cancelled";
-  const stampLabel = status === "cancelled" ? "CANCELLED" : "LOCKED";
+  const showStamp =
+    status === "confirmed" || status === "cancelled" || status === "lapsed";
+  const stampLabel =
+    status === "cancelled"
+      ? "CANCELLED"
+      : status === "lapsed"
+        ? "LAPSED"
+        : "LOCKED";
 
   // Lock-moment "print-in" — fires once per (plan × tab session) when the
   // user lands on a freshly-confirmed plan. Guarded by sessionStorage so
@@ -213,7 +219,7 @@ export function Receipt({
             aria-label={`Plan ${stampLabel.toLowerCase()}`}
             className={
               "select-none rounded-md border-2 border-dashed px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] " +
-              (status === "cancelled"
+              (status === "cancelled" || status === "lapsed"
                 ? "border-out text-out"
                 : "border-in-strong text-in-strong")
             }
@@ -275,8 +281,8 @@ export function Receipt({
             Confirmed (locked) plans replace the In/Maybe/Out trio with a
             single drop-out action for anyone not already out. The plan
             stays locked; post-lock votes can only reduce commitment.
-            Active is never reached here since the page renders the
-            live-ticker, not the receipt, for active plans. */}
+            Lapsed plans are active in storage but closed in the product:
+            no new commitment after the decide-by time passes. */}
         {isPast ? (
           ownVote ? (
             <p className="no-print text-center text-xs text-ink-muted">
@@ -284,7 +290,11 @@ export function Receipt({
               <span className="font-semibold capitalize">{ownVote}</span>.
             </p>
           ) : null
-        ) : status === "cancelled" ? null : status === "confirmed" ? (
+        ) : status === "cancelled" ? null : status === "lapsed" ? (
+          <p className="no-print text-center text-xs text-ink-muted">
+            Decide-by passed before the plan locked.
+          </p>
+        ) : status === "confirmed" ? (
           ownVote !== "out" ? (
             <DropOutLink
               planTitle={planTitle}
@@ -443,9 +453,10 @@ function ReceiptRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function statusLabel(s: "confirmed" | "done" | "cancelled"): string {
+function statusLabel(s: "confirmed" | "done" | "cancelled" | "lapsed"): string {
   if (s === "confirmed") return "Locked";
   if (s === "done") return "Done";
+  if (s === "lapsed") return "Lapsed";
   return "Cancelled";
 }
 

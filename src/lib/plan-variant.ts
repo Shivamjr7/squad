@@ -19,6 +19,8 @@ export function getPlanVariant(
   plan: {
     status: "active" | "confirmed" | "done" | "cancelled";
     decideBy: Date | null;
+    inCount?: number;
+    lockThreshold?: number;
   },
   now: Date,
 ): PlanVariant {
@@ -26,6 +28,14 @@ export function getPlanVariant(
     plan.status === "confirmed" ||
     plan.status === "done" ||
     plan.status === "cancelled"
+  ) {
+    return "receipt";
+  }
+  if (
+    plan.status === "active" &&
+    plan.decideBy &&
+    plan.decideBy.getTime() <= now.getTime() &&
+    (plan.inCount ?? 0) < (plan.lockThreshold ?? Number.POSITIVE_INFINITY)
   ) {
     return "receipt";
   }

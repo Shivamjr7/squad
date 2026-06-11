@@ -13,6 +13,7 @@ export type EffectiveStatus =
   | "deciding"
   | "voting"
   | "locked"
+  | "lapsed"
   | "past"
   | "cancelled";
 
@@ -20,6 +21,9 @@ export function getEffectiveStatus(
   plan: {
     status: RawStatus;
     startsAt: Date;
+    decideBy?: Date | null;
+    inCount?: number;
+    lockThreshold?: number;
     timeMode?: "exact" | "open";
     venueOptionCount?: number;
   },
@@ -29,6 +33,13 @@ export function getEffectiveStatus(
   if (plan.status === "done") return "past";
   if (plan.startsAt.getTime() < now.getTime()) return "past";
   if (plan.status === "confirmed") return "locked";
+  if (
+    plan.decideBy &&
+    plan.decideBy.getTime() <= now.getTime() &&
+    (plan.inCount ?? 0) < (plan.lockThreshold ?? Number.POSITIVE_INFINITY)
+  ) {
+    return "lapsed";
+  }
   // active — distinguish voting (multi-venue or open-time) from deciding
   if (
     (plan.venueOptionCount ?? 0) >= 2 ||

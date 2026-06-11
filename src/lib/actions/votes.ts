@@ -26,7 +26,7 @@ import {
 } from "@/lib/notifications";
 import { emitBroadcast, RT, RT_EVENT } from "@/lib/realtime/server";
 import { takeToken, RATE } from "@/lib/rate-limit";
-import { canCastPlanVote, removeVoteMode } from "@/lib/vote-policy";
+import { canCastPlanVote, isPlanLapsed, removeVoteMode } from "@/lib/vote-policy";
 
 export async function castVote(
   input: CastVoteInput,
@@ -46,6 +46,7 @@ export async function castVote(
       status: true,
       title: true,
       startsAt: true,
+      decideBy: true,
       timeZone: true,
       timeMode: true,
     },
@@ -72,6 +73,10 @@ export async function castVote(
       planStatus: plan.status,
       previousVote,
       nextVote: data.status,
+      isLapsed: isPlanLapsed({
+        planStatus: plan.status,
+        decideBy: plan.decideBy,
+      }),
     })
   ) {
     throw new ActionError("INVALID", votePolicyMessage(plan.status));
@@ -254,7 +259,7 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
   const data = parsed.data;
 
   const plan = await db.query.plans.findFirst({
-    columns: { circleId: true, status: true },
+    columns: { circleId: true, status: true, decideBy: true },
     where: eq(plans.id, data.planId),
   });
   if (!plan) {
@@ -274,7 +279,10 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
     .limit(1);
   const previousVote = existing[0]?.status ?? null;
 
-  const mode = removeVoteMode(plan.status);
+  const mode = removeVoteMode(
+    plan.status,
+    isPlanLapsed({ planStatus: plan.status, decideBy: plan.decideBy }),
+  );
   if (mode === "blocked") {
     throw new ActionError("INVALID", votePolicyMessage(plan.status));
   }
@@ -333,6 +341,9 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
 }
 
 function votePolicyMessage(status: "active" | "confirmed" | "done" | "cancelled"): string {
+  if (status === "active") {
+    return "This plan has lapsed.";
+  }
   if (status === "confirmed") {
     return "This plan is locked. You can only drop out now.";
   }

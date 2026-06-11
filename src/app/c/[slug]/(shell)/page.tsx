@@ -41,6 +41,7 @@ import {
   type VotersByPlan,
 } from "@/lib/realtime/use-circle-votes";
 import { LocalGreeting } from "@/components/home/local-greeting";
+import { getEffectiveStatus } from "@/lib/effective-status";
 
 const DATE_ROW_FMT = new Intl.DateTimeFormat("en-US", {
   weekday: "short",
@@ -170,6 +171,28 @@ export default async function CircleHomePage({
     },
   });
 
+  const currentInCountByPlan = new Map<string, number>();
+  const effectiveStatusByPlan = new Map<string, ReturnType<typeof getEffectiveStatus>>();
+  for (const p of upcomingRaw) {
+    const inCount = p.votes.filter((v) => v.status === "in").length;
+    currentInCountByPlan.set(p.id, inCount);
+    effectiveStatusByPlan.set(
+      p.id,
+      getEffectiveStatus(
+        {
+          status: p.status,
+          startsAt: p.startsAt,
+          decideBy: p.decideBy,
+          inCount,
+          lockThreshold: p.lockThreshold,
+          timeMode: p.timeMode,
+          venueOptionCount: p.venues.length,
+        },
+        now,
+      ),
+    );
+  }
+
   // Re-order upcoming so the cards that demand action surface first.
   // Priority key (lower = higher priority):
   //   0 — vote still open + you haven't said
@@ -179,6 +202,7 @@ export default async function CircleHomePage({
   // Within each bucket: earliest startsAt first.
   function attentionRank(p: (typeof upcomingRaw)[number]): number {
     if (p.status === "cancelled") return 4;
+    if (effectiveStatusByPlan.get(p.id) === "lapsed") return 4;
     const voted = p.votes.some((v) => v.userId === userId);
     if (p.status === "active") return voted ? 1 : 0;
     return voted ? 3 : 2;
@@ -240,7 +264,11 @@ export default async function CircleHomePage({
   // The hero is for a plan that still needs a decision. Locked plans remain
   // useful on home, but they belong in the compact "This week" list rather
   // than occupying the primary voting surface.
-  const featured = upcoming.find((p) => p.status === "active") ?? null;
+  const featured =
+    upcoming.find((p) => {
+      const effectiveStatus = effectiveStatusByPlan.get(p.id);
+      return effectiveStatus === "deciding" || effectiveStatus === "voting";
+    }) ?? null;
   const restUpcoming = featured
     ? upcoming.filter((p) => p.id !== featured.id)
     : upcoming;
@@ -381,10 +409,18 @@ export default async function CircleHomePage({
                     isApproximate: p.isApproximate,
                     location: p.location,
                     status: p.status,
+                    effectiveStatus:
+                      effectiveStatusByPlan.get(p.id) ?? "deciding",
                     venueSummary: venueSummaries.get(p.id) ?? null,
                   }))}
                   deckPlans={upcoming
-                    .filter((p) => p.status !== "cancelled")
+                    .filter((p) => {
+                      const effectiveStatus = effectiveStatusByPlan.get(p.id);
+                      return (
+                        p.status !== "cancelled" &&
+                        effectiveStatus !== "lapsed"
+                      );
+                    })
                     .map<HomeDeckPlan>((p) => ({
                       id: p.id,
                       title: p.title,
