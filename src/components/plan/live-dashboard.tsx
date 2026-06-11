@@ -278,9 +278,9 @@ export function LiveDashboard({
             <div className="min-w-0 flex-1">
               <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-coral">
                 {countdown?.expired
-                  ? "Locking now"
+                  ? "Decision time"
                   : decideBy
-                    ? "Locks in"
+                    ? "Decide by"
                     : "Open"}
               </span>
               {countdown && !countdown.expired ? (
@@ -309,7 +309,7 @@ export function LiveDashboard({
                 <b className="font-semibold text-ink">{lockThreshold} in</b>
                 {decideBy ? (
                   <>
-                    {" "}by{" "}
+                    . Decide by{" "}
                     <b className="font-semibold text-ink">
                       {shortHourMinute(decideBy, timeZone)}
                     </b>
@@ -370,8 +370,8 @@ export function LiveDashboard({
               value={time}
               sub={
                 shiftedFromTime
-                  ? `was ${shortHourMinute(shiftedFromTime, timeZone).toLowerCase()}`
-                  : null
+                  ? `${dateLabel} · was ${shortHourMinute(shiftedFromTime, timeZone).toLowerCase()}`
+                  : dateLabel
               }
             />
             <MetaCell

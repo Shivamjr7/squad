@@ -273,9 +273,8 @@ export function Receipt({
             communicates the state and a "drop out" affordance on a
             cancelled plan would be incoherent.
             Confirmed (locked) plans replace the In/Maybe/Out trio with a
-            quiet "I can't make it anymore" link for the user who's
-            currently in — preserves the drop-out path without showing
-            the trio when the decision is settled.
+            single drop-out action for anyone not already out. The plan
+            stays locked; post-lock votes can only reduce commitment.
             Active is never reached here since the page renders the
             live-ticker, not the receipt, for active plans. */}
         {isPast ? (
@@ -286,12 +285,16 @@ export function Receipt({
             </p>
           ) : null
         ) : status === "cancelled" ? null : status === "confirmed" ? (
-          ownVote === "in" ? (
+          ownVote !== "out" ? (
             <DropOutLink
               planTitle={planTitle}
               onConfirm={() => onVote("out")}
             />
-          ) : null
+          ) : (
+            <p className="no-print text-center text-xs text-ink-muted">
+              Locked. You&rsquo;re out.
+            </p>
+          )
         ) : (
           <div className="no-print">
             <VoteButtons selected={ownVote} onChange={onVote} size="default" />
@@ -303,9 +306,9 @@ export function Receipt({
 }
 
 // Drop-out link shown beneath the RSVP eyebrow on locked plans. Hidden
-// for users who aren't currently "in" (nothing to drop) and on cancelled
-// plans (the stamp speaks for itself). Confirms before firing so a stray
-// tap doesn't bail on the squad.
+// for users who are already out and on cancelled plans (the stamp speaks
+// for itself). Confirms before firing so a stray tap doesn't bail on the
+// squad.
 function DropOutLink({
   planTitle,
   onConfirm,
@@ -320,9 +323,9 @@ function DropOutLink({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="text-xs text-ink-muted underline-offset-2 hover:text-out-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+          className="text-xs font-semibold text-out-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
         >
-          I can&rsquo;t make it anymore
+          Drop out
         </button>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>

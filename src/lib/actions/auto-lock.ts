@@ -20,6 +20,7 @@ import {
 } from "@/lib/actions/conflict-notify";
 import { resolvePlanAudience } from "@/lib/notifications";
 import { dispatchPlanLockedNotification } from "@/lib/actions/plan-lock-notifications";
+import { canAutoLockFromInCount } from "@/lib/vote-policy";
 
 // Auto-lock. The plan flips to `confirmed` when `votes` with status='in'
 // reach plans.lock_threshold AND a single time proposal AND a single venue
@@ -91,7 +92,7 @@ export async function tryAutoLock(
       .from(votes)
       .where(and(eq(votes.planId, planId), eq(votes.status, "in")));
     const inCount = Number(row?.n ?? 0);
-    if (inCount < plan.lockThreshold) {
+    if (!canAutoLockFromInCount({ inCount, lockThreshold: plan.lockThreshold })) {
       return {
         locked: false,
         lockedNow: false,

@@ -118,7 +118,7 @@ export function LiveTicker({
   const remainingLabel = useMemo(() => {
     if (!decideBy) return null;
     const ms = decideBy.getTime() - (serverNow.getTime() + tick * 10_000);
-    if (ms <= 0) return "Locking now";
+    if (ms <= 0) return "Decision time";
     const totalSec = Math.floor(ms / 1000);
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
@@ -180,7 +180,7 @@ export function LiveTicker({
               aria-hidden
               className="size-1.5 animate-pulse rounded-full bg-coral"
             />
-            Lock · {remainingLabel}
+            Decide · {remainingLabel}
           </span>
         ) : (
           <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/60">

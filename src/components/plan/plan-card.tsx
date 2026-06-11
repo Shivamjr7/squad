@@ -42,7 +42,7 @@ export function PlanCard({
   // plan whose startsAt has slipped past until pg_cron flips it.
   const past = isPastPlan(plan, now);
   const showVotes =
-    !hideVotes && !past && (plan.status === "active" || plan.status === "confirmed");
+    !hideVotes && !past && plan.status === "active";
 
   return (
     <article

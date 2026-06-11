@@ -77,7 +77,11 @@ export function PlansSwipeDeck({
   // Realtime caught up with the user's own vote — we want the deck order
   // to be stable for the session.
   const [deck] = useState<DeckPlan[]>(() =>
-    plans.filter((p) => !hasVote(voters[p.id], currentUser.id)),
+    plans.filter(
+      (p) =>
+        p.status === "active" &&
+        !hasVote(voters[p.id], currentUser.id),
+    ),
   );
 
   const [index, setIndex] = useState(0);

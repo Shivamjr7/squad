@@ -26,6 +26,7 @@ import {
 } from "@/lib/notifications";
 import { emitBroadcast, RT, RT_EVENT } from "@/lib/realtime/server";
 import { takeToken, RATE } from "@/lib/rate-limit";
+import { canCastPlanVote, removeVoteMode } from "@/lib/vote-policy";
 
 export async function castVote(
   input: CastVoteInput,
@@ -53,21 +54,6 @@ export async function castVote(
   if (!plan) {
     throw new ActionError("NOT_FOUND", "Plan not found.");
   }
-  // Vote-changes are accepted while the plan is active (the normal path)
-  // AND after it locks ("confirmed"). The original design always intended
-  // post-lock drop-outs — Receipt header note: "Even after lock, voters
-  // can drop". done/cancelled remain frozen: their state is terminal and
-  // letting votes mutate would desync notifications, conflict ledgers,
-  // and the receipt audit trail.
-  if (plan.status !== "active" && plan.status !== "confirmed") {
-    throw new ActionError(
-      "INVALID",
-      plan.status === "cancelled"
-        ? "This plan was cancelled."
-        : "This plan is done.",
-    );
-  }
-
   const { userId } = await requireMembership(plan.circleId);
   await requirePlanRecipient(data.planId, userId);
   await takeToken({ action: "vote", key: userId, ...RATE.vote });
@@ -80,6 +66,16 @@ export async function castVote(
     .where(and(eq(votes.planId, data.planId), eq(votes.userId, userId)))
     .limit(1);
   const previousVote = existing[0]?.status ?? null;
+
+  if (
+    !canCastPlanVote({
+      planStatus: plan.status,
+      previousVote,
+      nextVote: data.status,
+    })
+  ) {
+    throw new ActionError("INVALID", votePolicyMessage(plan.status));
+  }
 
   const votedAt = new Date();
   await db
@@ -258,7 +254,7 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
   const data = parsed.data;
 
   const plan = await db.query.plans.findFirst({
-    columns: { circleId: true },
+    columns: { circleId: true, status: true },
     where: eq(plans.id, data.planId),
   });
   if (!plan) {
@@ -266,6 +262,7 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
   }
 
   const { userId } = await requireMembership(plan.circleId);
+  await requirePlanRecipient(data.planId, userId);
 
   // Capture the prior vote so we know whether to resolve conflicts (only
   // matters when the removed vote was IN — anything else can't have
@@ -277,15 +274,44 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
     .limit(1);
   const previousVote = existing[0]?.status ?? null;
 
-  await db
-    .delete(votes)
-    .where(and(eq(votes.planId, data.planId), eq(votes.userId, userId)));
+  const mode = removeVoteMode(plan.status);
+  if (mode === "blocked") {
+    throw new ActionError("INVALID", votePolicyMessage(plan.status));
+  }
 
-  void emitBroadcast(RT.votes(data.planId), RT_EVENT.voteChanged, {
-    op: "delete",
-    planId: data.planId,
-    userId,
-  });
+  if (mode === "mark-out") {
+    const votedAt = new Date();
+    await db
+      .insert(votes)
+      .values({
+        planId: data.planId,
+        userId,
+        status: "out",
+        votedAt,
+      })
+      .onConflictDoUpdate({
+        target: [votes.planId, votes.userId],
+        set: { status: "out", votedAt },
+      });
+
+    void emitBroadcast(RT.votes(data.planId), RT_EVENT.voteChanged, {
+      op: "upsert",
+      planId: data.planId,
+      userId,
+      status: "out",
+      votedAt: votedAt.toISOString(),
+    });
+  } else {
+    await db
+      .delete(votes)
+      .where(and(eq(votes.planId, data.planId), eq(votes.userId, userId)));
+
+    void emitBroadcast(RT.votes(data.planId), RT_EVENT.voteChanged, {
+      op: "delete",
+      planId: data.planId,
+      userId,
+    });
+  }
 
   // Same router-cache bust as castVote — removing a vote also flips the
   // "needs your vote" signal on the cross-circle home + per-circle Plans
@@ -304,4 +330,12 @@ export async function removeVote(input: RemoveVoteInput): Promise<void> {
       console.error("[votes.removeVote] conflict resolve failed", err);
     });
   }
+}
+
+function votePolicyMessage(status: "active" | "confirmed" | "done" | "cancelled"): string {
+  if (status === "confirmed") {
+    return "This plan is locked. You can only drop out now.";
+  }
+  if (status === "cancelled") return "This plan was cancelled.";
+  return "This plan is done.";
 }

@@ -6,7 +6,7 @@ import {
   formatRelativePastTime,
   formatRelativePlanTime,
 } from "@/lib/format-relative-time";
-import { FeedVoteAction } from "./feed-vote-action";
+import { FeedVoteAction, LockedDropOutAction } from "./feed-vote-action";
 import { Pill, type PillTone } from "@/components/ui/pill";
 import type { VoteStatus } from "@/lib/validation/vote";
 
@@ -211,9 +211,8 @@ export function FeedPlanCard({
           </p>
         ) : null}
 
-        {/* Vote action — Plans tab only. Locked plans skip this too: the
-            decision is made, vote-changing UX is hidden to avoid post-lock
-            churn (users can still flip via the plan detail page). */}
+        {/* Vote action — Plans tab only. Locked plans expose only the
+            one-way drop-out path; active plans keep the full trio. */}
         {showVoteActions && !isPast && !isLocked ? (
           <div className="pt-1">
             <FeedVoteAction
@@ -225,6 +224,13 @@ export function FeedPlanCard({
                 circleSlug: plan.circle.slug,
                 timeZone: plan.timeZone,
               }}
+            />
+          </div>
+        ) : showVoteActions && isLocked ? (
+          <div className="pt-1">
+            <LockedDropOutAction
+              planId={plan.id}
+              initialVote={plan.myVote}
             />
           </div>
         ) : null}
